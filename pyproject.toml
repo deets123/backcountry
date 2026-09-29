@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Generate multi-day backpacking routes from real trail geometry."
 requires-python = ">=3.11"
 dependencies = [
+    "certifi>=2026.7.22",
     "folium>=0.17",
     "networkx>=3.2",
     "pyproj>=3.6",
