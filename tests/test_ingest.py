@@ -92,3 +92,41 @@ def test_fetch_refresh_requeries(tmp_path):
 def test_load_raw_without_cache_explains_how_to_fetch(tmp_path):
     with pytest.raises(FileNotFoundError, match="backcountry ingest"):
         ingest.load_raw(REGION, raw_dir=tmp_path)
+
+
+def _fake_usfs(calls, exceeded=False):
+    def fetch(url):
+        calls.append(url)
+        fc = {"type": "FeatureCollection", "features": []}
+        if exceeded:
+            fc["properties"] = {"exceededTransferLimit": True}
+        return fc
+
+    return fetch
+
+
+def test_usfs_query_url_uses_bbox_envelope_and_geojson():
+    url = ingest.usfs_query_url("EDW_X/MapServer/0", "a,b", REGION.bbox)
+    assert url.startswith(ingest.USFS_BASE + "/EDW_X/MapServer/0/query?")
+    assert "geometry=2.0%2C1.0%2C4.0%2C3.0" in url  # west,south,east,north
+    assert "f=geojson" in url and "outSR=4326" in url and "outFields=a%2Cb" in url
+
+
+def test_fetch_usfs_caches_all_layers_once(tmp_path):
+    calls = []
+    path = ingest.fetch_usfs(REGION, raw_dir=tmp_path, fetcher=_fake_usfs(calls))
+    doc = json.loads(path.read_text())
+    assert set(doc["layers"]) == set(ingest.USFS_LAYERS)
+    assert doc["retrieved_at"].endswith("Z") and "public domain" in doc["attribution"]
+    assert ingest.fetch_usfs(REGION, raw_dir=tmp_path, fetcher=_fake_usfs(calls)) == path
+    assert len(calls) == len(ingest.USFS_LAYERS)
+    assert ingest.load_usfs(REGION, raw_dir=tmp_path)["retrieved_at"] == doc["retrieved_at"]
+
+
+def test_fetch_usfs_refuses_truncated_results(tmp_path):
+    with pytest.raises(RuntimeError, match="truncated"):
+        ingest.fetch_usfs(REGION, raw_dir=tmp_path, fetcher=_fake_usfs([], exceeded=True))
+
+
+def test_load_usfs_is_none_without_cache(tmp_path):
+    assert ingest.load_usfs(REGION, raw_dir=tmp_path) is None

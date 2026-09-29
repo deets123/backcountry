@@ -55,3 +55,31 @@ def test_inverted_bbox_is_rejected(tmp_path):
     )
     with pytest.raises(ValueError, match="bbox"):
         load_region("x", regions_dir=tmp_path)
+
+
+def test_dolly_sods_has_usfs_crosscheck():
+    assert load_region("dolly_sods").usfs_crosscheck is True
+
+
+def _region_with_trailheads(tmp_path, trailheads):
+    (tmp_path / "x.yaml").write_text(yaml.safe_dump({
+        "id": "x", "name": "X", "crs": "EPSG:32617",
+        "bbox": {"south": 0.0, "west": 0.0, "north": 1.0, "east": 1.0},
+        "trailheads": trailheads,
+    }))
+    return load_region("x", regions_dir=tmp_path)
+
+
+def test_trailhead_by_graph_node_needs_no_coordinates(tmp_path):
+    region = _region_with_trailheads(tmp_path, [{"id": "a", "name": "A", "node": 123, "verified": False}])
+    assert region.trailheads[0]["node"] == 123
+
+
+def test_trailhead_needs_a_node_or_verified_coordinates(tmp_path):
+    with pytest.raises(ValueError, match="node"):
+        _region_with_trailheads(tmp_path, [{"id": "a", "name": "A"}])
+
+
+def test_trailhead_ids_are_unique(tmp_path):
+    with pytest.raises(ValueError, match="duplicate"):
+        _region_with_trailheads(tmp_path, [{"id": "a", "name": "A", "node": 1}, {"id": "a", "name": "B", "node": 2}])

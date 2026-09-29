@@ -31,6 +31,7 @@ class Region:
     crs: str
     bbox: BBox
     boundary_name_regex: str | None = None
+    usfs_crosscheck: bool = False
     trailheads: list[dict] = field(default_factory=list)
 
 
@@ -45,12 +46,20 @@ def load_region(region_id: str, regions_dir: Path | None = None) -> Region:
         raise ValueError(f"{path.name}: bbox must have south < north and west < east, got {bbox}")
 
     trailheads = data.get("trailheads") or []
+    seen = set()
     for th in trailheads:
+        if th.get("id") in seen:
+            raise ValueError(f"{path.name}: duplicate trailhead id {th.get('id')!r}")
+        seen.add(th.get("id"))
+        has_coords = "lat" in th or "lon" in th
         # CLAUDE.md rule 5: no real-world coordinates unless the user verified them.
-        if ("lat" in th or "lon" in th) and th.get("verified") is not True:
+        if has_coords and th.get("verified") is not True:
             raise ValueError(
                 f"{path.name}: trailhead {th.get('id')!r} has coordinates but is not marked verified: true"
             )
+        # Otherwise the location comes from source data: a graph node (OSM node id).
+        if not has_coords and not isinstance(th.get("node"), int):
+            raise ValueError(f"{path.name}: trailhead {th.get('id')!r} needs an integer graph `node` (OSM node id)")
 
     return Region(
         id=data["id"],
@@ -58,5 +67,6 @@ def load_region(region_id: str, regions_dir: Path | None = None) -> Region:
         crs=data["crs"],
         bbox=bbox,
         boundary_name_regex=data.get("boundary_name_regex"),
+        usfs_crosscheck=bool(data.get("usfs_crosscheck", False)),
         trailheads=trailheads,
     )

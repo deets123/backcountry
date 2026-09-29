@@ -13,12 +13,20 @@ from pathlib import Path
 import folium
 from shapely.geometry import mapping
 
-from backcountry.ingest import OSM_ATTRIBUTION, ROAD_HIGHWAYS, TRAIL_HIGHWAYS
+from backcountry.ingest import OSM_ATTRIBUTION, ROAD_HIGHWAYS, TRAIL_HIGHWAYS, USFS_ATTRIBUTION
 
 M_PER_MI = 1609.344
 FT_PER_M = 3.28084
 USGS_TOPO = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}"
 MAIN_COLOR = "#1f4fd1"
+USFS_TRAIL_COLOR = "#ffc400"
+USFS_ROAD_COLOR = "#8d5524"
+USFS_TH_COLOR = "#00695c"
+GAP_COLOR = "#ff00c8"
+DEAD_END_COLOR = "#e08000"
+MISSING_JUNCTION_COLOR = "#d00000"
+OSM_BOUNDARY_COLOR = "#2e7d32"
+USFS_BOUNDARY_COLOR = "#00897b"
 PALETTE = ["#e6194b", "#2e9e44", "#f58231", "#911eb4", "#0fa3a3", "#d6249f", "#8a9a00", "#9a6324", "#800000",
            "#4b6b00", "#000075", "#c47a00"]
 
@@ -76,12 +84,13 @@ def write_graph_geojson(tg, node_component: dict, out_dir: Path) -> dict[str, Pa
 # --- QA outputs ---------------------------------------------------------------
 
 
-def write_qa_outputs(summary: dict, tg, raw: dict, region, out_dir: Path, coverage: list[dict]) -> dict[str, Path]:
+def write_qa_outputs(summary: dict, tg, raw: dict, region, out_dir: Path, coverage: list[dict],
+                     verification: dict | None = None) -> dict[str, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = {"report": out_dir / "qa_report.md", "json": out_dir / "qa_report.json", "map": out_dir / "qa_map.html"}
     paths["report"].write_text(qa_markdown(summary, tg, raw, region, coverage))
     paths["json"].write_text(json.dumps(summary | {"bbox_coverage": coverage}, indent=1, default=str))
-    qa_map(summary, tg, raw, region).save(str(paths["map"]))
+    qa_map(summary, tg, raw, region, verification).save(str(paths["map"]))
     return paths
 
 
@@ -211,7 +220,7 @@ def qa_markdown(summary: dict, tg, raw: dict, region, coverage: list[dict]) -> s
     return "\n".join(L)
 
 
-def qa_map(summary: dict, tg, raw: dict, region) -> folium.Map:
+def qa_map(summary: dict, tg, raw: dict, region, verification: dict | None = None) -> folium.Map:
     G = tg.graph
     node_comp = summary["node_component"]
     comps = summary["components"]
@@ -255,16 +264,16 @@ def qa_map(summary: dict, tg, raw: dict, region) -> folium.Map:
                         tooltip=f"not routable: {r['highway']} {r['name'] or ''} {r['source']}").add_to(other)
     other.add_to(m)
 
-    dead = folium.FeatureGroup(name=f"Dead ends ({len(summary['dead_ends'])})")
+    dead = folium.FeatureGroup(name=f"Dead ends ({len(summary['dead_ends'])})", show=False)
     near = folium.FeatureGroup(name="Possible missing junctions")
     for d in summary["dead_ends"]:
         text = f"dead end osm:node/{d['node']} ({d['component']}) on {d['name'] or '(unnamed)'} {d['way']}"
         if d["note"]:
             text += f"<br>{d['note']}"
         if d["near_miss_m"] is not None:
-            folium.CircleMarker((d["lat"], d["lon"]), radius=9, color="#d00", weight=3, fill=False,
+            folium.CircleMarker((d["lat"], d["lon"]), radius=9, color=MISSING_JUNCTION_COLOR, weight=3, fill=False,
                                 tooltip=text).add_to(near)
-        folium.CircleMarker((d["lat"], d["lon"]), radius=4, color="#e08000", fill=True, fill_opacity=0.9,
+        folium.CircleMarker((d["lat"], d["lon"]), radius=4, color=DEAD_END_COLOR, fill=True, fill_opacity=0.9,
                             tooltip=text).add_to(dead)
     dead.add_to(m)
     near.add_to(m)
@@ -275,7 +284,7 @@ def qa_map(summary: dict, tg, raw: dict, region) -> folium.Map:
                             tooltip=f"short edge {e['source']} {e['name'] or ''}: {ft(e['length_m'])}").add_to(short)
     short.add_to(m)
 
-    boundary = folium.FeatureGroup(name="OSM boundary")
+    boundary = folium.FeatureGroup(name="OSM wilderness boundary")
     for e in raw["response"]["elements"]:
         if "boundary" not in e.get("tags", {}):
             continue
@@ -283,24 +292,232 @@ def qa_map(summary: dict, tg, raw: dict, region) -> folium.Map:
         parts += [e["geometry"]] if e["type"] == "way" else []
         for geom in parts:
             if geom:
-                folium.PolyLine([(g["lat"], g["lon"]) for g in geom if g], color="#2e7d32", weight=2,
+                folium.PolyLine([(g["lat"], g["lon"]) for g in geom if g], color=OSM_BOUNDARY_COLOR, weight=2,
                                 dash_array="6 4", tooltip=f"{e['tags'].get('name')} (osm:{e['type']}/{e['id']})").add_to(boundary)
     boundary.add_to(m)
     folium.Rectangle([(b.south, b.west), (b.north, b.east)], color="#000", weight=1, dash_array="2 4", fill=False,
                      tooltip=f"region bbox ({region.id})").add_to(m)
 
-    legend = f"""
-    <div style="position: fixed; bottom: 24px; left: 12px; z-index: 9999; background: rgba(255,255,255,0.92);
-                padding: 8px 10px; border: 1px solid #999; border-radius: 4px; font: 12px/1.5 sans-serif; max-width: 320px;">
-      <b>QA component map: {region.name}</b><br>
-      <span style="color:{MAIN_COLOR}">&#9644;&#9644;</span> C0 main network ({main_len})<br>
-      other colors: {len(comps) - 1} smaller components (hover for id)<br>
-      dashed line = road (<code>is_road</code>)<br>
-      <span style="color:#e08000">&#9679;</span> dead end &nbsp;
-      <span style="color:#d00">&#9711;</span> possible missing junction<br>
-      <span style="color:#2e7d32">- - -</span> OSM boundary &nbsp; <span>&middot;&middot;&middot;</span> region bbox<br>
-      <span style="color:#555">Data {OSM_ATTRIBUTION}; retrieved {summary['retrieved_at']}.</span>
-    </div>"""
-    m.get_root().html.add_child(folium.Element(legend))
+    if verification:
+        _usfs_layers(m, verification)
+    m.get_root().html.add_child(folium.Element(_legend(summary, region, verification, main_len, len(comps) - 1)))
     folium.LayerControl(collapsed=False).add_to(m)
     return m
+
+
+def _usfs_layers(m: folium.Map, v: dict) -> None:
+    disp = v["display"]
+    trails = folium.FeatureGroup(name=f"USFS official trails ({len(v['usfs_trails'])})")
+    for t in disp["trails"]:
+        folium.PolyLine([(lat, lon) for lon, lat in t["coords"]], color=USFS_TRAIL_COLOR, weight=2.5, opacity=0.95,
+                        tooltip=f"USFS {t['label']}").add_to(trails)
+    trails.add_to(m)
+
+    roads = folium.FeatureGroup(name="USFS roads", show=False)
+    for r in disp["roads"]:
+        status = "closed to motorized use" if r["closed"] else "open"
+        folium.PolyLine([(lat, lon) for lon, lat in r["coords"]], color=USFS_ROAD_COLOR, weight=2.5,
+                        dash_array="1 5" if r["closed"] else "5 4",
+                        tooltip=f"USFS {r['label']}: {r['maint']} ({status} per USFS layer)").add_to(roads)
+    roads.add_to(m)
+
+    wild = folium.FeatureGroup(name="USFS wilderness boundary", show=False)
+    for w in disp["wilderness"]:
+        folium.PolyLine([(lat, lon) for lon, lat in w["coords"]], color=USFS_BOUNDARY_COLOR, weight=2,
+                        dash_array="2 4", tooltip=f"USFS: {w['label']}").add_to(wild)
+    wild.add_to(m)
+
+    ths = folium.FeatureGroup(name=f"USFS trailheads ({len(v['trailheads'])})")
+    for t in v["trailheads"]:
+        osm = t["osm_trailhead"]
+        match = f"OSM {osm['source']} at {ft(osm['distance_m'])}" if osm else "no OSM trailhead within 490 ft"
+        folium.Marker(
+            (t["lat"], t["lon"]),
+            icon=folium.DivIcon(html=f'<div class="bc-th">TH</div>', icon_size=(24, 16), icon_anchor=(12, 8)),
+            tooltip=f"USFS trailhead: {t['name']} (site {t['site_id']})<br>{match}<br>"
+                    f"nearest graph node {t['nearest_node']['id']} at {ft(t['nearest_node']['distance_m'])}",
+        ).add_to(ths)
+    ths.add_to(m)
+
+    gaps = folium.FeatureGroup(name="Gaps vs USFS")
+    for t in v["usfs_trails"]:
+        for g in t["gaps"]:
+            if g["coords"]:
+                folium.PolyLine([(lat, lon) for lon, lat in g["coords"]], color=GAP_COLOR, weight=9, opacity=0.5,
+                                tooltip=f"{t['label']}: {ft(g['length_m'])} with no routable OSM line within 250 ft"
+                                        + (f"<br>OSM has: {g['in_osm']}" if g["in_osm"] else "")).add_to(gaps)
+    gaps.add_to(m)
+
+
+def _swatch_line(color: str, width: float = 4, dash: str | None = None, opacity: float = 1.0) -> str:
+    dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+    return (f'<svg width="30" height="12" aria-hidden="true"><line x1="2" y1="6" x2="28" y2="6" stroke="{color}" '
+            f'stroke-width="{width}" stroke-linecap="round" stroke-opacity="{opacity}"{dash_attr}/></svg>')
+
+
+def _swatch_multi() -> str:
+    segs = "".join(f'<line x1="{2 + i * 9}" y1="6" x2="{8 + i * 9}" y2="6" stroke="{c}" stroke-width="4" '
+                   f'stroke-linecap="round"/>' for i, c in enumerate(PALETTE[:3]))
+    return f'<svg width="30" height="12" aria-hidden="true">{segs}</svg>'
+
+
+def _swatch_dot(fill: str | None, stroke: str, r: float) -> str:
+    return (f'<svg width="30" height="16" aria-hidden="true"><circle cx="15" cy="8" r="{r}" '
+            f'fill="{fill or "none"}" stroke="{stroke}" stroke-width="{2.5 if fill is None else 1}"/></svg>')
+
+
+def _legend(summary: dict, region, verification: dict | None, main_len: str, n_other: int) -> str:
+    def row(swatch: str, label: str) -> str:
+        return f'<div class="bc-row">{swatch}<span>{label}</span></div>'
+
+    rows = ['<div class="bc-sec">OSM trail graph</div>',
+            row(_swatch_line(MAIN_COLOR, 5), f"Main network (C0), {main_len}"),
+            row(_swatch_multi(), f"Other components ({n_other}), hover for id"),
+            row(_swatch_line("#555", 3, "6 4"), "Road (dashed, any component)"),
+            row(_swatch_dot(DEAD_END_COLOR, DEAD_END_COLOR, 4), "Dead end (layer off by default)"),
+            row(_swatch_dot(None, MISSING_JUNCTION_COLOR, 6), "Possible missing junction")]
+    sources = f"OSM {OSM_ATTRIBUTION}, retrieved {summary['retrieved_at'][:10]}"
+    if verification:
+        rows += ['<div class="bc-sec">USFS official data</div>',
+                 row(_swatch_line(USFS_TRAIL_COLOR, 3), "USFS official trail (drawn on top)"),
+                 row(_swatch_line(GAP_COLOR, 8, opacity=0.5), "Gap vs USFS: no OSM line within 250 ft"),
+                 row('<svg width="30" height="16" aria-hidden="true"><rect x="5" y="2" width="20" height="12" rx="3" '
+                     f'fill="{USFS_TH_COLOR}"/></svg>', "USFS trailhead"),
+                 row(_swatch_line(USFS_ROAD_COLOR, 2.5, "5 4"), "USFS road (layer off by default)")]
+        sources += f" · {USFS_ATTRIBUTION}, retrieved {verification['usfs_retrieved_at'][:10]}"
+    rows += ['<div class="bc-sec">Boundaries</div>',
+             row(_swatch_line(OSM_BOUNDARY_COLOR, 2, "6 4"), "Wilderness boundary (OSM)"),
+             row(_swatch_line("#000", 1.5, "2 4"), "Region bbox")]
+    return f"""
+<style>
+  #bc-legend {{ position: fixed; bottom: 28px; left: 12px; z-index: 9999; max-width: 290px;
+    background: #fff; color: #1b1b1b; border-radius: 8px; box-shadow: 0 1px 8px rgba(0,0,0,.35);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+  #bc-legend summary {{ padding: 8px 12px; font-weight: 600; cursor: pointer; }}
+  #bc-legend .bc-body {{ padding: 0 12px 10px; }}
+  #bc-legend .bc-sec {{ margin: 8px 0 2px; font-size: 11px; font-weight: 600; letter-spacing: .05em;
+    text-transform: uppercase; color: #666; }}
+  #bc-legend .bc-row {{ display: flex; align-items: center; gap: 8px; min-height: 20px; }}
+  #bc-legend .bc-row svg {{ flex: 0 0 30px; }}
+  #bc-legend .bc-src {{ margin-top: 8px; font-size: 11px; color: #666; }}
+  .bc-th {{ background: {USFS_TH_COLOR}; color: #fff; font: 700 10px/16px sans-serif; text-align: center;
+    border-radius: 3px; border: 1px solid #fff; box-shadow: 0 0 2px rgba(0,0,0,.6); }}
+</style>
+<div id="bc-legend"><details open><summary>Legend: {region.name}</summary><div class="bc-body">
+  {''.join(rows)}
+  <div class="bc-src">{sources}</div>
+</div></details></div>"""
+
+
+# --- verification report --------------------------------------------------------
+
+
+def write_verify_report(v: dict, region, out_dir: Path) -> dict[str, Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths = {"report": out_dir / "verify_report.md", "json": out_dir / "verify_report.json"}
+    paths["report"].write_text(verify_markdown(v, region))
+    paths["json"].write_text(json.dumps(v, indent=1, default=str))
+    return paths
+
+
+def verify_markdown(v: dict, region) -> str:
+    trails = v["usfs_trails"]
+    usfs_total = sum(t["usfs_m"] for t in trails)
+
+    def weighted(key):
+        return sum(t[key] * t["usfs_m"] for t in trails) / usfs_total if usfs_total else 0.0
+
+    gaps = [(t, g) for t in trails for g in t["gaps"]]
+    not_in_usfs = [w for w in v["osm_ways"] if w["usfs_match"] is None and not w["is_road"]]
+    wild_unlisted = [w for w in not_in_usfs if w["inside_wilderness"]]
+    ths = v["trailheads"]
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    L = [
+        f"# Verification vs USFS: {region.name}",
+        "",
+        f"Generated {now}. OSM data retrieved {v['osm_retrieved_at']} ({OSM_ATTRIBUTION}). "
+        f"USFS data retrieved {v['usfs_retrieved_at']} ({USFS_ATTRIBUTION}).",
+        "",
+        "USFS records describe the Forest Service inventory. They say nothing about current trail conditions, "
+        "closures, or whether a trail is passable. \"Matched\" means within 100 ft; a gap is a stretch of at least "
+        "330 ft with no routable OSM line within 250 ft. USFS geometry is used only for this comparison, never for routing.",
+        "",
+        "## Summary",
+        "",
+        f"- USFS lists {len(trails)} official trails with {mi(usfs_total)} inside the region bbox. Routable OSM lines "
+        f"are within 100 ft of {weighted('within_match_pct'):.1f}% of that mileage and within 250 ft of "
+        f"{weighted('within_offset_pct'):.1f}%.",
+        f"- {len(gaps)} gap(s) totaling {mi(sum(g['length_m'] for _, g in gaps))}.",
+        f"- {len(not_in_usfs)} OSM trail name groups ({mi(sum(w['length_m'] for w in not_in_usfs))}) have no USFS "
+        f"trail or road record; {len(wild_unlisted)} of them ({mi(sum(w['length_m'] for w in wild_unlisted))}) "
+        "lie mostly inside the USFS wilderness boundary.",
+        f"- {len(ths)} USFS trailheads; {sum(1 for t in ths if t['osm_trailhead'])} have an OSM trailhead within 490 ft.",
+        "",
+        "## Official USFS trails",
+        "",
+    ]
+    L += _table(
+        ["USFS trail", "USFS (in bbox)", "OSM matched", "diff", "within 100 ft", "median offset", "max offset",
+         "gaps", "OSM names", "comp"],
+        [[t["label"], mi(t["usfs_m"]) + (f" (+{mi(t['outside_bbox_m'])} outside bbox)" if t["outside_bbox_m"] > 1 else ""),
+          mi(t["osm_matched_m"]),
+          f"{(t['osm_matched_m'] - t['usfs_m']) / t['usfs_m'] * 100:+.0f}%" if t["usfs_m"] else None,
+          f"{t['within_match_pct']:.0f}%", ft(t["median_offset_m"]), ft(t["max_offset_m"]), len(t["gaps"]),
+          ", ".join(t["osm_names"][:3]), ", ".join(t["components"])] for t in trails],
+    )
+    L += ["", "\"OSM matched\" is the length of OSM edges that run along this USFS trail for at least 80% of their "
+          "length, so differences also come from where each dataset splits trails at junctions.", "",
+          f"## USFS trail sections missing from the graph ({len(gaps)})", ""]
+    if gaps:
+        L += _table(["USFS trail", "length", "from", "to", "what OSM has there"],
+                    [[t["label"], ft(g["length_m"]), _loc(g["coords"][0][1], g["coords"][0][0]) if g["coords"] else None,
+                      _loc(g["coords"][-1][1], g["coords"][-1][0]) if g["coords"] else None,
+                      g["in_osm"] or "nothing (a real OSM data gap)"] for t, g in gaps])
+    else:
+        L.append("None.")
+
+    def way_rows(rows):
+        return [[w["name"] or "(unnamed)", w["highway"], mi(w["length_m"]), w["usfs_match"] or "no USFS record",
+                 w["usfs_maint_level"],
+                 None if w["usfs_closed_to_motor"] is None else ("yes" if w["usfs_closed_to_motor"] else "no"),
+                 ", ".join(w["components"]), ", ".join(w["sources"][:3])] for w in rows]
+
+    headers = ["OSM name", "highway", "length", "USFS record", "USFS maintenance level", "USFS: closed to motorized",
+               "comp", "OSM ways"]
+    tracks = [w for w in v["osm_ways"] if w["highway"] == "track"]
+    L += ["", f"## OSM tracks vs USFS records ({len(tracks)})", "",
+          "The graph counts `highway=track` as trail. This is what USFS records say about each one.", ""]
+    L += _table(headers, way_rows(tracks))
+    roads = [w for w in v["osm_ways"] if w["is_road"] and w["usfs_match"]]
+    L += ["", f"## OSM roads with a USFS record ({len(roads)})", ""]
+    L += _table(headers, way_rows(roads))
+
+    L += ["", f"## OSM trails not in USFS data ({len(not_in_usfs)})", "",
+          "USFS only inventories National Forest System trails. Trails on other land (state park, wildlife refuge, "
+          "private) are expected here. Rows mostly inside the wilderness boundary deserve a look.", "",
+          f"### Mostly inside the USFS wilderness boundary ({len(wild_unlisted)})", ""]
+    L += _table(["OSM name", "highway", "length", "comp", "OSM ways"],
+                [[w["name"] or "(unnamed)", w["highway"], mi(w["length_m"]), ", ".join(w["components"]),
+                  ", ".join(w["sources"][:4])] for w in sorted(wild_unlisted, key=lambda w: -w["length_m"])])
+    outside = [w for w in not_in_usfs if not w["inside_wilderness"]]
+    L += ["", f"### Outside the wilderness boundary ({len(outside)}, {mi(sum(w['length_m'] for w in outside))})", ""]
+    L += _table(["OSM name", "highway", "length", "comp"],
+                [[w["name"] or "(unnamed)", w["highway"], mi(w["length_m"]), ", ".join(w["components"])]
+                 for w in sorted(outside, key=lambda w: -w["length_m"])])
+
+    L += ["", f"## Trailheads ({len(ths)} USFS)", ""]
+    L += _table(["USFS trailhead", "site", "USFS location", "OSM trailhead within 490 ft", "nearest graph node", "comp"],
+                [[t["name"], t["site_id"], _loc(t["lat"], t["lon"]),
+                  f"{t['osm_trailhead']['name']} {t['osm_trailhead']['source']} ({ft(t['osm_trailhead']['distance_m'])})"
+                  if t["osm_trailhead"] else "none",
+                  f"{t['nearest_node']['id']} ({ft(t['nearest_node']['distance_m'])})", t["nearest_node"]["component"]]
+                 for t in ths])
+    if v["osm_trailheads_unmatched"]:
+        L += ["", "OSM trailheads with no USFS trailhead within 490 ft:", ""]
+        L += [f"- {u['name'] or '(unnamed)'} {u['source']} at {_loc(u['lat'], u['lon'])}" for u in v["osm_trailheads_unmatched"]]
+
+    L += ["", "## Wilderness areas in the bbox (USFS)", ""]
+    L += [f"- {w.get('wildernessname')}: {w.get('gis_acres', 0):,.0f} acres, boundary status "
+          f"\"{w.get('boundarystatus')}\"" for w in v["wilderness"]] or ["None returned."]
+    L.append("")
+    return "\n".join(L)

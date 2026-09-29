@@ -49,3 +49,13 @@ def test_way_length_is_preserved_across_its_edges(tg, ways):
         geom = ways[way_id]["geometry"]
         full = LineString([to_utm.transform(g["lon"], g["lat"]) for g in geom]).length
         assert total == pytest.approx(full, abs=0.01), f"osm:way/{way_id}"
+
+
+def test_region_trailheads_are_main_component_graph_nodes(tg):
+    from backcountry.graph import qa_summary
+
+    node_comp = qa_summary(tg)["node_component"]
+    assert REGION.trailheads, "regions/dolly_sods.yaml lists no trailheads"
+    for th in REGION.trailheads:
+        assert th["node"] in tg.graph, th["id"]
+        assert node_comp[th["node"]] == "C0", th["id"]

@@ -82,8 +82,54 @@ are deferred until a milestone needs them.
 - A parking-based candidate snaps to the nearest trail node, which may not be where the trail
   actually leaves the lot.
 
-**Open questions**
+**Open questions** (answered in the USFS cross-check section below)
 1. Should `highway=track` be `is_road=true` (penalized) instead of trail?
 2. Should `tertiary` forest roads (FR 75's tertiary sections) be routable as `is_road`?
 3. Trim the bbox's west edge to drop Canaan Valley, or keep it?
 4. Which trailhead candidates do you want added to `regions/dolly_sods.yaml` as `verified: true`?
+
+## M1 addendum — independent check against USFS data (2026-09-29)
+
+CalTopo's default MapBuilder Topo layer takes its trails from OpenStreetMap (its last OSM import
+was 2026-01-17), so matching it mostly re-checks OSM. The independent source is the USFS
+Enterprise Data Warehouse: official NFS trails, roads (with maintenance level and a
+"closed to motorized" layer), recreation sites, and wilderness boundaries. These are public domain.
+
+**Done**
+- `backcountry verify --region dolly_sods [--refresh]`: 5 USFS layer queries, cached at
+  `data/raw/dolly_sods/usfs_<stamp>.json`. It writes `out/qa/dolly_sods/verify_report.{md,json}` and adds
+  USFS layers to `qa_map.html`: official trails drawn over the OSM lines, trailhead badges, roads,
+  wilderness boundary, and gaps. `qa` also adds the overlay whenever a USFS cache exists.
+  USFS geometry is never routed on.
+- 12 trailheads added to `regions/dolly_sods.yaml`, each pointing at a graph node (an OSM node id, so no
+  hardcoded coordinates) and noting its USFS match. All are `verified: false` until you check them.
+- Legend rebuilt: collapsible, grouped sections, real line/marker swatches, 13px text.
+  The dead-end layer is now off by default.
+- `region.py` validates trailhead entries (an integer `node`, or `lat`/`lon` only with `verified: true`;
+  ids must be unique).
+
+**Results (OSM retrieved 2026-09-29T23:16:53Z, USFS 2026-09-29T23:55:40Z)**
+- USFS lists 22 official trails with 53.05 mi inside the bbox. Routable OSM lines are within 100 ft of
+  **99.2%** of that mileage, within 250 ft of 99.9%. **0 gaps.** Every trail's median offset is 8–26 ft.
+- 12 USFS trailheads, all within 141 ft of a graph node in C0. 8 match an OSM `highway=trailhead`.
+- **Disagreement:** OSM puts Wilderness Way Trailhead (osm:node/402290253) 1.1 mi from USFS site 90570.
+  The yaml entry uses the node nearest the USFS site and carries a warning note.
+- 10 OSM trail groups (5.9 mi) lie mostly inside the USFS wilderness boundary with no USFS record:
+  Old Craig Road (track, 1.84 mi), Alder Run, Pine Plantation, Screwdriver, Mine, 19 View, and
+  pieces of Dobbin Slashings / Raven Ridge / Dobbin Grade / Little Stonecoal. Worth your review.
+- Tracks per USFS: Roaring Plains Road = FR 70 and an unnamed track = FR 776, both open roads with
+  maintenance level 2 (high-clearance vehicles). FR 479 and FR 782 are in the USFS "closed to motorized
+  use" layer. The rest have no USFS record. None of the tracks is a USFS trail.
+- USFS also shows part of Roaring Plains West Wilderness (boundary "Provisional") inside the bbox.
+
+**Decisions**
+- bbox: kept. It covers the whole wilderness, all 22 USFS trails, and all 12 USFS trailheads. The extra
+  western trails are real and only connect to C0 by road.
+- `tertiary`: recommend leaving it out. It's 16.4 mi of county roads (Jordan Run, Laneville, Timberline),
+  of which only 0.12 mi is Dolly Sods Road. Adding it would merge 15 small components (mostly driveways)
+  and add 23 mi of road to C0.
+
+**Open**
+- Tracks → `is_road`? (Recommended, since none are USFS trails. Waiting on your call.)
+- Wilderness Way location, and the 5.9 mi of OSM-only wilderness trail: your call after checking.
+- Flip `verified: true` on the trailheads you've checked.

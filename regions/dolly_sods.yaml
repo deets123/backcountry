@@ -16,7 +16,74 @@ bbox:
 # coverage check and the QA map outline. Not used for routing.
 boundary_name_regex: "Dolly Sods"
 
-# Trailheads the user has checked. Entries may carry coordinates only when
-# `verified: true`. Candidates come from `backcountry trailheads`, never
-# from here unless verified.
-trailheads: []
+# Cross-check the OSM graph against official USFS trails/roads/trailheads
+# (`backcountry verify`). USFS data is never used as routing geometry.
+usfs_crosscheck: true
+
+# Trailheads. Each one points at a graph node (an OSM node id), so its
+# location comes from OSM, not from this file. Entries may carry lat/lon only
+# when `verified: true`. Candidates come from `backcountry trailheads`;
+# `usfs` notes the matching USFS recreation site from `backcountry verify`
+# (data retrieved 2026-09-29). `verified` is yours to set after checking.
+trailheads:
+  - id: bear_rocks
+    name: Bear Rocks Trailhead
+    node: 156107920  # osm:node/156107920, highway=trailhead
+    usfs: "site 90569 Sundew Trailhead (recarea: Bear Rocks Trailhead), 11 ft from the OSM trailhead"
+    verified: false
+  - id: bear_rocks_overlook
+    name: Bear Rocks Overlook
+    node: 8599741697  # parking/trail/road junction nearest the USFS site
+    usfs: "site 90501 Bear Rocks Loop Trailhead, 62 ft from this node; no OSM trailhead tag"
+    verified: false
+  - id: beaver_dam
+    name: Beaver Dam Trailhead
+    node: 1863020677  # Beaver Dam Trail @ Dolly Sods Road
+    usfs: "site 90568, 13 ft from this node; no OSM trailhead tag"
+    verified: false
+  - id: blackbird_knob
+    name: Blackbird Knob Trailhead
+    node: 1863531423  # osm:node/1863531423, highway=trailhead
+    usfs: "site 90503, 113 ft from the OSM trailhead"
+    verified: false
+  - id: boars_nest
+    name: Boars Nest Trailhead
+    node: 7248453330  # osm:node/7248453330, highway=trailhead
+    usfs: "site 90513, 141 ft from the OSM trailhead"
+    verified: false
+  - id: fisher_spring_run
+    name: Fisher Spring Run Trailhead
+    node: 1863020665  # osm:node/1863020665, highway=trailhead
+    usfs: "site 90506, 70 ft from the OSM trailhead"
+    verified: false
+  - id: northland_loop
+    name: Northland Loop Trailhead
+    node: 8967233703  # osm:node/8967233703, highway=trailhead
+    usfs: "site 90505, 86 ft from the OSM trailhead"
+    verified: false
+  - id: red_creek
+    name: Red Creek Trailhead
+    node: 4005080801  # osm:node/4005080801, highway=trailhead
+    usfs: "site 90514, 84 ft from the OSM trailhead"
+    verified: false
+  - id: rohrbaugh_plains
+    name: Rohrbaugh Plains Trailhead
+    node: 402289787  # osm:node/402289787, highway=trailhead
+    usfs: "site 90510, 132 ft from the OSM trailhead"
+    verified: false
+  - id: south_prong
+    name: South Prong Trailhead
+    node: 155984740  # 19 View Trail / South Prong Trail @ Dolly Sods Road
+    usfs: "site 90512, 57 ft from this node; no OSM trailhead tag"
+    verified: false
+  - id: wildlife
+    name: Wildlife Trail Trailhead
+    node: 402290537  # osm:node/402290537, highway=trailhead
+    usfs: "site 90507, 76 ft from the OSM trailhead"
+    verified: false
+  - id: wilderness_way
+    name: Wilderness Way Trailhead
+    node: 4732119113  # Blackbirds Wing @ Blackbird Knob Road, nearest node to the USFS site
+    usfs: "site 90570, 82 ft from this node"
+    note: "OSM and USFS DISAGREE: OSM tags osm:node/402290253 as this trailhead, 1.1 mi from the USFS site. Check before using."
+    verified: false

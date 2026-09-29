@@ -99,3 +99,41 @@ def build_network() -> RawBuilder:
 @pytest.fixture
 def network() -> RawBuilder:
     return build_network()
+
+
+# --- synthetic USFS (ArcGIS GeoJSON-shaped) features ---------------------------
+
+
+def lonlat(x: float, y: float) -> tuple[float, float]:
+    return _TO_WGS84.transform(X0 + x, Y0 + y)
+
+
+def usfs_line(coords: list[tuple[float, float]], **props) -> dict:
+    return {"type": "Feature", "properties": props,
+            "geometry": {"type": "LineString", "coordinates": [list(lonlat(x, y)) for x, y in coords]}}
+
+
+def usfs_point(x: float, y: float, **props) -> dict:
+    return {"type": "Feature", "properties": props, "geometry": {"type": "Point", "coordinates": list(lonlat(x, y))}}
+
+
+def usfs_polygon(coords: list[tuple[float, float]], **props) -> dict:
+    ring = [list(lonlat(x, y)) for x, y in coords + coords[:1]]
+    return {"type": "Feature", "properties": props, "geometry": {"type": "Polygon", "coordinates": [ring]}}
+
+
+def bbox_xy(xmin: float, ymin: float, xmax: float, ymax: float):
+    from backcountry.region import BBox
+
+    (w, s), (e, n) = lonlat(xmin, ymin), lonlat(xmax, ymax)
+    return BBox(south=s, west=w, north=n, east=e)
+
+
+def usfs_doc(layers: dict[str, list[dict]]) -> dict:
+    return {
+        "region": "synthetic",
+        "retrieved_at": "2026-01-02T00:00:00Z",
+        "source": "synthetic USFS fixture",
+        "layers": {name: {"url": f"synthetic://{name}", "geojson": {"type": "FeatureCollection", "features": feats}}
+                   for name, feats in layers.items()},
+    }

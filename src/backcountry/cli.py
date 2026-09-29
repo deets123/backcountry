@@ -3,10 +3,11 @@
 import typer
 
 from backcountry import ingest
-from backcountry.export import ft, mi, write_graph_geojson, write_qa_outputs
+from backcountry.export import ft, mi, write_graph_geojson, write_qa_outputs, write_verify_report
 from backcountry.graph import bbox_coverage, build_graph, qa_summary
 from backcountry.region import REPO_ROOT, load_region
 from backcountry.trailheads import find_candidates
+from backcountry.verify import verify
 
 OUT_DIR = REPO_ROOT / "out"
 PROCESSED_DIR = REPO_ROOT / "data" / "processed"
@@ -50,7 +51,9 @@ def qa(region: str = RegionOpt):
     summary = qa_summary(tg)
     coverage = bbox_coverage(raw, r)
     graph_paths = write_graph_geojson(tg, summary["node_component"], PROCESSED_DIR / r.id)
-    paths = write_qa_outputs(summary, tg, raw, r, OUT_DIR / "qa" / r.id, coverage)
+    usfs = ingest.load_usfs(r) if r.usfs_crosscheck else None  # overlay only if already cached
+    verification = verify(tg, raw, usfs, r, summary["node_component"]) if usfs else None
+    paths = write_qa_outputs(summary, tg, raw, r, OUT_DIR / "qa" / r.id, coverage, verification)
 
     c, t = summary["counts"], summary["totals"]
     typer.echo(f"{r.name}: data retrieved {summary['retrieved_at']} ({raw['cache_path']})")
@@ -90,3 +93,31 @@ def trailheads(
                    f"{' | '.join(c['names']) or '(unnamed)'}  [{', '.join(c['sources'][:3])}]")
     for u in result["unsnapped"]:
         typer.echo(f"not snapped: {u['source']} {u['name'] or ''} is {ft(u['distance_m'])} from the nearest graph node")
+
+
+@app.command(name="verify")
+def verify_cmd(
+    region: str = RegionOpt,
+    refresh: bool = typer.Option(False, help="Re-query the USFS services even if a cached response exists."),
+):
+    """Cross-check the graph against official USFS trails, roads, and trailheads."""
+    r, raw, tg = _load(region)
+    if not r.usfs_crosscheck:
+        typer.echo(f"Region {r.id!r} doesn't enable usfs_crosscheck in its yaml.", err=True)
+        raise typer.Exit(code=1)
+    ingest.fetch_usfs(r, refresh=refresh)
+    usfs = ingest.load_usfs(r)
+    summary = qa_summary(tg)
+    v = verify(tg, raw, usfs, r, summary["node_component"])
+    out = OUT_DIR / "qa" / r.id
+    paths = write_verify_report(v, r, out)
+    qa_paths = write_qa_outputs(summary, tg, raw, r, out, bbox_coverage(raw, r), v)
+
+    typer.echo(f"OSM retrieved {v['osm_retrieved_at']}, USFS retrieved {v['usfs_retrieved_at']} ({usfs['cache_path']})")
+    for t in v["usfs_trails"]:
+        gaps = f", {len(t['gaps'])} gap(s) {ft(sum(g['length_m'] for g in t['gaps']))}" if t["gaps"] else ""
+        typer.echo(f"  {t['label'][:40]:40} {mi(t['usfs_m']):>9} in bbox, {t['within_match_pct']:5.1f}% within 100 ft, "
+                   f"median {ft(t['median_offset_m'])}{gaps}")
+    matched = sum(1 for t in v["trailheads"] if t["osm_trailhead"])
+    typer.echo(f"trailheads: {len(v['trailheads'])} USFS, {matched} with an OSM trailhead within 490 ft")
+    typer.echo(f"report: {paths['report']}\nmap:    {qa_paths['map']}")
