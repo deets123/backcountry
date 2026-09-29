@@ -1,0 +1,22 @@
+# Dolly Sods Wilderness, WV.
+#
+# bbox is in WGS84 degrees. It is a fetch extent only, not a place claim.
+# Initial values come from docs/ROADMAP.md (M0). The QA report checks it
+# against the OSM wilderness boundary and flags it if it doesn't cover it.
+id: dolly_sods
+name: Dolly Sods Wilderness, WV
+crs: EPSG:32617  # UTM zone 17N; all internal distances are meters in this CRS
+bbox:
+  south: 38.94
+  west: -79.42
+  north: 39.10
+  east: -79.26
+
+# Name regex used to fetch the protected-area boundary from OSM for the QA
+# coverage check and the QA map outline. Not used for routing.
+boundary_name_regex: "Dolly Sods"
+
+# Trailheads the user has checked. Entries may carry coordinates only when
+# `verified: true`. Candidates come from `backcountry trailheads`, never
+# from here unless verified.
+trailheads: []

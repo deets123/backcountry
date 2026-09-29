@@ -1,0 +1,29 @@
+[project]
+name = "backcountry"
+version = "0.1.0"
+description = "Generate multi-day backpacking routes from real trail geometry."
+requires-python = ">=3.11"
+dependencies = [
+    "folium>=0.17",
+    "networkx>=3.2",
+    "pyproj>=3.6",
+    "pyyaml>=6.0",
+    "shapely>=2.0",
+    "typer>=0.12",
+]
+
+[project.scripts]
+backcountry = "backcountry.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/backcountry"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
