@@ -161,3 +161,46 @@ Enterprise Data Warehouse: official NFS trails, roads (with maintenance level an
   against USGS 3DEP 1 m lidar where it covers Dolly Sods (an independent, higher-resolution source),
   plus a short optional CalTopo spot check. For that, I export one trail as GPX and you import it
   with step-by-step instructions.
+
+## M2 — Elevation (built 2026-09-30; waiting on your CalTopo numbers)
+
+**Done**
+- `backcountry dem --region dolly_sods`: finds USGS 3DEP 1/3 arc-second (~10 m) tiles through the National Map
+  API, keeping the newest version of each tile (n39w080 published 2023-08-16, n40w080 2026-05-12). It reads
+  only the window covering every edge (the files are cloud-optimized) and caches it unmodified
+  (EPSG:4269, 2418x3006 cells, 23 MB) with a sidecar JSON of sources and `retrieved_at`.
+- `elevation.py`: sample every 33 ft (10 m) along each edge, bilinear interpolation, a 3-sample moving average,
+  and gain/loss counted once past a 3.3 ft (1 m) threshold. Edges store `gain_ft_fwd`, `loss_ft_fwd`,
+  `gain_ft_rev`, `loss_ft_rev`, `elev_min_ft`, `elev_max_ft`, plus a raw profile. Forward means the source
+  way's direction (`osm_nodes[0]` onward). A missing DEM value makes the edge's elevation unknown (never filled).
+- `qa` adds elevation when a DEM is cached: a report section (sources, method, range, missing edges, steepest
+  edges), gain/loss in `edges.geojson`, `data/processed/<region>/profiles.json`, and map tooltips.
+- `backcountry reference --region dolly_sods --trail NAME`: chains a named trail into one line from source
+  vertices only (it refuses branches, loops, and gaps) and writes `tests/reference/<slug>.gpx`: exact OSM
+  points, no elevations, so CalTopo uses its own terrain. It also writes a YAML stub for CalTopo's numbers, and
+  computes our gain on both the 10 m DEM and USGS 1 m lidar (only that trail's corridor is downloaded).
+- `tests/test_reference.py`: per reference, checks CalTopo numbers (distance ±5%, gain/loss ±15%) and
+  1 m lidar (gain/loss ±15%). Each check skips until its data exists.
+
+**Results**
+- All 661 edges have elevation (0 missing). Network range 1,113–4,488 ft.
+- Reference trail: **Blackbird Knob Trail** (TR 511), 5.44 mi, osm:way/15655078 + 15655225.
+  - 10 m DEM: **794 ft gain, 696 ft loss** (in the GPX direction, from the FR 75 end).
+  - 1 m lidar (WV_FEMAHQ_2018): 798 ft gain, 697 ft loss, a 0.5% difference.
+  - Elevations along the trail differ by at most 6.6 ft (mean 0.8 ft) between the two.
+  - Sensitivity: across smoothing of 1/3/5 samples and thresholds of 0–9.8 ft, gain ranges 752–863 ft.
+    The chosen settings sit mid-range.
+- Caveat: USGS may have built the 10 m DEM here from that same lidar, so their agreement shows our method
+  is stable across resolution, not that it matches an outside tool. CalTopo is the outside check.
+
+**Known wrong / caveats**
+- Hysteresis restarts at each edge, so summing edge gains overstates a route's gain slightly.
+  Routes (M3+) should recompute from joined profiles.
+- Gain on very short edges is essentially their net change.
+
+**Dependencies added:** rasterio and gpxpy (both in the CLAUDE.md stack), and numpy (already required by
+rasterio/shapely; declared because the DEM math uses it directly).
+
+**Open**
+- CalTopo's distance, gain, and loss for `tests/reference/blackbird_knob_trail.gpx` → copy them into
+  `tests/reference/blackbird_knob_trail.yaml`. That is the last M2 acceptance check.

@@ -137,3 +137,25 @@ def usfs_doc(layers: dict[str, list[dict]]) -> dict:
         "layers": {name: {"url": f"synthetic://{name}", "geojson": {"type": "FeatureCollection", "features": feats}}
                    for name, feats in layers.items()},
     }
+
+
+# --- synthetic DEMs --------------------------------------------------------------
+
+
+def plane_dem(fx: float, fy: float, c: float, crs: str = CRS, cell: float = 10.0,
+              xmin: float = -1500, ymin: float = -1500, xmax: float = 7500, ymax: float = 2500):
+    """DEM whose pixel-center values lie on z = fx*x + fy*y + c (x, y in fixture meters).
+
+    Bilinear interpolation of a plane is exact, so sampled values are known exactly.
+    """
+    import numpy as np
+    from rasterio.transform import from_origin
+
+    from backcountry.elevation import DEM
+
+    cols, rows = int((xmax - xmin) / cell), int((ymax - ymin) / cell)
+    xs = xmin + cell * (np.arange(cols) + 0.5)
+    ys = ymax - cell * (np.arange(rows) + 0.5)
+    z = fx * xs[None, :] + fy * ys[:, None] + c
+    return DEM(array=z.astype("float64"), transform=from_origin(X0 + xmin, Y0 + ymax, cell, cell), crs=crs,
+               source={"title": "synthetic plane"})

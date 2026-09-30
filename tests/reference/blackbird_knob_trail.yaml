@@ -1,0 +1,9 @@
+# CalTopo cross-check (M2). Import the .gpx into CalTopo, then copy its numbers below.
+region: dolly_sods
+name: Blackbird Knob Trail
+gpx: blackbird_knob_trail.gpx
+exported_from: osm:way/15655078, osm:way/15655225 (OSM retrieved 2026-09-29T23:16:53Z)
+caltopo:
+  distance_mi: null
+  gain_ft: null
+  loss_ft: null

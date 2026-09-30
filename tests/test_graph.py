@@ -203,3 +203,36 @@ def test_track_is_road_and_tertiary_is_last_resort_road(network):
     assert track["is_road"] and not track["last_resort"]
     assert tertiary["is_road"] and tertiary["last_resort"]
     assert not _edges_of_way(tg.graph, 1)[0]["last_resort"]
+
+
+# --- chaining a named trail into one line ------------------------------------------
+
+
+def test_chain_named_trail_follows_source_vertices_in_order(network):
+    from backcountry.graph import chain_named_trail
+
+    tg = build_graph(network.doc(), crs=CRS)
+    chain = chain_named_trail(tg, "Main Trail")
+    expected = [network.coords[network.ids[n]] for n in ("A", "m1", "B", "m2", "C")]
+    assert chain["coords_wgs84"] == pytest.approx(expected)
+    assert chain["length_m"] == pytest.approx(2000, abs=0.01)
+    assert chain["line_utm"].length == pytest.approx(2000, abs=0.01)
+    assert chain["sources"] == ["osm:way/1"]
+    assert chain["nodes"] == [network.ids[n] for n in ("A", "m1", "B", "C")]
+
+
+def test_chain_refuses_a_branching_trail(network):
+    from backcountry.graph import chain_named_trail
+
+    network.node("X", 1000, -300)
+    network.way(30, ["B", "X"], highway="path", name="Main Trail")
+    tg = build_graph(network.doc(), crs=CRS)
+    with pytest.raises(ValueError, match="branch"):
+        chain_named_trail(tg, "Main Trail")
+
+
+def test_chain_unknown_name(network):
+    from backcountry.graph import chain_named_trail
+
+    with pytest.raises(ValueError, match="No trail edges"):
+        chain_named_trail(build_graph(network.doc(), crs=CRS), "Nope Trail")

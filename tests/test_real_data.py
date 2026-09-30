@@ -59,3 +59,17 @@ def test_region_trailheads_are_main_component_graph_nodes(tg):
     for th in REGION.trailheads:
         assert th["node"] in tg.graph, th["id"]
         assert node_comp[th["node"]] == "C0", th["id"]
+
+
+def test_every_edge_has_elevation_and_consistent_net_change(tg):
+    from backcountry.elevation import FT_PER_M, annotate
+
+    dem = ingest.load_dem(REGION)
+    if dem is None:
+        pytest.skip("no cached DEM; run `backcountry dem --region dolly_sods`")
+    result = annotate(tg, dem)
+    assert result["missing"] == []
+    for *_, d in tg.graph.edges(data=True):
+        net_ft = (d["profile"]["z_m"][-1] - d["profile"]["z_m"][0]) * FT_PER_M
+        assert d["gain_ft_fwd"] - d["loss_ft_fwd"] == pytest.approx(net_ft, abs=1e-6), d["source"]
+        assert d["gain_ft_rev"] - d["loss_ft_rev"] == pytest.approx(-net_ft, abs=1e-6), d["source"]

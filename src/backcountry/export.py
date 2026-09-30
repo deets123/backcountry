@@ -59,15 +59,21 @@ def _loc(lat: float, lon: float) -> str:
 # --- graph GeoJSON ------------------------------------------------------------
 
 
+ELEVATION_KEYS = ("gain_ft_fwd", "loss_ft_fwd", "gain_ft_rev", "loss_ft_rev", "elev_min_ft", "elev_max_ft")
+
+
 def write_graph_geojson(tg, node_component: dict, out_dir: Path) -> dict[str, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     G = tg.graph
-    edges = []
+    edges, profiles = [], {}
     for u, v, k, d in G.edges(keys=True, data=True):
         props = {key: d[key] for key in ("source", "way_id", "segment", "retrieved_at", "name", "highway", "is_road",
-                                          "length_m", "tags")}
-        props.update(key=k, u=u, v=v, component=node_component[u])
+                                          "last_resort", "length_m", "tags")}
+        props.update({key: d[key] for key in ELEVATION_KEYS if key in d})
+        props.update(key=k, u=u, v=v, from_node=d["osm_nodes"][0], component=node_component[u])
         edges.append({"type": "Feature", "geometry": mapping(d["geom_wgs84"]), "properties": props})
+        if "profile" in d:
+            profiles[k] = {"from_node": d["osm_nodes"][0], "source": d["source"]} | d["profile"]
     nodes = [
         {
             "type": "Feature",
@@ -81,6 +87,11 @@ def write_graph_geojson(tg, node_component: dict, out_dir: Path) -> dict[str, Pa
     for key, feats in (("edges", edges), ("nodes", nodes)):
         fc = {"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION, "features": feats}
         paths[key].write_text(json.dumps(fc))
+    if profiles:
+        # Raw sampled elevations (meters) along each edge, forward direction = from_node onward.
+        paths["profiles"] = out_dir / "profiles.json"
+        paths["profiles"].write_text(json.dumps({"units": "meters", "elevation_source": G.graph.get("elevation_source"),
+                                                 "edges": profiles}))
     return paths
 
 
@@ -88,16 +99,16 @@ def write_graph_geojson(tg, node_component: dict, out_dir: Path) -> dict[str, Pa
 
 
 def write_qa_outputs(summary: dict, tg, raw: dict, region, out_dir: Path, coverage: list[dict],
-                     verification: dict | None = None) -> dict[str, Path]:
+                     verification: dict | None = None, elevation: dict | None = None) -> dict[str, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = {"report": out_dir / "qa_report.md", "json": out_dir / "qa_report.json", "map": out_dir / "qa_map.html"}
-    paths["report"].write_text(qa_markdown(summary, tg, raw, region, coverage))
+    paths["report"].write_text(qa_markdown(summary, tg, raw, region, coverage, elevation))
     paths["json"].write_text(json.dumps(summary | {"bbox_coverage": coverage}, indent=1, default=str))
     qa_map(summary, tg, raw, region, verification).save(str(paths["map"]))
     return paths
 
 
-def qa_markdown(summary: dict, tg, raw: dict, region, coverage: list[dict]) -> str:
+def qa_markdown(summary: dict, tg, raw: dict, region, coverage: list[dict], elevation: dict | None = None) -> str:
     G = tg.graph
     t, c = summary["totals"], summary["counts"]
     comps = summary["components"]
@@ -217,6 +228,8 @@ def qa_markdown(summary: dict, tg, raw: dict, region, coverage: list[dict]) -> s
     L += _table(["way", "highway", "name", "touches"],
                 [[r["source"], r["highway"], r["name"], ", ".join(r["components"])] for r in summary["access_overrides"]])
 
+    L += _elevation_section(tg, elevation)
+
     L += ["", "## Trail tag values (trail edges only)", ""]
     for key, values in summary["tag_values"].items():
         L.append(f"- `{key}`: " + ", ".join(f"{v} {mi(m)}" for v, m in values.items()))
@@ -244,6 +257,8 @@ def qa_map(summary: dict, tg, raw: dict, region, verification: dict | None = Non
             "geometry": mapping(d["geom_wgs84"]),
             "properties": {"component": comp, "name": d["name"] or "(unnamed)", "highway": d["highway"],
                            "source": d["source"], "length": mi(d["length_m"]), "color": colors[comp],
+                           "elevation": (f"{d['gain_ft_fwd']:,.0f} ft up, {d['loss_ft_fwd']:,.0f} ft down"
+                                         if d.get("gain_ft_fwd") is not None else "unknown"),
                            "dash": "2 7" if d["last_resort"] else "8 6" if d["is_road"] else None},
         })
     main_len = mi(comps[0]["length_m"]) if comps else "0 mi"
@@ -253,7 +268,9 @@ def qa_map(summary: dict, tg, raw: dict, region, verification: dict | None = Non
             name=title,
             style_function=lambda f, w=5 if key == "main" else 4: {
                 "color": f["properties"]["color"], "weight": w, "opacity": 0.85, "dashArray": f["properties"]["dash"]},
-            tooltip=folium.GeoJsonTooltip(fields=["component", "name", "highway", "source", "length"]),
+            tooltip=folium.GeoJsonTooltip(
+                fields=["component", "name", "highway", "source", "length", "elevation"],
+                aliases=["component", "name", "highway", "source", "length", "gain/loss along way"]),
         ).add_to(m)
 
     excluded = folium.FeatureGroup(name=f"Excluded ways, access ({len(tg.excluded)})", show=False)
@@ -527,3 +544,65 @@ def verify_markdown(v: dict, region) -> str:
           f"\"{w.get('boundarystatus')}\"" for w in v["wilderness"]] or ["None returned."]
     L.append("")
     return "\n".join(L)
+
+
+def _elevation_section(tg, elevation: dict | None) -> list[str]:
+    from backcountry.elevation import HYSTERESIS_M, SAMPLE_M, SMOOTH_SAMPLES
+
+    L = ["", "## Elevation", ""]
+    if elevation is None:
+        return L + ["No DEM cached, so elevation is **unknown**. Run `backcountry dem --region <id>`."]
+    src = elevation["source"]
+    tiles = "; ".join(f"{s['title']} (published {s['publication_date']})" for s in src.get("sources", []))
+    L += [f"DEM: {src.get('dataset', src.get('title', 'unknown'))}, {src.get('attribution', '')}. "
+          f"Tiles: {tiles or 'n/a'}. Retrieved {src.get('retrieved_at', 'unknown')}.", "",
+          f"Method: sample every {ft(SAMPLE_M)} along each edge, bilinear interpolation, a {SMOOTH_SAMPLES}-sample "
+          f"(~{ft(SAMPLE_M * SMOOTH_SAMPLES)}) moving average, and changes counted once they pass {HYSTERESIS_M * FT_PER_M:.1f} ft. "
+          "Edge totals don't add up exactly to route totals; routes are recomputed from joined profiles.", ""]
+    edges = [d for *_, d in tg.graph.edges(data=True)]
+    known = [d for d in edges if d.get("gain_ft_fwd") is not None]
+    if known:
+        L.append(f"Network elevation range: {min(d['elev_min_ft'] for d in known):,.0f} to "
+                 f"{max(d['elev_max_ft'] for d in known):,.0f} ft.")
+    missing = elevation["missing"]
+    L += ["", f"Edges with no DEM value somewhere along them: {len(missing)} (their gain/loss is unknown)."]
+    if missing:
+        L += [""] + _table(["way", "name", "samples missing"],
+                           [[m["source"], m["name"], f"{m['samples_missing']} of {m['samples']}"] for m in missing])
+    steep = sorted((d for d in known if d["length_m"] >= 100),
+                   key=lambda d: -max(d["gain_ft_fwd"], d["gain_ft_rev"]) / d["length_m"])[:10]
+    L += ["", "Steepest edges (at least 330 ft long), by climb rate in the steeper direction:", ""]
+    L += _table(["way", "name", "length", "gain fwd / rev", "climb rate"],
+                [[d["source"], d["name"], mi(d["length_m"]), f"{d['gain_ft_fwd']:,.0f} / {d['gain_ft_rev']:,.0f} ft",
+                  f"{max(d['gain_ft_fwd'], d['gain_ft_rev']) / (d['length_m'] / M_PER_MI):,.0f} ft/mi"] for d in steep])
+    return L
+
+
+# --- GPX ------------------------------------------------------------------------
+
+
+def write_trail_gpx(chain: dict, path: Path, retrieved_at: str) -> Path:
+    """One track with the chain's exact OSM vertices. No elevations, so tools use their own terrain data."""
+    import gpxpy.gpx
+
+    gpx = gpxpy.gpx.GPX()
+    gpx.creator = "backcountry route engine"
+    gpx.name = chain["name"]
+    gpx.description = (f"Exact OpenStreetMap geometry from {', '.join(chain['sources'])}. "
+                       f"Trail data {OSM_ATTRIBUTION}, retrieved {retrieved_at}. No elevations included.")
+    track = gpxpy.gpx.GPXTrack(name=chain["name"])
+    segment = gpxpy.gpx.GPXTrackSegment([gpxpy.gpx.GPXTrackPoint(lat, lon) for lon, lat in chain["coords_wgs84"]])
+    track.segments.append(segment)
+    gpx.tracks.append(track)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(gpx.to_xml())
+    return path
+
+
+def read_gpx_line(path: Path):
+    """All track points of a GPX file, in order, as a lon/lat LineString."""
+    import gpxpy
+    from shapely.geometry import LineString
+
+    gpx = gpxpy.parse(Path(path).read_text())
+    return LineString([(p.longitude, p.latitude) for t in gpx.tracks for s in t.segments for p in s.points])

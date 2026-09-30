@@ -11,6 +11,7 @@ the same way. Used only to cross-check the OSM graph, never as routing geometry.
 """
 
 import json
+import re
 import ssl
 import urllib.parse
 import urllib.request
@@ -226,3 +227,126 @@ def load_usfs(region: Region, raw_dir: Path | None = None) -> dict | None:
     doc = json.loads(path.read_text())
     doc["cache_path"] = str(path)
     return doc
+
+
+# --- USGS 3DEP elevation ------------------------------------------------------------
+
+TNM_API = "https://tnmaccess.nationalmap.gov/api/v1/products"
+DEM_DATASETS = {
+    "13": "National Elevation Dataset (NED) 1/3 arc-second",  # ~10 m, seamless 1x1 degree tiles
+    "1m": "Digital Elevation Model (DEM) 1 meter",  # lidar, 10 km project tiles
+}
+DEM_ATTRIBUTION = "USGS 3D Elevation Program (3DEP) (public domain)"
+_TILE_13 = re.compile(r"1/3 Arc Second (n\d+w\d+) \d{8}$")
+
+
+def tnm_search(dataset: str, bounds: tuple, fetcher: Callable[[str], dict] = _http_json) -> list[dict]:
+    """Products from the USGS National Map API intersecting bounds (west, south, east, north)."""
+    params = {"datasets": dataset, "bbox": ",".join(str(b) for b in bounds), "prodFormats": "GeoTIFF",
+              "max": 200, "outputFormat": "JSON"}
+    return fetcher(f"{TNM_API}?{urllib.parse.urlencode(params)}").get("items", [])
+
+
+def select_dem_items(kind: str, items: list[dict]) -> list[dict]:
+    """10 m: the newest version of each 1x1 degree tile. 1 m: every tile, newest first (newest wins overlaps)."""
+    if kind == "13":
+        newest = {}
+        for item in items:
+            m = _TILE_13.search(item["title"])
+            if m and (m[1] not in newest or item["publicationDate"] > newest[m[1]]["publicationDate"]):
+                newest[m[1]] = item
+        return [newest[t] for t in sorted(newest)]
+    return sorted(items, key=lambda i: i["publicationDate"], reverse=True)
+
+
+def _read_merged(urls: list[str], bounds: tuple):
+    """Read just `bounds` (lon/lat) from remote cloud-optimized GeoTIFFs and merge them (first valid wins)."""
+    import numpy as np
+    import rasterio
+    from rasterio.merge import merge
+    from rasterio.warp import transform_bounds
+
+    env = {"CURL_CA_BUNDLE": certifi.where(), "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+           "GDAL_HTTP_MAX_RETRY": "3", "GDAL_HTTP_RETRY_DELAY": "2"}
+    with rasterio.Env(**env):
+        datasets = [rasterio.open(u) for u in urls]
+        try:
+            crs = datasets[0].crs
+            same = [d for d in datasets if d.crs == crs]
+            array, transform = merge(same, bounds=transform_bounds("EPSG:4326", crs, *bounds), nodata=-999999.0)
+        finally:
+            for d in datasets:
+                d.close()
+    array = array[0].astype("float32")
+    array[array <= -999999.0] = np.nan
+    return array, transform, crs.to_string()
+
+
+def _dem_prefix(kind: str, name: str | None) -> str:
+    return f"dem{kind}" + (f"_{name}" if name else "")
+
+
+def fetch_dem(
+    region: Region,
+    bounds: tuple,
+    kind: str = "13",
+    name: str | None = None,
+    raw_dir: Path | None = None,
+    refresh: bool = False,
+    searcher: Callable[[str, tuple], list[dict]] = tnm_search,
+    reader: Callable = _read_merged,
+) -> Path:
+    """Cache a DEM covering bounds (lon/lat west, south, east, north). Returns the metadata JSON path."""
+    import rasterio
+
+    prefix = _dem_prefix(kind, name)
+    cached = latest_cache(region, raw_dir, prefix=prefix)
+    if cached and not refresh:
+        b = json.loads(cached.read_text())["bounds_wgs84"]
+        if b[0] <= bounds[0] and b[1] <= bounds[1] and b[2] >= bounds[2] and b[3] >= bounds[3]:
+            return cached
+
+    items = select_dem_items(kind, searcher(DEM_DATASETS[kind], bounds))
+    if not items:
+        raise RuntimeError(f"USGS has no {DEM_DATASETS[kind]!r} products for bounds {bounds}")
+    array, transform, crs = reader([i["downloadURL"] for i in items], bounds)
+
+    retrieved_at = _utc_now()
+    out_dir = region_raw_dir(region, raw_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"{prefix}_{retrieved_at.replace('-', '').replace(':', '')}"
+    tif = out_dir / f"{stem}.tif"
+    with rasterio.open(tif, "w", driver="GTiff", height=array.shape[0], width=array.shape[1], count=1,
+                       dtype="float32", crs=crs, transform=transform, nodata=float("nan"), compress="deflate",
+                       tiled=True) as dst:
+        dst.write(array, 1)
+    meta = {
+        "region": region.id,
+        "retrieved_at": retrieved_at,
+        "kind": kind,
+        "dataset": DEM_DATASETS[kind],
+        "attribution": DEM_ATTRIBUTION,
+        "bounds_wgs84": list(bounds),
+        "crs": crs,
+        "tif": tif.name,
+        "sources": [{"title": i["title"], "url": i["downloadURL"], "publication_date": i["publicationDate"]}
+                    for i in items],
+    }
+    path = out_dir / f"{stem}.json"
+    path.write_text(json.dumps(meta, indent=1))
+    return path
+
+
+def load_dem(region: Region, kind: str = "13", name: str | None = None, raw_dir: Path | None = None):
+    """The latest cached DEM as an elevation.DEM, or None."""
+    import rasterio
+
+    from backcountry.elevation import DEM
+
+    path = latest_cache(region, raw_dir, prefix=_dem_prefix(kind, name))
+    if path is None:
+        return None
+    meta = json.loads(path.read_text())
+    with rasterio.open(path.parent / meta["tif"]) as ds:
+        array = ds.read(1).astype("float64")
+        return DEM(array=array, transform=ds.transform, crs=meta["crs"], source=meta | {"cache_path": str(path)})

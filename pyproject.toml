@@ -6,9 +6,12 @@ requires-python = ">=3.11"
 dependencies = [
     "certifi>=2026.7.22",
     "folium>=0.17",
+    "gpxpy>=1.6.2",
     "networkx>=3.2",
+    "numpy>=2.4.6",
     "pyproj>=3.6",
     "pyyaml>=6.0",
+    "rasterio>=1.4.4",
     "shapely>=2.0",
     "typer>=0.12",
 ]
@@ -28,3 +31,7 @@ packages = ["src/backcountry"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    # Raised inside rasterio itself (affine's `*` deprecation), not in this project's code.
+    "ignore:Use `@` matmul instead of `\\*` mul operator:PendingDeprecationWarning:rasterio",
+]

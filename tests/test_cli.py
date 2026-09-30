@@ -62,3 +62,59 @@ def test_verify_command_uses_cached_usfs(tmp_path, monkeypatch, network):
     assert result.exit_code == 0, result.output
     assert (tmp_path / "out" / "qa" / "dolly_sods" / "verify_report.md").exists()
     assert (tmp_path / "out" / "qa" / "dolly_sods" / "qa_map.html").exists()
+
+
+def test_qa_uses_cached_dem(tmp_path, monkeypatch, network):
+    from conftest import plane_dem
+
+    _cache(tmp_path, monkeypatch, network.doc())
+    dem = plane_dem(0.1, 0.0, 1000)
+    region = cli.load_region("dolly_sods")
+    ingest.fetch_dem(region, (-180, -90, 180, 90), raw_dir=tmp_path / "raw",
+                     searcher=lambda ds, b: [{"title": "USGS 1/3 Arc Second n40w080 20260101", "publicationDate": "2026-01-01",
+                                               "downloadURL": "x"}],
+                     reader=lambda urls, b: (dem.array.astype("float32"), dem.transform, dem.crs))
+    result = runner.invoke(app, ["qa", "--region", "dolly_sods"])
+    assert result.exit_code == 0, result.output
+    assert "## Elevation" in (tmp_path / "out" / "qa" / "dolly_sods" / "qa_report.md").read_text()
+    assert (tmp_path / "processed" / "dolly_sods" / "profiles.json").exists()
+
+
+def test_reference_command_writes_gpx_and_caltopo_stub(tmp_path, monkeypatch, network):
+    import yaml
+
+    _cache(tmp_path, monkeypatch, network.doc())
+    out = tmp_path / "reference"
+    result = runner.invoke(app, ["reference", "--region", "dolly_sods", "--trail", "Main Trail",
+                                 "--out-dir", str(out), "--no-lidar"])
+    assert result.exit_code == 0, result.output
+    assert (out / "main_trail.gpx").exists()
+    stub = yaml.safe_load((out / "main_trail.yaml").read_text())
+    assert stub["region"] == "dolly_sods" and stub["gpx"] == "main_trail.gpx"
+    assert stub["caltopo"] == {"distance_mi": None, "gain_ft": None, "loss_ft": None}
+    assert "1.24 mi" in result.output  # 2000 m
+
+    # Re-running must not wipe numbers already copied from CalTopo.
+    stub["caltopo"]["gain_ft"] = 123
+    (out / "main_trail.yaml").write_text(yaml.safe_dump(stub))
+    runner.invoke(app, ["reference", "--region", "dolly_sods", "--trail", "Main Trail", "--out-dir", str(out), "--no-lidar"])
+    assert yaml.safe_load((out / "main_trail.yaml").read_text())["caltopo"]["gain_ft"] == 123
+
+
+def test_verify_keeps_elevation_in_rewritten_qa_outputs(tmp_path, monkeypatch, network):
+    from conftest import plane_dem, usfs_doc, usfs_line
+
+    _cache(tmp_path, monkeypatch, network.doc())
+    dem = plane_dem(0.1, 0.0, 1000)
+    region = cli.load_region("dolly_sods")
+    ingest.fetch_dem(region, (-180, -90, 180, 90), raw_dir=tmp_path / "raw",
+                     searcher=lambda ds, b: [{"title": "USGS 1/3 Arc Second n40w080 20260101", "publicationDate": "2026-01-01",
+                                               "downloadURL": "x"}],
+                     reader=lambda urls, b: (dem.array.astype("float32"), dem.transform, dem.crs))
+    (tmp_path / "raw" / "dolly_sods" / "usfs_20260101T000000Z.json").write_text(json.dumps(usfs_doc({
+        "trails": [usfs_line([(0, 5), (2000, 5)], trail_no="1", trail_name="MAIN TRAIL")],
+    })))
+    result = runner.invoke(app, ["verify", "--region", "dolly_sods"])
+    assert result.exit_code == 0, result.output
+    report = (tmp_path / "out" / "qa" / "dolly_sods" / "qa_report.md").read_text()
+    assert "## Elevation" in report and "No DEM cached" not in report

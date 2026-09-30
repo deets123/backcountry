@@ -330,3 +330,42 @@ def bbox_coverage(raw: dict, region: Region) -> list[dict]:
             }
         )
     return out
+
+
+def chain_named_trail(tg: TrailGraph, name: str) -> dict:
+    """Join the trail edges with this name into one line, using only source vertices.
+
+    Refuses anything that isn't a single unbranched line: branches, loops, or
+    disconnected pieces are reported, never bridged.
+    """
+    G = tg.graph
+    edges = [(u, v, k, d) for u, v, k, d in G.edges(keys=True, data=True) if d["name"] == name and not d["is_road"]]
+    if not edges:
+        raise ValueError(f"No trail edges named {name!r}")
+    sub = nx.MultiGraph()
+    sub.add_edges_from(edges)
+    if not nx.is_connected(sub):
+        raise ValueError(f"{name!r} is in {nx.number_connected_components(sub)} disconnected pieces")
+    ends = sorted(n for n, deg in sub.degree() if deg == 1)
+    if any(deg > 2 for _, deg in sub.degree()) or len(ends) != 2:
+        raise ValueError(f"{name!r} has a branch or loop, so it isn't a single line")
+
+    node, prev_key = ends[0], None
+    coords_ll, coords_utm, sources, nodes = [], [], [], [node]
+    while True:
+        nxt = [(v, k, d) for _, v, k, d in sub.edges(node, keys=True, data=True) if k != prev_key]
+        if not nxt:
+            break
+        other, k, d = nxt[0]
+        ll, utm = list(d["geom_wgs84"].coords), list(d["geom_utm"].coords)
+        if d["osm_nodes"][0] != node:
+            ll, utm = ll[::-1], utm[::-1]
+        coords_ll += ll if not coords_ll else ll[1:]
+        coords_utm += utm if not coords_utm else utm[1:]
+        if d["source"] not in sources:
+            sources.append(d["source"])
+        node, prev_key = other, k
+        nodes.append(node)
+    line_utm = LineString(coords_utm)
+    return {"name": name, "coords_wgs84": coords_ll, "line_utm": line_utm, "length_m": line_utm.length,
+            "sources": sources, "nodes": nodes}
