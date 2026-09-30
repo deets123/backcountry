@@ -162,7 +162,7 @@ Enterprise Data Warehouse: official NFS trails, roads (with maintenance level an
   plus a short optional CalTopo spot check. For that, I export one trail as GPX and you import it
   with step-by-step instructions.
 
-## M2 — Elevation (built 2026-09-30; waiting on your CalTopo numbers)
+## M2 — Elevation (done 2026-09-30)
 
 **Done**
 - `backcountry dem --region dolly_sods`: finds USGS 3DEP 1/3 arc-second (~10 m) tiles through the National Map
@@ -201,6 +201,15 @@ Enterprise Data Warehouse: official NFS trails, roads (with maintenance level an
 **Dependencies added:** rasterio and gpxpy (both in the CLAUDE.md stack), and numpy (already required by
 rasterio/shapely; declared because the DEM math uses it directly).
 
-**Open**
-- CalTopo's distance, gain, and loss for `tests/reference/blackbird_knob_trail.gpx` → copy them into
-  `tests/reference/blackbird_knob_trail.yaml`. That is the last M2 acceptance check.
+**Acceptance (CalTopo, read by you on 2026-09-30 from the imported GPX's Profile box)**
+
+| | CalTopo | ours (10 m DEM) | difference |
+|---|---|---|---|
+| distance | 5.44 mi | 5.44 mi | 0% |
+| gain | 789 ft | 794 ft | +0.7% |
+| loss | 687 ft | 696 ft | +1.3% |
+| low / high | 3,661 / 4,085 ft | 3,656 / 4,088 ft | 5 ft / 3 ft |
+
+`tests/test_reference.py` checks this (gain/loss ±15%, distance ±5%, low/high ±30 ft) and the lidar
+comparison. Both pass. The 15% target was met with room to spare on one trail; more reference trails
+would be cheap to add later with `backcountry reference`.

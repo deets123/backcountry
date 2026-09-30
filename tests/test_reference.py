@@ -46,6 +46,9 @@ def test_matches_caltopo(path):
     assert length_m / M_PER_MI == pytest.approx(ct["distance_mi"], rel=DIST_TOL)
     assert p["gain_m"] * FT_PER_M == pytest.approx(ct["gain_ft"], rel=GAIN_TOL)
     assert p["loss_m"] * FT_PER_M == pytest.approx(ct["loss_ft"], rel=GAIN_TOL)
+    if ct.get("low_ft") is not None and ct.get("high_ft") is not None:
+        assert min(p["z_m"]) * FT_PER_M == pytest.approx(ct["low_ft"], abs=30)
+        assert max(p["z_m"]) * FT_PER_M == pytest.approx(ct["high_ft"], abs=30)
 
 
 @pytest.mark.parametrize("path", REFS, ids=lambda p: p.stem)
