@@ -13,10 +13,10 @@ REGION = Region(id="testland", name="Test", crs="EPSG:32617", bbox=BBox(1.0, 2.0
     [
         ({"highway": "path"}, "trail"),
         ({"highway": "footway"}, "trail"),
-        ({"highway": "track"}, "trail"),
+        ({"highway": "track"}, "road"),  # user decision 2026-09-29: tracks are roads
         ({"highway": "unclassified"}, "road"),
         ({"highway": "service"}, "road"),
-        ({"highway": "tertiary"}, None),
+        ({"highway": "tertiary"}, "road"),  # routable, but last resort
         ({"highway": "residential"}, None),
         ({"building": "yes"}, None),
     ],
@@ -130,3 +130,11 @@ def test_fetch_usfs_refuses_truncated_results(tmp_path):
 
 def test_load_usfs_is_none_without_cache(tmp_path):
     assert ingest.load_usfs(REGION, raw_dir=tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "highway, last_resort",
+    [("tertiary", True), ("unclassified", False), ("service", False), ("track", False), ("path", False)],
+)
+def test_last_resort_roads(highway, last_resort):
+    assert ingest.is_last_resort({"highway": highway}) is last_resort

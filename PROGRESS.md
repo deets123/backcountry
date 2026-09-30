@@ -133,3 +133,31 @@ Enterprise Data Warehouse: official NFS trails, roads (with maintenance level an
 - Tracks → `is_road`? (Recommended, since none are USFS trails. Waiting on your call.)
 - Wilderness Way location, and the 5.9 mi of OSM-only wilderness trail: your call after checking.
 - Flip `verified: true` on the trailheads you've checked.
+
+## M1 follow-up — your decisions applied (2026-09-29)
+
+**Decisions (from you)**
+- Tracks are roads (`is_road`), usable when needed.
+- `tertiary` is in the graph as a road flagged `last_resort=true`; M4 scoring will only use it when
+  nothing else works. It's drawn dotted on the map.
+- OSM is the source of truth for trails, including the 5.9 mi inside the wilderness that USFS doesn't
+  list. USFS stays a cross-check. OSM already contains every USFS trail (0 gaps), so merging USFS
+  geometry would add nothing.
+
+**Fix**
+- The map no longer requests OSM's volunteer tile servers. They blocked the page opened from disk
+  ("Access blocked"), and CLAUDE.md rule 6 says to respect tile terms. Base maps are USGS Topo
+  (default) and USGS Imagery + Topo, both public domain. The credit line keeps the OSM data attribution.
+
+**New numbers (same OSM snapshot)**
+- 580 nodes, 661 edges, 36 components (was 51); 214.6 mi total (116.6 trail, 98.1 road).
+- C0: 189.2 mi. Tertiary roads merged 15 small components into it.
+- C0 without roads: the core wilderness piece is now 69.5 mi (was 91.2). The Cabin Mountain /
+  Canaan Valley trails (T1, 17.4 mi) connect to it only through a track, which is now a road.
+- USFS check unchanged: 99.2% within 100 ft, 0 gaps. 184 dead ends, 8 possible missing junctions.
+
+**Change to the M2 plan (needs your OK)**
+- You don't have a CalTopo reference GPX. Proposed instead: validate elevation gain automatically
+  against USGS 3DEP 1 m lidar where it covers Dolly Sods (an independent, higher-resolution source),
+  plus a short optional CalTopo spot check. For that, I export one trail as GPX and you import it
+  with step-by-step instructions.

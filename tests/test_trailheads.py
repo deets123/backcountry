@@ -50,5 +50,5 @@ def test_parking_near_trail_node(result):
 def test_trail_road_junctions(result):
     network, _, res = result
     junctions = {c["id"] for c in res["candidates"] if "trail_road_junction" in c["kinds"]}
-    # C, E: trail meets routable road; m1, F: trail meets a non-routable (tertiary) road.
+    # C, E: trail meets routable road; m1, F: trail meets a non-routable (residential) road.
     assert junctions == {network.ids[n] for n in ("C", "E", "m1", "F")}

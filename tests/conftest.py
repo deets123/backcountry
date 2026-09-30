@@ -56,7 +56,7 @@ class RawBuilder:
 def build_network() -> RawBuilder:
     """Small network exercising every graph/QA case.
 
-        L1                    D ~T         E -------- F -- (tertiary up)
+        L1                    D ~T         E -------- F -- (residential up)
         |                     |            |
         |                     b1           c1
         |          t2         |            |
@@ -85,12 +85,12 @@ def build_network() -> RawBuilder:
     b.way(3, ["C", "c1", "E"], highway="unclassified", name="FR 1")
     b.way(4, ["D", "d1", "E"], highway="path", access="private", name="Private Path")
     b.way(5, ["E", "F"], highway="path", access="no", foot="designated", name="Override Trail")
-    b.way(6, ["F", "f1"], highway="tertiary", name="State Rd")
+    b.way(6, ["F", "f1"], highway="residential", name="State Rd")
     b.way(7, ["G", "H"], highway="path", name="Island Trail")
     b.way(8, ["C", "S"], highway="path", name="Stub")
     b.way(9, ["I", "J"], highway="path", name="Near Miss Trail")
     b.way(10, ["A", "L1", "L2", "A"], highway="path", name="Loop Trail")
-    b.way(11, ["t1", "m1", "t2"], highway="tertiary", name="Cross Rd")
+    b.way(11, ["t1", "m1", "t2"], highway="residential", name="Cross Rd")
     b.way(12, ["P1", "P2", "P3", "P4", "P1"], amenity="parking", name="Test Lot")
     b.poi(9001, 1000, 820, highway="trailhead", name="Test TH")
     return b

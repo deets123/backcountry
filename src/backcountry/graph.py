@@ -3,7 +3,7 @@
 Graph nodes are OSM nodes that are either
   - an endpoint of a routable way,
   - shared by two or more routable ways (a junction), or
-  - shared with a non-routable highway (e.g. a trail crossing a tertiary road).
+  - shared with a non-routable highway (e.g. a trail crossing a residential road).
 
 Each edge is a contiguous run of nodes from exactly one OSM way between two
 graph nodes, so every edge maps back to one source way. No geometry is added,
@@ -18,7 +18,7 @@ from pyproj import Transformer
 from shapely import STRtree
 from shapely.geometry import LineString, Point
 
-from backcountry.ingest import KEEP_TAGS, access_exclusion_reason, foot_overrides_access, way_class
+from backcountry.ingest import KEEP_TAGS, access_exclusion_reason, foot_overrides_access, is_last_resort, way_class
 from backcountry.region import Region
 
 SHORT_EDGE_M = 20.0
@@ -122,6 +122,7 @@ def _add_edge(G, way, seg_nodes, seg, coords, to_crs, retrieved_at):
         highway=tags["highway"],
         name=tags.get("name"),
         is_road=way_class(tags) == "road",
+        last_resort=is_last_resort(tags),
         tags={k: tags[k] for k in KEEP_TAGS if k in tags},
         length_m=geom_utm.length,
         geom_wgs84=LineString(lonlat),

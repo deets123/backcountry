@@ -63,3 +63,12 @@ def test_edges_geojson_keeps_provenance(network, tmp_path):
     for f in fc["features"]:
         assert f["properties"]["source"].startswith("osm:way/")
         assert f["properties"]["retrieved_at"]
+
+
+def test_map_never_requests_osm_tiles(outputs):
+    """OSM's volunteer tile servers block pages opened from disk; CLAUDE.md rule 6."""
+    _, _, paths = outputs
+    html = paths["map"].read_text()
+    assert "tile.openstreetmap.org" not in html
+    assert "basemap.nationalmap.gov" in html
+    assert "OpenStreetMap contributors" in html  # data attribution stays

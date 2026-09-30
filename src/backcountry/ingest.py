@@ -27,8 +27,12 @@ OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "backcountry-route-engine/0.1 (personal non-commercial tool; responses cached locally)"
 OSM_ATTRIBUTION = "© OpenStreetMap contributors, ODbL (openstreetmap.org/copyright)"
 
-TRAIL_HIGHWAYS = ("path", "footway", "track")
-ROAD_HIGHWAYS = ("unclassified", "service")  # forest roads; flagged is_road
+TRAIL_HIGHWAYS = ("path", "footway")
+# Roads are routable but flagged is_road so scoring can avoid them unless needed.
+# Tracks count as roads (user decision 2026-09-29): none are USFS-designated trails.
+ROAD_HIGHWAYS = ("track", "unclassified", "service", "tertiary")
+# Paved county roads: routable only as a last resort (user decision 2026-09-29).
+LAST_RESORT_HIGHWAYS = ("tertiary",)
 FOOT_ALLOWED = ("yes", "designated", "permissive")
 BLOCKED = ("no", "private")
 
@@ -44,6 +48,10 @@ def way_class(tags: dict) -> str | None:
     if highway in ROAD_HIGHWAYS:
         return "road"
     return None
+
+
+def is_last_resort(tags: dict) -> bool:
+    return tags.get("highway") in LAST_RESORT_HIGHWAYS
 
 
 def access_exclusion_reason(tags: dict) -> str | None:

@@ -142,7 +142,7 @@ def test_dead_ends(qa):
 def test_dead_end_notes_explain_likely_cause(qa):
     network, s = qa
     notes = {d["node"]: d["note"] for d in s["dead_ends"]}
-    assert "State Rd" in notes[network.ids["F"]] and "tertiary" in notes[network.ids["F"]]
+    assert "State Rd" in notes[network.ids["F"]] and "residential" in notes[network.ids["F"]]
     assert "access=private" in notes[network.ids["D"]] and "osm:way/4" in notes[network.ids["D"]]
     assert "49 ft" in notes[network.ids["I"]] and "osm:way/1" in notes[network.ids["I"]]  # 15 m
     assert notes[network.ids["J"]] == ""
@@ -178,7 +178,7 @@ def test_non_routable_highways_touching_network_are_listed(qa):
     touching = {t["way_id"]: t for t in s["other_highways_touching"]}
     assert set(touching) == {6, 11}
     assert touching[11]["components"] == ["C0"]
-    assert touching[11]["highway"] == "tertiary"
+    assert touching[11]["highway"] == "residential"
 
 
 def test_trail_only_breakdown_of_main_component(qa):
@@ -190,3 +190,16 @@ def test_trail_only_breakdown_of_main_component(qa):
         {network.ids[n] for n in ("E", "F")},
     ]
     assert pieces[0]["length_m"] == pytest.approx(2000 + 800 + 10 + 1000 + 2 * math.hypot(500, 500), abs=0.01)
+
+
+def test_track_is_road_and_tertiary_is_last_resort_road(network):
+    network.node("Q", 5000, 800)
+    network.node("R", 5000, 1300)
+    network.way(14, ["H", "Q"], highway="track", name="Old Grade")
+    network.way(15, ["Q", "R"], highway="tertiary", name="County Rd")
+    tg = build_graph(network.doc(), crs=CRS)
+    track = _edges_of_way(tg.graph, 14)[0]
+    tertiary = _edges_of_way(tg.graph, 15)[0]
+    assert track["is_road"] and not track["last_resort"]
+    assert tertiary["is_road"] and tertiary["last_resort"]
+    assert not _edges_of_way(tg.graph, 1)[0]["last_resort"]

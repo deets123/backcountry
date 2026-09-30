@@ -13,11 +13,14 @@ from pathlib import Path
 import folium
 from shapely.geometry import mapping
 
-from backcountry.ingest import OSM_ATTRIBUTION, ROAD_HIGHWAYS, TRAIL_HIGHWAYS, USFS_ATTRIBUTION
+from backcountry.ingest import LAST_RESORT_HIGHWAYS, OSM_ATTRIBUTION, ROAD_HIGHWAYS, TRAIL_HIGHWAYS, USFS_ATTRIBUTION
 
 M_PER_MI = 1609.344
 FT_PER_M = 3.28084
+# Base maps: USGS National Map only (public domain). OSM's volunteer tile servers
+# block pages opened from disk, and CLAUDE.md rule 6 says to respect tile terms.
 USGS_TOPO = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}"
+USGS_IMAGERY = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}"
 MAIN_COLOR = "#1f4fd1"
 USFS_TRAIL_COLOR = "#ffc400"
 USFS_ROAD_COLOR = "#8d5524"
@@ -107,7 +110,8 @@ def qa_markdown(summary: dict, tg, raw: dict, region, coverage: list[dict]) -> s
         + (f" (OSM database as of {raw['osm_base']})" if raw.get("osm_base") else "")
         + f". {OSM_ATTRIBUTION}.",
         "",
-        f"Routable types: trails = {', '.join(TRAIL_HIGHWAYS)}; roads (`is_road`) = {', '.join(ROAD_HIGHWAYS)}. "
+        f"Routable types: trails = {', '.join(TRAIL_HIGHWAYS)}; roads (`is_road`) = {', '.join(ROAD_HIGHWAYS)}, "
+        f"of which {', '.join(LAST_RESORT_HIGHWAYS)} is last resort only. "
         "Everything else is left out of the graph. Nothing has been patched or joined: every gap below is a gap in the source data "
         "or in the type filter.",
         "",
@@ -228,8 +232,9 @@ def qa_map(summary: dict, tg, raw: dict, region, verification: dict | None = Non
     b = region.bbox
     m = folium.Map(location=[(b.south + b.north) / 2, (b.west + b.east) / 2], zoom_start=12, tiles=None,
                    control_scale=True)
-    folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
-    folium.TileLayer(tiles=USGS_TOPO, attr="USGS The National Map", name="USGS Topo").add_to(m)
+    credit = f"Base map: USGS The National Map | Trail data {OSM_ATTRIBUTION}"
+    folium.TileLayer(tiles=USGS_TOPO, attr=credit, name="USGS Topo", max_native_zoom=16, max_zoom=19).add_to(m)
+    folium.TileLayer(tiles=USGS_IMAGERY, attr=credit, name="USGS Imagery + Topo", max_native_zoom=16, max_zoom=19, show=False).add_to(m)
 
     layers = {"main": [], "other": []}
     for u, _, d in G.edges(data=True):
@@ -239,7 +244,7 @@ def qa_map(summary: dict, tg, raw: dict, region, verification: dict | None = Non
             "geometry": mapping(d["geom_wgs84"]),
             "properties": {"component": comp, "name": d["name"] or "(unnamed)", "highway": d["highway"],
                            "source": d["source"], "length": mi(d["length_m"]), "color": colors[comp],
-                           "dash": "8 6" if d["is_road"] else None},
+                           "dash": "2 7" if d["last_resort"] else "8 6" if d["is_road"] else None},
         })
     main_len = mi(comps[0]["length_m"]) if comps else "0 mi"
     for key, title in (("main", f"C0 main network ({main_len})"), ("other", f"Other components ({len(comps) - 1})")):
@@ -373,7 +378,8 @@ def _legend(summary: dict, region, verification: dict | None, main_len: str, n_o
     rows = ['<div class="bc-sec">OSM trail graph</div>',
             row(_swatch_line(MAIN_COLOR, 5), f"Main network (C0), {main_len}"),
             row(_swatch_multi(), f"Other components ({n_other}), hover for id"),
-            row(_swatch_line("#555", 3, "6 4"), "Road (dashed, any component)"),
+            row(_swatch_line("#555", 3, "6 4"), "Road or track (dashed), usable when needed"),
+            row(_swatch_line("#555", 3, "1 5"), "Paved county road (dotted), last resort"),
             row(_swatch_dot(DEAD_END_COLOR, DEAD_END_COLOR, 4), "Dead end (layer off by default)"),
             row(_swatch_dot(None, MISSING_JUNCTION_COLOR, 6), "Possible missing junction")]
     sources = f"OSM {OSM_ATTRIBUTION}, retrieved {summary['retrieved_at'][:10]}"
