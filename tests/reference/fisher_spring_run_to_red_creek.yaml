@@ -1,0 +1,11 @@
+# CalTopo cross-check. Import the .gpx into CalTopo, then copy its numbers below.
+region: dolly_sods
+name: trailhead fisher_spring_run (Fisher Spring Run Trailhead) to trailhead red_creek
+  (Red Creek Trailhead)
+gpx: fisher_spring_run_to_red_creek.gpx
+exported_from: osm:way/176802844, osm:way/690343011, osm:way/498384604, osm:way/1427983302
+  (OSM retrieved 2026-09-29T23:16:53Z)
+caltopo:
+  distance_mi: null
+  gain_ft: null
+  loss_ft: null

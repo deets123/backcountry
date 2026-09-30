@@ -73,3 +73,19 @@ def test_every_edge_has_elevation_and_consistent_net_change(tg):
         net_ft = (d["profile"]["z_m"][-1] - d["profile"]["z_m"][0]) * FT_PER_M
         assert d["gain_ft_fwd"] - d["loss_ft_fwd"] == pytest.approx(net_ft, abs=1e-6), d["source"]
         assert d["gain_ft_rev"] - d["loss_ft_rev"] == pytest.approx(-net_ft, abs=1e-6), d["source"]
+
+
+def test_trailhead_to_trailhead_route_uses_only_source_vertices(tg, ways):
+    from backcountry.route import resolve_point, shortest_route
+
+    ids = [th["id"] for th in REGION.trailheads]
+    a, b = resolve_point(tg, REGION, "fisher_spring_run"), resolve_point(tg, REGION, "red_creek")
+    route = shortest_route(tg, a["node"], b["node"])
+    assert route.nodes[0] == a["node"] and route.nodes[-1] == b["node"]
+    assert route.line_utm.length == pytest.approx(route.length_m, abs=0.01)
+    osm_vertices = {(round(g["lon"], 7), round(g["lat"], 7)) for w in ways.values() for g in w["geometry"]}
+    for lon, lat in route.line_wgs84.coords:
+        assert (round(lon, 7), round(lat, 7)) in osm_vertices
+    for e, (u, v) in zip(route.edges, zip(route.nodes, route.nodes[1:])):
+        assert tg.graph.has_edge(u, v, e["key"]), e
+    assert ids  # the yaml still lists trailheads

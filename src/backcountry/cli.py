@@ -8,11 +8,12 @@ from pathlib import Path
 
 import yaml
 
-from backcountry.export import ft, mi, write_graph_geojson, write_qa_outputs, write_trail_gpx, write_verify_report
+from backcountry.export import ft, mi, write_graph_geojson, write_qa_outputs, write_route, write_trail_gpx, write_verify_report
 from backcountry.graph import bbox_coverage, build_graph, chain_named_trail, qa_summary
 from backcountry.region import REPO_ROOT, load_region
 from backcountry.trailheads import find_candidates
 from backcountry.elevation import FT_PER_M, annotate, graph_bounds_ll, line_profile
+from backcountry.route import add_elevation, resolve_point, shortest_route
 from backcountry.verify import verify
 
 OUT_DIR = REPO_ROOT / "out"
@@ -179,18 +180,7 @@ def reference(
         raise typer.Exit(code=1)
     slug = slugify(trail)
     gpx_path = write_trail_gpx(chain, out_dir / f"{slug}.gpx", tg.retrieved_at)
-    stub_path = out_dir / f"{slug}.yaml"
-    if not stub_path.exists():
-        stub_path.write_text(
-            "# CalTopo cross-check (M2). Import the .gpx into CalTopo, then copy its numbers below.\n"
-            + yaml.safe_dump({
-                "region": r.id,
-                "name": trail,
-                "gpx": gpx_path.name,
-                "exported_from": f"{', '.join(chain['sources'])} (OSM retrieved {tg.retrieved_at})",
-                "caltopo": {"distance_mi": None, "gain_ft": None, "loss_ft": None},
-            }, sort_keys=False)
-        )
+    stub_path = write_reference_stub(out_dir / f"{slug}.yaml", r, trail, gpx_path.name, chain["sources"], tg.retrieved_at)
     typer.echo(f"{trail}: {mi(chain['length_m'])}, {len(chain['coords_wgs84'])} points from {', '.join(chain['sources'])}")
     typer.echo(f"gpx:  {gpx_path}\nyaml: {stub_path}")
 
@@ -212,6 +202,67 @@ def reference(
         typer.echo("  ~10 m DEM not cached; run `backcountry dem` for our main numbers.")
 
 
+def write_reference_stub(path: Path, region, name: str, gpx_name: str, sources: list[str], retrieved_at: str) -> Path:
+    """YAML for CalTopo's numbers. Never overwrites one that exists (it may hold numbers already copied in)."""
+    if not path.exists():
+        path.write_text(
+            "# CalTopo cross-check. Import the .gpx into CalTopo, then copy its numbers below.\n"
+            + yaml.safe_dump({
+                "region": region.id,
+                "name": name,
+                "gpx": gpx_name,
+                "exported_from": f"{', '.join(sources)} (OSM retrieved {retrieved_at})",
+                "caltopo": {"distance_mi": None, "gain_ft": None, "loss_ft": None},
+            }, sort_keys=False)
+        )
+    return path
+
+
 def _padded_bounds(coords: list, pad: float) -> tuple[float, float, float, float]:
     xs, ys = [c[0] for c in coords], [c[1] for c in coords]
     return min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad
+
+
+@app.command()
+def route(
+    region: str = RegionOpt,
+    from_: str = typer.Option(..., "--from", help="Trailhead id from the region yaml, an OSM node id, or lat,lon"),
+    to: str = typer.Option(..., "--to", help="Same forms as --from"),
+    no_roads: bool = typer.Option(False, "--no-roads", help="Refuse to use any road edge."),
+    road_factor: float = typer.Option(1.0, help="A road mile costs this many trail miles when choosing the path."),
+    out_dir: Path = typer.Option(None, help="Output directory (default out/routes/<from>-to-<to>)."),
+    reference: str = typer.Option(None, help="Also save the GPX + a CalTopo stub as tests/reference/<name>."),
+):
+    """Shortest point-to-point route, exported as GPX with distance and gain."""
+    r, raw, tg = _load(region)
+    try:
+        a, b = resolve_point(tg, r, from_), resolve_point(tg, r, to)
+        rt = shortest_route(tg, a["node"], b["node"], no_roads=no_roads, road_factor=road_factor)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+    dem = ingest.load_dem(r)
+    if dem is not None:
+        add_elevation(rt, dem, tg.crs)
+    else:
+        rt.notes.append("elevation unknown: no DEM cached (run `backcountry dem`)")
+    for p in (a, b):
+        if p["snap_m"]:
+            rt.notes.append(f"{p['how']}, {ft(p['snap_m'])} away")
+    out_dir = out_dir or OUT_DIR / "routes" / f"{slugify(from_)}-to-{slugify(to)}"
+    paths = write_route(rt, r, out_dir, a["how"], b["how"], tg.retrieved_at)
+    gain = f"gain {rt.gain_ft:,.0f} ft, loss {rt.loss_ft:,.0f} ft" if rt.gain_ft is not None else "elevation unknown"
+    typer.echo(f"{a['how']} -> {b['how']}: {mi(rt.length_m)}, {gain}; road {mi(rt.road_m)}"
+               + (f" (last resort {mi(rt.last_resort_m)})" if rt.last_resort_m else ""))
+    for n in rt.notes:
+        typer.echo(f"  note: {n}")
+    typer.echo(f"gpx: {paths['gpx']}\nsummary: {paths['summary']}")
+    if reference:
+        slug = slugify(reference)
+        gpx = REFERENCE_DIR / f"{slug}.gpx"
+        gpx.parent.mkdir(parents=True, exist_ok=True)
+        gpx.write_text(paths["gpx"].read_text())
+        sources = list(dict.fromkeys(e["source"] for e in rt.edges))
+        stub = write_reference_stub(REFERENCE_DIR / f"{slug}.yaml", r, f"{a['how']} to {b['how']}", gpx.name, sources,
+                                    tg.retrieved_at)
+        typer.echo(f"reference: {gpx}\n           {stub}")

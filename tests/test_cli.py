@@ -118,3 +118,33 @@ def test_verify_keeps_elevation_in_rewritten_qa_outputs(tmp_path, monkeypatch, n
     assert result.exit_code == 0, result.output
     report = (tmp_path / "out" / "qa" / "dolly_sods" / "qa_report.md").read_text()
     assert "## Elevation" in report and "No DEM cached" not in report
+
+
+def test_route_command(tmp_path, monkeypatch, network):
+    _cache(tmp_path, monkeypatch, network.doc())
+    a, f = network.ids["A"], network.ids["F"]
+    result = runner.invoke(app, ["route", "--region", "dolly_sods", "--from", str(a), "--to", str(f)])
+    assert result.exit_code == 0, result.output
+    assert "2.17 mi" in result.output and "elevation unknown" in result.output.lower()
+    out = tmp_path / "out" / "routes" / f"{a}-to-{f}"
+    assert (out / "route.gpx").exists() and (out / "summary.md").exists()
+
+
+def test_route_command_explains_bad_endpoints(tmp_path, monkeypatch, network):
+    _cache(tmp_path, monkeypatch, network.doc())
+    result = runner.invoke(app, ["route", "--region", "dolly_sods", "--from", "nowhere", "--to", "1000"])
+    assert result.exit_code == 1 and "not a trailhead id" in result.output
+
+
+def test_route_reference_flag_writes_caltopo_stub(tmp_path, monkeypatch, network):
+    import yaml
+
+    _cache(tmp_path, monkeypatch, network.doc())
+    monkeypatch.setattr(cli, "REFERENCE_DIR", tmp_path / "reference")
+    a, f = network.ids["A"], network.ids["F"]
+    result = runner.invoke(app, ["route", "--region", "dolly_sods", "--from", str(a), "--to", str(f),
+                                 "--reference", "a_to_f"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "reference" / "a_to_f.gpx").exists()
+    stub = yaml.safe_load((tmp_path / "reference" / "a_to_f.yaml").read_text())
+    assert stub["gpx"] == "a_to_f.gpx" and stub["caltopo"]["distance_mi"] is None

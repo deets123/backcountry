@@ -213,3 +213,34 @@ rasterio/shapely; declared because the DEM math uses it directly).
 `tests/test_reference.py` checks this (gain/loss ±15%, distance ±5%, low/high ±30 ft) and the lidar
 comparison. Both pass. The 15% target was met with room to spare on one trail; more reference trails
 would be cheap to add later with `backcountry reference`.
+
+## M3 — Sanity routing (built 2026-09-30; waiting on your CalTopo distance)
+
+**Done**
+- `backcountry route --region dolly_sods --from X --to Y [--no-roads] [--road-factor N] [--reference NAME]`.
+  `X`/`Y` can be a trailhead id from the region yaml (`red_creek`), an OSM node id, or `lat,lon`, which
+  snaps to the nearest graph node and is refused beyond 656 ft (200 m).
+- `route.py`: shortest path by real distance on a simple weighted graph (lightest of any parallel edges).
+  Last-resort (tertiary) roads cost 10x their length, so they're used only when nothing else connects.
+  `--road-factor N` makes every road mile cost N trail miles; `--no-roads` drops roads entirely.
+  Reported distance is always the real one.
+- Route geometry is the edges' source vertices joined in walking order (edges reversed as needed).
+  Gain/loss come from one profile of the joined line, not from summing edge values.
+- Outputs in `out/routes/<from>-to-<to>/`: `route.gpx` (exact vertices, Start/End waypoints, no elevations),
+  `route.geojson`, and `summary.md` (distance, gain/loss or "unknown", segments in order with OSM ways,
+  road miles, data sources with retrieval dates, and a "Not checked by this tool" section).
+- Real-data test: a trailhead-to-trailhead route uses only graph edges and OSM vertices, and its line length
+  equals the sum of its edges.
+
+**Sample results (real data)**
+- fisher_spring_run → red_creek: 5.34 mi, +317 / −1,696 ft, all trail (Fisher Spring Run Trail, Red Creek Trail).
+- red_creek → blackbird_knob: 7.44 mi, +1,831 / −565 ft, last 2.10 mi on Dolly Sods Road (shortest by distance).
+- bear_rocks → blackbird_knob: 2.18 mi, entirely on Dolly Sods Road (they're both on FR 75).
+- bear_rocks → red_creek: 9.62 mi, 4.28 mi of road. `--road-factor` shifts these onto trails.
+
+**Acceptance:** `tests/reference/fisher_spring_run_to_red_creek.gpx` is waiting for CalTopo's numbers
+(distance within 5% is the M3 target; gain/loss get checked too).
+
+**Notes**
+- Red Creek Trail has a 0.04 mi unnamed connector (osm:way/1427983302) in the middle of it.
+- Added module `route.py` (not in the CLAUDE.md layout); `loops.py` stays reserved for M4.

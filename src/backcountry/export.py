@@ -606,3 +606,81 @@ def read_gpx_line(path: Path):
 
     gpx = gpxpy.parse(Path(path).read_text())
     return LineString([(p.longitude, p.latitude) for t in gpx.tracks for s in t.segments for p in s.points])
+
+
+# --- routes (M3) -------------------------------------------------------------------
+
+
+def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_retrieved_at: str) -> dict[str, Path]:
+    """route.gpx (exact vertices, start/end waypoints), route.geojson, summary.md."""
+    import gpxpy.gpx
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths = {"gpx": out_dir / "route.gpx", "geojson": out_dir / "route.geojson", "summary": out_dir / "summary.md"}
+    title = f"{from_text} to {to_text}"
+
+    gpx = gpxpy.gpx.GPX()
+    gpx.creator = "backcountry route engine"
+    gpx.name = title
+    gpx.description = (f"Trail data {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}. Geometry is exact OSM vertices "
+                       f"from {', '.join(dict.fromkeys(e['source'] for e in route.edges))}.")
+    track = gpxpy.gpx.GPXTrack(name=title)
+    track.segments.append(gpxpy.gpx.GPXTrackSegment(
+        [gpxpy.gpx.GPXTrackPoint(lat, lon) for lon, lat in route.line_wgs84.coords]))
+    gpx.tracks.append(track)
+    (lon0, lat0), (lon1, lat1) = route.line_wgs84.coords[0], route.line_wgs84.coords[-1]
+    gpx.waypoints += [gpxpy.gpx.GPXWaypoint(lat0, lon0, name="Start", description=from_text),
+                      gpxpy.gpx.GPXWaypoint(lat1, lon1, name="End", description=to_text)]
+    paths["gpx"].write_text(gpx.to_xml())
+
+    features = [{"type": "Feature", "geometry": mapping(route.line_wgs84),
+                 "properties": {"name": title, "length_m": route.length_m, "gain_ft": route.gain_ft,
+                                "loss_ft": route.loss_ft, "edges": [e["key"] for e in route.edges]}}]
+    paths["geojson"].write_text(json.dumps({"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
+                                            "features": features}))
+    paths["summary"].write_text(route_markdown(route, region, from_text, to_text, osm_retrieved_at))
+    return paths
+
+
+def route_segments(route) -> list[dict]:
+    """Consecutive edges with the same name and type, merged, in walking order."""
+    segments = []
+    for e in route.edges:
+        label = e["name"] or f"unnamed {e['highway']}"
+        if segments and segments[-1]["label"] == label and segments[-1]["highway"] == e["highway"]:
+            segments[-1]["length_m"] += e["length_m"]
+            if e["source"] not in segments[-1]["sources"]:
+                segments[-1]["sources"].append(e["source"])
+        else:
+            segments.append({"label": label, "highway": e["highway"], "is_road": e["is_road"],
+                             "last_resort": e["last_resort"], "length_m": e["length_m"], "sources": [e["source"]]})
+    return segments
+
+
+def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at: str) -> str:
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    gain = f"gain {route.gain_ft:,.0f} ft, loss {route.loss_ft:,.0f} ft" if route.gain_ft is not None else "gain: unknown, loss: unknown"
+    L = [f"# Route: {from_text} to {to_text}", "", f"Region: {region.name}. Generated {now}.", "",
+         f"**{mi(route.length_m)}**, {gain}. Road walking {mi(route.road_m)}"
+         + (f", of which {mi(route.last_resort_m)} on last-resort paved roads" if route.last_resort_m else "") + ".", ""]
+    L += [f"- {n}" for n in route.notes]
+    if route.profile and route.gain_ft is not None:
+        z = [v for v in route.profile["z_m"] if v is not None]
+        L.append(f"- Elevation range along the route: {min(z) * FT_PER_M:,.0f} to {max(z) * FT_PER_M:,.0f} ft.")
+    L += ["", "## Segments in order", ""]
+    cumulative, rows = 0.0, []
+    for i, s in enumerate(route_segments(route), 1):
+        cumulative += s["length_m"]
+        kind = ("last-resort road" if s["last_resort"] else "road" if s["is_road"] else "trail") + f" ({s['highway']})"
+        rows.append([i, s["label"], kind, mi(s["length_m"]), mi(cumulative), ", ".join(s["sources"][:4])])
+    L += _table(["#", "name", "type", "length", "cumulative", "OSM ways"], rows)
+    L += ["", "## Data sources", "", f"- Trail geometry: {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}."]
+    if route.elevation_source:
+        src = route.elevation_source
+        L.append(f"- Elevation: {src.get('dataset', 'DEM')}, {src.get('attribution', '')}, retrieved {src.get('retrieved_at')}.")
+    else:
+        L.append("- Elevation: none (no DEM cached).")
+    L += ["", "## Not checked by this tool", "",
+          "Water, campsites, permits, closures, trail conditions, and trailhead access: **unknown**. "
+          "This summary describes distance, elevation, and data gaps only.", ""]
+    return "\n".join(L)
