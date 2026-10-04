@@ -5,6 +5,11 @@ Elevations are bilinear-interpolated from the DEM at those points, lightly
 smoothed, and gain/loss are accumulated with a hysteresis threshold so DEM
 noise doesn't inflate totals.
 
+Settings were chosen against two CalTopo references (see PROGRESS.md, M3):
+CalTopo samples its profiles every 100 ft, and sampling the same way, with a
+3-sample average and a 2 m threshold, reproduces its gain and loss within 4%.
+Finer sampling (10 m) over-counted small bumps on a rolling descent by 50%.
+
 "Forward" is the source way's direction: osm_nodes[0] -> osm_nodes[-1].
 If any sample has no DEM value, the edge's gain/loss are None (unknown).
 Gaps in the DEM are never filled in.
@@ -18,9 +23,9 @@ import numpy as np
 from pyproj import Transformer
 from shapely.geometry import LineString
 
-SAMPLE_M = 10.0
-SMOOTH_SAMPLES = 3  # centered moving average over ~30 m
-HYSTERESIS_M = 1.0  # ignore ups/downs smaller than ~3 ft
+SAMPLE_M = 30.48  # 100 ft, the spacing CalTopo uses for its profiles
+SMOOTH_SAMPLES = 3  # centered moving average over ~300 ft
+HYSTERESIS_M = 2.0  # ignore ups/downs smaller than ~6.6 ft
 FT_PER_M = 3.28084
 
 

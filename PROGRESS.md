@@ -214,7 +214,7 @@ rasterio/shapely; declared because the DEM math uses it directly).
 comparison. Both pass. The 15% target was met with room to spare on one trail; more reference trails
 would be cheap to add later with `backcountry reference`.
 
-## M3 — Sanity routing (built 2026-09-30; waiting on your CalTopo distance)
+## M3 — Sanity routing (done 2026-10-04)
 
 **Done**
 - `backcountry route --region dolly_sods --from X --to Y [--no-roads] [--road-factor N] [--reference NAME]`.
@@ -238,8 +238,27 @@ would be cheap to add later with `backcountry reference`.
 - bear_rocks → blackbird_knob: 2.18 mi, entirely on Dolly Sods Road (they're both on FR 75).
 - bear_rocks → red_creek: 9.62 mi, 4.28 mi of road. `--road-factor` shifts these onto trails.
 
-**Acceptance:** `tests/reference/fisher_spring_run_to_red_creek.gpx` is waiting for CalTopo's numbers
-(distance within 5% is the M3 target; gain/loss get checked too).
+**Acceptance (CalTopo, read by you on 2026-10-04 from the imported route's Profile box)**
+
+| | CalTopo | ours, original settings | ours, new settings |
+|---|---|---|---|
+| distance | 5.34 mi | 5.34 mi (0%) | 5.34 mi (0%) |
+| gain | 210 ft | 317 ft (+51%) | 209 ft (0%) |
+| loss | 1,588 ft | 1,696 ft (+7%) | 1,587 ft (0%) |
+| low / high | 2,625 / 4,003 ft | 2,625 / 4,004 ft | same |
+
+Distance (the M3 target) was exact. Gain was not: on a mostly-downhill route the "gain" is only small
+bumps, and our 33 ft sampling with a 3.3 ft threshold counted bumps CalTopo doesn't. CalTopo's profile
+box says it samples every 100 ft. A sweep over sample spacing (33/66/100 ft), smoothing (1/3 samples)
+and threshold (0–16 ft) against both references found two families that fit: 100 ft sampling with a
+6.6 ft threshold (both references within 4%), or 33 ft sampling with a 16 ft threshold (within 11%).
+
+**Decision:** elevation settings are now 100 ft sampling, 3-sample smoothing, 6.6 ft threshold
+(`elevation.py`: SAMPLE_M 30.48, SMOOTH_SAMPLES 3, HYSTERESIS_M 2.0). This departs from the roadmap's
+"~10–15 m" densify spacing on purpose: finer sampling over-counts relative to the tool you compare
+against. Blackbird Knob now reads 758 / 660 ft (−4% vs CalTopo; lidar 759 / 659), Fisher Spring Run →
+Red Creek 209 / 1,587 ft (0%). Two references isn't many; more cost one `backcountry route --reference`
+run plus a CalTopo import each, and `tests/test_reference.py` keeps every one of them as a regression test.
 
 **Notes**
 - Red Creek Trail has a 0.04 mi unnamed connector (osm:way/1427983302) in the middle of it.
