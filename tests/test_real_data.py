@@ -89,3 +89,27 @@ def test_trailhead_to_trailhead_route_uses_only_source_vertices(tg, ways):
     for e, (u, v) in zip(route.edges, zip(route.nodes, route.nodes[1:])):
         assert tg.graph.has_edge(u, v, e["key"]), e
     assert ids  # the yaml still lists trailheads
+
+
+@pytest.mark.parametrize("trailhead", ["bear_rocks", "red_creek", "blackbird_knob"])
+def test_three_closed_loops_per_trailhead(tg, trailhead):
+    """Roadmap M4 'done when': 3 loops each, every one closed, connected, real edges only."""
+    from backcountry.loops import find_candidates
+    from backcountry.route import resolve_point
+    from backcountry.scoring import M_PER_MI
+
+    start = resolve_point(tg, REGION, trailhead)["node"]
+    cands = find_candidates(tg, start, 18 * M_PER_MI, 26 * M_PER_MI)
+    assert len(cands) == 3, trailhead
+    for c in cands:
+        r = c.route
+        assert r.nodes[0] == r.nodes[-1] == start
+        assert 18 * M_PER_MI <= r.length_m <= 26 * M_PER_MI
+        for e, (u, v) in zip(r.edges, zip(r.nodes, r.nodes[1:])):
+            assert tg.graph.has_edge(u, v, e["key"])
+        assert r.line_utm.length == pytest.approx(r.length_m, abs=0.01)
+        keys = [e["key"] for e in r.edges]
+        assert len(keys) == len(set(keys)) or c.stem_keys, "no edge walked twice unless it's a lollipop stem"
+    for i, a in enumerate(cands):
+        for b in cands[i + 1:]:
+            assert a.overlap(b) < 0.5

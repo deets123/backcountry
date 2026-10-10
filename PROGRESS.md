@@ -263,3 +263,45 @@ run plus a CalTopo import each, and `tests/test_reference.py` keeps every one of
 **Notes**
 - Red Creek Trail has a 0.04 mi unnamed connector (osm:way/1427983302) in the middle of it.
 - Added module `route.py` (not in the CLAUDE.md layout); `loops.py` stays reserved for M4.
+
+## M4 — Loop generation (built 2026-10-10; awaiting your CalTopo review)
+
+**Done**
+- `backcountry generate --region dolly_sods --trailhead bear_rocks --total 18-26 [--type loop|lollipop|any]
+  [--count 3] [--no-roads] [--road-weight 1] [--repeat-weight 0.5]`.
+- `loops.py`: a reduced loop graph (start's component, dead-end spurs pruned, pass-through nodes merged into
+  super-edges that remember their real edges). Loops are built from waypoints: for one or two via junctions
+  (a, b), shortest path out to a, shortest a→b avoiding used edges, shortest back avoiding both. No edge is
+  walked twice. Lollipops (stem out, loop, stem back) are tried from the 8 nearest junctions when fewer than
+  `count` plain loops exist or `--type lollipop` is asked for; only stem edges repeat.
+- `scoring.py`: penalty = miles outside range ×10 + road miles ×1 + last-resort road miles ×5 + miles walked
+  twice ×0.5 (per mile; configurable). Candidates are the lowest-penalty loops that overlap each other by
+  less than 50% (length-weighted Jaccard on edge keys). If nothing fits the range, the search widens by 25%
+  and reports the deviation in the penalty. A 90 s time budget is reported if hit.
+- Outputs in `out/loops/<trailhead>_<range>mi/`: `candidates.md` (table + segments per candidate),
+  `candidates_map.html` (all candidates, USGS base), `search.json`, and `candidate_<i>/` with `route.gpx`,
+  `summary.md`, `route.geojson`.
+- Tests on a synthetic grid (exact loop counts, road penalty ordering, `--no-roads`, lollipop stems, diversity,
+  configurable weights) plus the roadmap acceptance on real data: 3 closed, connected, real-edge loops
+  for each of 3 trailheads.
+
+**Roadmap deviation: the DFS cycle enumeration was replaced.** The roadmap's approach (DFS over cycles
+through the start, pruned by distance) was implemented first. On the real loop graph (212 junctions,
+325 edges, median edge 0.14 mi) the number of simple cycles explodes: 3 under 6 mi, 93 under 10 mi,
+45,004 under 12 mi, 395,000+ under 14 mi (timed out), so an 18–26 mi search could not finish in 10 minutes.
+The waypoint construction above finds ~270 distinct in-range loops per trailhead in 4 s. It doesn't
+enumerate every cycle; it builds the ones a hiker would plan (shortest connections between waypoints),
+which is what "3 meaningfully different candidates" needs.
+
+**Results (18–26 mi)**
+- bear_rocks: 21.98 mi (+2,976 ft, 0.81 mi road), 19.05 mi (+2,013 ft, 0.81 mi road), 18.33 mi (+2,062 ft, 2.18 mi road)
+- red_creek: 22.31 mi (3.18 mi road), 21.20 mi (3.71 mi road), 18.51 mi (5.26 mi road)
+- blackbird_knob: 18.72 mi (1.37 mi road), 20.88 mi (1.51 mi road), 19.29 mi (2.10 mi road)
+- Every loop's gain equals its loss, as a closed loop must.
+
+**Known limits / open**
+- Your review: load `out/loops/bear_rocks_18-26mi/candidate_1/route.gpx` (and others) in CalTopo and confirm
+  they follow real trails. That's the M4 "done when".
+- Waypoint loops can cross themselves at a junction (edges never repeat, nodes may). Not seen in the
+  results so far; say if you'd rather forbid it.
+- Elevation enters scoring only in M5 (per-day gain cap after splitting).

@@ -684,3 +684,92 @@ def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at
           "Water, campsites, permits, closures, trail conditions, and trailhead access: **unknown**. "
           "This summary describes distance, elevation, and data gaps only.", ""]
     return "\n".join(L)
+
+
+# --- loop candidates (M4) --------------------------------------------------------
+
+
+CANDIDATE_COLORS = ["#d32f2f", "#1976d2", "#388e3c", "#f57c00", "#7b1fa2"]
+
+
+def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_retrieved_at: str,
+                     min_m: float, max_m: float) -> dict[str, Path]:
+    """candidates.md, candidates_map.html, search.json, and candidate_<i>/ (route.gpx, summary.md, geojson)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cands = report["candidates"]
+    paths = {"summary": out_dir / "candidates.md", "map": out_dir / "candidates_map.html",
+             "search": out_dir / "search.json"}
+    for i, c in enumerate(cands, 1):
+        write_route(c.route, region, out_dir / f"candidate_{i}", start_text, f"{start_text} (loop)", osm_retrieved_at)
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    L = [f"# Loop candidates from {start_text}", "",
+         f"Region: {region.name}. Requested {mi(min_m)} to {mi(max_m)}. Generated {now}.", ""]
+    if report["widened"]:
+        L += [f"**Nothing fit the requested range**, so the search was widened by {WIDEN_PCT}% and the "
+              "distance deviation is included in each penalty.", ""]
+    if report["truncated"]:
+        L += ["**The search hit its time budget**, so some loops were never examined.", ""]
+    L += [f"Searched {report['via_pairs_tried']:,} waypoint pairs and {report['stems_tried']} lollipop stems in "
+          f"{report['seconds']:.1f} s; {report['scored']} distinct loops scored. "
+          f"The {len(cands)} below are the lowest-penalty ones that overlap each other by less than 50%.", ""]
+    L += _table(["#", "shape", "distance", "gain", "loss", "road", "walked twice", "penalty"],
+                [[i, c.kind, mi(c.length_m), f"{c.route.gain_ft:,.0f} ft" if c.route.gain_ft is not None else "unknown",
+                  f"{c.route.loss_ft:,.0f} ft" if c.route.loss_ft is not None else "unknown", mi(c.road_m),
+                  mi(c.repeated_m), f"{c.penalty:.2f}"] for i, c in enumerate(cands, 1)])
+    L += ["", "Penalty = miles outside the range x10 + road miles x1 + last-resort road miles x5 + miles walked twice x0.5. "
+          "Lower is better.", ""]
+    for i, c in enumerate(cands, 1):
+        L += [f"## Candidate {i}: {c.kind}, {mi(c.length_m)}", ""]
+        L += [f"- {n}" for n in c.route.notes]
+        L += _table(["#", "name", "type", "length", "cumulative"],
+                    [[j, s["label"], ("last-resort road" if s["last_resort"] else "road" if s["is_road"] else "trail"),
+                      mi(s["length_m"]), mi(cum)]
+                     for j, (s, cum) in enumerate(_cumulative(route_segments(c.route)), 1)])
+        L += [f"", f"Files: `candidate_{i}/route.gpx`, `candidate_{i}/summary.md`.", ""]
+    L += ["## Not checked by this tool", "",
+          "Water, campsites, permits, closures, trail conditions, and trailhead access: **unknown**. "
+          "Day splitting and per-day gain limits come in M5.", "",
+          f"Data: {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}.", ""]
+    paths["summary"].write_text("\n".join(L))
+    paths["search"].write_text(json.dumps({k: v for k, v in report.items() if k != "candidates"}, indent=1, default=str))
+    candidates_map(cands, region, start_text).save(str(paths["map"]))
+    return paths
+
+
+WIDEN_PCT = 25
+
+
+def _cumulative(segments):
+    total = 0.0
+    for s in segments:
+        total += s["length_m"]
+        yield s, total
+
+
+def candidates_map(cands, region, start_text: str) -> folium.Map:
+    if cands:
+        lats = [lat for c in cands for _, lat in c.route.line_wgs84.coords]
+        lons = [lon for c in cands for lon, _ in c.route.line_wgs84.coords]
+        center = [(min(lats) + max(lats)) / 2, (min(lons) + max(lons)) / 2]
+    else:
+        b = region.bbox
+        center = [(b.south + b.north) / 2, (b.west + b.east) / 2]
+    m = folium.Map(location=center, zoom_start=13, tiles=None, control_scale=True)
+    credit = f"Base map: USGS The National Map | Trail data {OSM_ATTRIBUTION}"
+    folium.TileLayer(tiles=USGS_TOPO, attr=credit, name="USGS Topo", max_native_zoom=16, max_zoom=19).add_to(m)
+    folium.TileLayer(tiles=USGS_IMAGERY, attr=credit, name="USGS Imagery + Topo", max_native_zoom=16, max_zoom=19,
+                     show=False).add_to(m)
+    for i, c in enumerate(cands, 1):
+        color = CANDIDATE_COLORS[(i - 1) % len(CANDIDATE_COLORS)]
+        gain = f", +{c.route.gain_ft:,.0f} / -{c.route.loss_ft:,.0f} ft" if c.route.gain_ft is not None else ""
+        label = f"Candidate {i}: {c.kind}, {mi(c.length_m)}{gain}, road {mi(c.road_m)}"
+        group = folium.FeatureGroup(name=label)
+        folium.PolyLine([(lat, lon) for lon, lat in c.route.line_wgs84.coords], color=color, weight=5, opacity=0.8,
+                        tooltip=label).add_to(group)
+        group.add_to(m)
+    if cands:
+        lon, lat = cands[0].route.line_wgs84.coords[0]
+        folium.Marker((lat, lon), tooltip=f"Start: {start_text}").add_to(m)
+    folium.LayerControl(collapsed=False).add_to(m)
+    return m

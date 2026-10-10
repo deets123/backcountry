@@ -8,12 +8,15 @@ from pathlib import Path
 
 import yaml
 
-from backcountry.export import ft, mi, write_graph_geojson, write_qa_outputs, write_route, write_trail_gpx, write_verify_report
+from backcountry.export import (ft, mi, route_segments, write_candidates, write_graph_geojson, write_qa_outputs,
+                                write_route, write_trail_gpx, write_verify_report)
 from backcountry.graph import bbox_coverage, build_graph, chain_named_trail, qa_summary
 from backcountry.region import REPO_ROOT, load_region
 from backcountry.trailheads import find_candidates
 from backcountry.elevation import FT_PER_M, annotate, graph_bounds_ll, line_profile
+from backcountry.loops import search
 from backcountry.route import add_elevation, resolve_point, shortest_route
+from backcountry.scoring import M_PER_MI, Weights
 from backcountry.verify import verify
 
 OUT_DIR = REPO_ROOT / "out"
@@ -266,3 +269,57 @@ def route(
         stub = write_reference_stub(REFERENCE_DIR / f"{slug}.yaml", r, f"{a['how']} to {b['how']}", gpx.name, sources,
                                     tg.retrieved_at)
         typer.echo(f"reference: {gpx}\n           {stub}")
+
+
+@app.command()
+def generate(
+    region: str = RegionOpt,
+    trailhead: str = typer.Option(..., help="Trailhead id from the region yaml, an OSM node id, or lat,lon"),
+    total: str = typer.Option(..., help="Total distance range in miles, e.g. 18-26"),
+    type_: str = typer.Option("any", "--type", help="loop, lollipop, or any"),
+    count: int = typer.Option(3, help="How many candidates to return"),
+    no_roads: bool = typer.Option(False, "--no-roads", help="Refuse to use any road edge."),
+    road_weight: float = typer.Option(1.0, help="Penalty per road mile"),
+    repeat_weight: float = typer.Option(0.5, help="Penalty per mile walked twice (lollipop stem)"),
+    out_dir: Path = typer.Option(None, help="Output directory (default out/loops/<trailhead>_<total>mi)"),
+):
+    """Generate candidate loops from a trailhead within a total distance range."""
+    try:
+        lo_mi, hi_mi = (float(x) for x in total.split("-"))
+        if not 0 < lo_mi < hi_mi:
+            raise ValueError
+    except ValueError:
+        typer.echo(f"--total must look like 18-26 (miles, low-high); got {total!r}", err=True)
+        raise typer.Exit(code=1)
+    kinds = {"loop": ("loop",), "lollipop": ("lollipop",), "any": ("loop", "lollipop")}.get(type_)
+    if kinds is None:
+        typer.echo("--type must be loop, lollipop, or any", err=True)
+        raise typer.Exit(code=1)
+    r, raw, tg = _load(region)
+    try:
+        start = resolve_point(tg, r, trailhead)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+    weights = Weights(road=road_weight, repeat=repeat_weight)
+    report = search(tg, start["node"], lo_mi * M_PER_MI, hi_mi * M_PER_MI, kinds=kinds, count=count,
+                    no_roads=no_roads, weights=weights)
+    dem = ingest.load_dem(r)
+    for c in report["candidates"]:
+        if dem is not None:
+            add_elevation(c.route, dem, tg.crs)
+        else:
+            c.route.notes.append("elevation unknown: no DEM cached (run `backcountry dem`)")
+    out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
+    paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI)
+
+    typer.echo(f"{start['how']}, {total} mi: {len(report['candidates'])} candidates from {report['scored']} loops "
+               f"({report['via_pairs_tried']:,} waypoint pairs, {report['seconds']:.1f} s)"
+               + (" [widened: nothing fit the range]" if report["widened"] else "")
+               + (" [time budget hit]" if report["truncated"] else ""))
+    for i, c in enumerate(report["candidates"], 1):
+        gain = f"+{c.route.gain_ft:,.0f}/-{c.route.loss_ft:,.0f} ft" if c.route.gain_ft is not None else "elev unknown"
+        names = [s["label"] for s in route_segments(c.route)]
+        typer.echo(f"  {i}. {c.kind:8} {mi(c.length_m):>9}  {gain:>18}  road {mi(c.road_m):>8}  penalty {c.penalty:5.2f}")
+        typer.echo(f"     " + " > ".join(dict.fromkeys(names)))
+    typer.echo(f"summary: {paths['summary']}\nmap:     {paths['map']}")

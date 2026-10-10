@@ -148,3 +148,21 @@ def test_route_reference_flag_writes_caltopo_stub(tmp_path, monkeypatch, network
     assert (tmp_path / "reference" / "a_to_f.gpx").exists()
     stub = yaml.safe_load((tmp_path / "reference" / "a_to_f.yaml").read_text())
     assert stub["gpx"] == "a_to_f.gpx" and stub["caltopo"]["distance_mi"] is None
+
+
+def test_generate_command(tmp_path, monkeypatch, grid):
+    _cache(tmp_path, monkeypatch, grid.doc())
+    g00 = grid.ids["g00"]
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(g00),
+                                 "--total", "2.4-5.1", "--type", "loop"])
+    assert result.exit_code == 0, result.output
+    assert "3 candidates" in result.output
+    out = tmp_path / "out" / "loops" / f"{g00}_2.4-5.1mi"
+    assert (out / "candidates.md").exists() and (out / "candidate_1" / "route.gpx").exists()
+
+
+def test_generate_rejects_bad_range(tmp_path, monkeypatch, grid):
+    _cache(tmp_path, monkeypatch, grid.doc())
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(grid.ids["g00"]),
+                                 "--total", "26-18"])
+    assert result.exit_code == 1 and "--total" in result.output

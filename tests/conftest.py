@@ -159,3 +159,42 @@ def plane_dem(fx: float, fy: float, c: float, crs: str = CRS, cell: float = 10.0
     z = fx * xs[None, :] + fy * ys[:, None] + c
     return DEM(array=z.astype("float64"), transform=from_origin(X0 + xmin, Y0 + ymax, cell, cell), crs=crs,
                source={"title": "synthetic plane"})
+
+
+# --- grid network for loop search ------------------------------------------------
+
+
+def build_grid() -> RawBuilder:
+    """3x3 grid of junctions 1000 m apart, plus a trailhead spur and a dead-end spur.
+
+        g02 ---- g12 ---- g22
+         |        |        |
+        g01 -m-- g11 ---- g21     (m: a pass-through node; g20-g21 is a road)
+         |        |        ¦
+    T -- g00 ---- g10 ---- g20
+                  |
+                  D
+    """
+    b = RawBuilder()
+    for i in range(3):
+        for j in range(3):
+            b.node(f"g{i}{j}", 1000 * i, 1000 * j)
+    b.node("T", -500, 0)
+    b.node("D", 1000, -500)
+    b.node("m", 500, 1000)
+    b.way(100, ["g00", "g10", "g20"], highway="path", name="Row 0")
+    b.way(101, ["g01", "m"], highway="path", name="Row 1")
+    b.way(102, ["m", "g11", "g21"], highway="path", name="Row 1")
+    b.way(103, ["g02", "g12", "g22"], highway="path", name="Row 2")
+    b.way(110, ["g00", "g01", "g02"], highway="path", name="Col 0")
+    b.way(111, ["g10", "g11", "g12"], highway="path", name="Col 1")
+    b.way(112, ["g20", "g21"], highway="unclassified", name="Grid Road")
+    b.way(113, ["g21", "g22"], highway="path", name="Col 2")
+    b.way(120, ["T", "g00"], highway="path", name="Spur Trail")
+    b.way(121, ["g10", "D"], highway="path", name="Dead Spur")
+    return b
+
+
+@pytest.fixture
+def grid() -> RawBuilder:
+    return build_grid()
