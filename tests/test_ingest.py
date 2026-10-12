@@ -56,6 +56,7 @@ def test_query_covers_bbox_and_needed_features():
     assert 'way["highway"]' in q
     assert 'node["highway"="trailhead"]' in q
     assert '"amenity"="parking"' in q
+    assert 'tourism' in q and 'camp_site' in q and 'camp_pitch' in q  # M5 lists nearby OSM camp sites
     assert '"name"~"Test"' in q
     assert "out body geom" in q
 
@@ -214,3 +215,18 @@ def test_fetch_dem_refetches_when_cache_does_not_cover_bounds(tmp_path):
 
 def test_load_dem_none_without_cache(tmp_path):
     assert ingest.load_dem(REGION, raw_dir=tmp_path) is None
+
+
+def test_camp_sites_from_raw_use_centers_and_sources():
+    raw = {"response": {"elements": [
+        {"type": "node", "id": 1, "lat": 39.0, "lon": -79.0, "tags": {"tourism": "camp_site", "name": "A Camp"}},
+        {"type": "way", "id": 2, "nodes": [1, 2, 3, 1], "tags": {"tourism": "camp_pitch"},
+         "geometry": [{"lat": 39.0, "lon": -79.0}, {"lat": 39.0, "lon": -79.002}, {"lat": 39.002, "lon": -79.002},
+                      {"lat": 39.0, "lon": -79.0}]},
+        {"type": "node", "id": 3, "lat": 39.1, "lon": -79.1, "tags": {"amenity": "parking"}},
+    ]}}
+    sites = ingest.camp_sites(raw)
+    assert [s["source"] for s in sites] == ["osm:node/1", "osm:way/2"]
+    assert sites[0]["name"] == "A Camp" and sites[1]["name"] is None
+    assert sites[1]["lat"] == pytest.approx(39.000667, abs=1e-5) and sites[1]["lon"] == pytest.approx(-79.001333, abs=1e-5)
+    assert sites[0]["kind"] == "camp_site" and sites[1]["kind"] == "camp_pitch"

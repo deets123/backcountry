@@ -37,6 +37,7 @@ class Route:
     profile: dict | None = None
     elevation_source: dict | None = None
     notes: list[str] = field(default_factory=list)
+    crs: str | None = None
 
 
 def resolve_point(tg, region, text: str) -> dict:
@@ -115,7 +116,7 @@ def walk(tg, keys: list[str], nodes: list[int]) -> Route:
         coords_ll, coords_utm = [(n["lon"], n["lat"])] * 2, [(n["x"], n["y"])] * 2
     line_utm = LineString(coords_utm)
     return Route(
-        nodes=list(nodes), edges=edges, line_wgs84=LineString(coords_ll), line_utm=line_utm,
+        nodes=list(nodes), edges=edges, line_wgs84=LineString(coords_ll), line_utm=line_utm, crs=tg.crs,
         length_m=sum(e["length_m"] for e in edges),
         road_m=sum(e["length_m"] for e in edges if e["is_road"]),
         last_resort_m=sum(e["length_m"] for e in edges if e["last_resort"]),

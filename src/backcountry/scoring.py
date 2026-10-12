@@ -4,7 +4,10 @@
             + road miles * road
             + last-resort road miles * last_resort      (on top of `road`)
             + miles walked twice (lollipop stem) * repeat
-            + elevation over the daily cap               (M5, after day splitting)
+            + after day splitting (M5), per day:
+                miles outside the daily range * daily_out_of_range
+              + thousands of ft over the daily gain cap * gain_over_cap
+              + miles away from an equal split * imbalance
 
 Lower is better. All weights are per mile so they're easy to reason about:
 road=1.0 means a road mile is as unwelcome as an extra mile of distance.
@@ -21,6 +24,9 @@ class Weights:
     road: float = 1.0
     last_resort: float = 5.0
     repeat: float = 0.5
+    daily_out_of_range: float = 10.0
+    gain_over_cap: float = 5.0  # per 1,000 ft over the cap
+    imbalance: float = 0.5
 
 
 def distance_deviation_m(length_m: float, min_m: float, max_m: float) -> float:

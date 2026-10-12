@@ -166,3 +166,20 @@ def test_generate_rejects_bad_range(tmp_path, monkeypatch, grid):
     result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(grid.ids["g00"]),
                                  "--total", "26-18"])
     assert result.exit_code == 1 and "--total" in result.output
+
+
+def test_generate_with_nights_splits_days(tmp_path, monkeypatch, grid):
+    _cache(tmp_path, monkeypatch, grid.doc())
+    g00 = grid.ids["g00"]
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(g00), "--total", "2.4-5.1",
+                                 "--nights", "1", "--daily", "1-2.6", "--max-gain-day", "2500"])
+    assert result.exit_code == 0, result.output
+    assert "Day 1" in result.output and "Camp 1" in result.output
+    assert "elevation unknown" in result.output.lower()
+
+
+def test_generate_nights_needs_daily(tmp_path, monkeypatch, grid):
+    _cache(tmp_path, monkeypatch, grid.doc())
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(grid.ids["g00"]),
+                                 "--total", "2.4-5.1", "--nights", "1"])
+    assert result.exit_code == 1 and "--daily" in result.output

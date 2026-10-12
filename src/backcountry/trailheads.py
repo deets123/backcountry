@@ -14,6 +14,8 @@ from pyproj import Transformer
 from shapely import STRtree
 from shapely.geometry import Point
 
+from backcountry.ingest import feature_center
+
 SNAP_MAX_M = 200.0
 KIND_ORDER = ("osm_trailhead", "parking_nearby", "trail_road_junction")
 
@@ -56,7 +58,7 @@ def find_candidates(tg, raw: dict, node_component: dict, snap_max_m: float = SNA
                 unsnapped.append({"source": source, "name": tags.get("name"), "lat": e["lat"], "lon": e["lon"],
                                   "nearest_node": node, "distance_m": dist})
         elif tags.get("amenity") == "parking" and trail_nodes:
-            lon, lat = _feature_center(e)
+            lon, lat = feature_center(e)
             node, dist = snap(lon, lat, trail_tree, trail_nodes)
             if dist <= snap_max_m:
                 add(node, "parking_nearby", tags.get("name"), f"osm:{e['type']}/{e['id']}", dist)
@@ -82,15 +84,3 @@ def find_candidates(tg, raw: dict, node_component: dict, snap_max_m: float = SNA
         candidates.append(c)
     candidates.sort(key=lambda c: (KIND_ORDER.index(c["kinds"][0]), int(c["component"][1:]), c["names"][:1], c["id"]))
     return {"candidates": candidates, "unsnapped": unsnapped}
-
-
-def _feature_center(e: dict) -> tuple[float, float]:
-    if e["type"] == "node":
-        return e["lon"], e["lat"]
-    if e.get("geometry"):
-        pts = [(g["lon"], g["lat"]) for g in e["geometry"] if g]
-        if len(pts) > 1 and pts[0] == pts[-1]:
-            pts = pts[:-1]  # closed area: don't count the repeated vertex twice
-        return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
-    b = e["bounds"]
-    return (b["minlon"] + b["maxlon"]) / 2, (b["minlat"] + b["maxlat"]) / 2

@@ -163,3 +163,13 @@ def test_graph_bounds_cover_every_edge(network):
     for *_, d in tg.graph.edges(data=True):
         bw, bs, be, bn = d["geom_wgs84"].bounds
         assert w <= bw and s <= bs and e >= be and n >= bn
+
+
+def test_cumulative_gain_matches_total_and_never_decreases():
+    from backcountry.elevation import cumulative_gain_loss
+
+    z = np.cumsum(np.random.default_rng(1).normal(0, 2, 400))
+    G, L = cumulative_gain_loss(z, 1.5)
+    assert (G[-1], L[-1]) == pytest.approx(gain_loss(z, 1.5))
+    assert np.all(np.diff(G) >= 0) and np.all(np.diff(L) >= 0)
+    assert G[0] == 0 and L[0] == 0

@@ -146,3 +146,50 @@ def test_write_candidates_outputs(grid, tg, tmp_path):
         assert (tmp_path / "loops" / f"candidate_{i}" / "summary.md").exists()
     html = paths["map"].read_text()
     assert "Candidate 1" in html and "basemap.nationalmap.gov" in html and "OpenStreetMap contributors" in html
+
+
+# --- day plans in the ranking and outputs -----------------------------------------
+
+
+def test_evaluate_hook_adds_penalty_and_reorders(grid, tg):
+    from backcountry.loops import search
+
+    plain = search(tg, grid.ids["g00"], 3.9 * KM, 8.1 * KM)["candidates"]
+    assert plain[0].length_m == pytest.approx(6 * KM, abs=0.01)  # penalty 0 and nearest the middle of the range
+
+    def dislike_long(c):  # pretend the longer loops split badly
+        c.plan = f"plan for {round(c.length_m)}"
+        return 50.0 if c.length_m > 5 * KM else 0.0
+
+    ranked = search(tg, grid.ids["g00"], 3.9 * KM, 8.1 * KM, evaluate=dislike_long)["candidates"]
+    assert ranked[0].length_m == pytest.approx(4 * KM, abs=0.01) and ranked[0].plan.startswith("plan for")
+    assert [c.penalty for c in ranked] == sorted(c.penalty for c in ranked)
+
+
+def test_candidate_outputs_include_days_and_camps(grid, tg, tmp_path):
+    import gpxpy
+
+    from backcountry.export import write_candidates
+    from backcountry.loops import search
+    from backcountry.region import BBox, Region
+    from backcountry.route import add_elevation
+    from backcountry.split import split_route
+    from conftest import plane_dem
+
+    region = Region(id="synthetic", name="Synthetic", crs=CRS, bbox=BBox(36.0, -81.1, 36.2, -80.9))
+    dem = plane_dem(0.0, 0.05, 1000)
+
+    def evaluate(c):
+        add_elevation(c.route, dem, CRS)
+        c.plan = split_route(c.route, nights=1, daily_min_m=1.0 * KM, daily_max_m=4.0 * KM, max_gain_ft=10_000)
+        return c.plan.penalty
+
+    report = search(tg, grid.ids["g00"], 3.9 * KM, 8.1 * KM, evaluate=evaluate)
+    paths = write_candidates(report, region, tmp_path / "loops", "osm:node/1000", "2026-01-01T00:00:00Z",
+                             3.9 * KM, 8.1 * KM)
+    md = paths["summary"].read_text()
+    for text in ("Day 1", "Day 2", "Camp 1", "camp_location: unverified", "no OSM camp site within"):
+        assert text in md, text
+    gpx = gpxpy.parse((tmp_path / "loops" / "candidate_1" / "route.gpx").read_text())
+    assert "Camp 1" in [w.name for w in gpx.waypoints]
+    assert "Day 1" in (tmp_path / "loops" / "candidate_1" / "summary.md").read_text()

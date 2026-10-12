@@ -85,10 +85,42 @@ def build_query(region: Region) -> str:
         f'  way["highway"]({bbox});\n'
         f'  node["highway"="trailhead"]({bbox});\n'
         f'  nwr["amenity"="parking"]({bbox});\n'
+        f'  nwr["tourism"~"^(camp_site|camp_pitch)$"]({bbox});\n'
         f"{boundary}"
         ");\n"
         "out body geom;\n"
     )
+
+
+def feature_center(e: dict) -> tuple[float, float]:
+    """(lon, lat) of a node, or the vertex centroid of a way/relation from its geometry or bounds."""
+    if e["type"] == "node":
+        return e["lon"], e["lat"]
+    pts = [(g["lon"], g["lat"]) for g in e.get("geometry", []) if g]
+    if e["type"] == "relation":
+        pts = [(g["lon"], g["lat"]) for m in e.get("members", []) for g in (m.get("geometry") or []) if g]
+    if len(pts) > 1 and pts[0] == pts[-1]:
+        pts = pts[:-1]  # closed ring: don't count the repeated vertex twice
+    if pts:
+        return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+    b = e["bounds"]
+    return (b["minlon"] + b["maxlon"]) / 2, (b["minlat"] + b["maxlat"]) / 2
+
+
+def camp_sites(raw: dict) -> list[dict]:
+    """OSM camp sites / pitches in the raw data, with their source. Says nothing about legality or water."""
+    out = []
+    for e in raw["response"]["elements"]:
+        kind = e.get("tags", {}).get("tourism")
+        if kind not in ("camp_site", "camp_pitch"):
+            continue
+        lon, lat = feature_center(e)
+        out.append({"source": f"osm:{e['type']}/{e['id']}", "kind": kind, "name": e["tags"].get("name"),
+                    "lat": lat, "lon": lon, "tags": {k: v for k, v in e["tags"].items() if k in CAMP_TAGS}})
+    return out
+
+
+CAMP_TAGS = ("tourism", "name", "backcountry", "access", "fee", "capacity", "camp_type", "description")
 
 
 def _http_json(url: str, data: bytes | None = None) -> dict:

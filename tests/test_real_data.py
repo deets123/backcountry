@@ -113,3 +113,29 @@ def test_three_closed_loops_per_trailhead(tg, trailhead):
     for i, a in enumerate(cands):
         for b in cands[i + 1:]:
             assert a.overlap(b) < 0.5
+
+
+def test_roadmap_target_request_splits_into_valid_days(tg):
+    """2 nights, 18-26 mi loop, 6-11 mi/day, under 2,500 ft/day, from Bear Rocks."""
+    from backcountry.loops import search
+    from backcountry.route import add_elevation, resolve_point
+    from backcountry.scoring import M_PER_MI
+    from backcountry.split import split_route
+
+    dem = ingest.load_dem(REGION)
+    if dem is None:
+        pytest.skip("no cached DEM")
+
+    def evaluate(c):
+        add_elevation(c.route, dem, tg.crs)
+        c.plan = split_route(c.route, 2, 6 * M_PER_MI, 11 * M_PER_MI, 2500)
+        return c.plan.penalty
+
+    start = resolve_point(tg, REGION, "bear_rocks")["node"]
+    cands = search(tg, start, 18 * M_PER_MI, 26 * M_PER_MI, kinds=("loop",), evaluate=evaluate)["candidates"]
+    assert len(cands) == 3
+    for c in cands:
+        assert c.plan.ok, c.plan.violations
+        assert len(c.plan.days) == 3 and len(c.plan.camps) == 2
+        assert all(6 * M_PER_MI <= d.length_m <= 11 * M_PER_MI and d.gain_ft <= 2500 for d in c.plan.days)
+        assert sum(d.gain_ft for d in c.plan.days) == pytest.approx(c.route.gain_ft, abs=1)

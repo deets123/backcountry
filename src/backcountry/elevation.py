@@ -95,6 +95,31 @@ def gain_loss(z, threshold: float = HYSTERESIS_M) -> tuple[float, float]:
     return (gain + tail, loss) if tail > 0 else (gain, loss - tail)
 
 
+def cumulative_gain_loss(z, threshold: float = HYSTERESIS_M):
+    """Running gain and loss (same rule as gain_loss), so a stretch's gain is G[j] - G[i].
+
+    Movement still inside the threshold isn't counted until it passes it, so a stretch can
+    be short by up to `threshold`; the final tail is counted, so the totals match gain_loss.
+    """
+    z = np.asarray(z, dtype=float)
+    G, L = np.zeros(len(z)), np.zeros(len(z))
+    gain = loss = 0.0
+    ref = z[0]
+    for i in range(1, len(z)):
+        diff = z[i] - ref
+        if diff >= threshold:
+            gain, ref = gain + diff, z[i]
+        elif diff <= -threshold:
+            loss, ref = loss - diff, z[i]
+        G[i], L[i] = gain, loss
+    tail = z[-1] - ref
+    if tail > 0:
+        G[-1] += tail
+    else:
+        L[-1] -= tail
+    return G, L
+
+
 def line_profile(line: LineString, dem: DEM, crs: str) -> dict:
     """Sampled profile and gain/loss (meters) for a line in `crs`, in the line's direction."""
     d, pts = densify(line)

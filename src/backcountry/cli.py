@@ -17,6 +17,7 @@ from backcountry.elevation import FT_PER_M, annotate, graph_bounds_ll, line_prof
 from backcountry.loops import search
 from backcountry.route import add_elevation, resolve_point, shortest_route
 from backcountry.scoring import M_PER_MI, Weights
+from backcountry.split import split_route
 from backcountry.verify import verify
 
 OUT_DIR = REPO_ROOT / "out"
@@ -162,6 +163,17 @@ def dem(
         typer.echo(f"  {s['title']} (published {s['publication_date']})")
 
 
+def _parse_range(text: str, flag: str) -> tuple[float, float]:
+    try:
+        lo, hi = (float(x) for x in text.split("-"))
+        if not 0 < lo < hi:
+            raise ValueError
+    except (ValueError, AttributeError):
+        typer.echo(f"{flag} must look like 18-26 (miles, low-high); got {text!r}", err=True)
+        raise typer.Exit(code=1)
+    return lo, hi
+
+
 def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
@@ -281,16 +293,17 @@ def generate(
     no_roads: bool = typer.Option(False, "--no-roads", help="Refuse to use any road edge."),
     road_weight: float = typer.Option(1.0, help="Penalty per road mile"),
     repeat_weight: float = typer.Option(0.5, help="Penalty per mile walked twice (lollipop stem)"),
+    nights: int = typer.Option(None, help="Split each candidate into nights+1 days (needs --daily)"),
+    daily: str = typer.Option(None, help="Daily distance range in miles, e.g. 6-11"),
+    max_gain_day: float = typer.Option(None, help="Daily elevation gain cap in feet, e.g. 2500"),
     out_dir: Path = typer.Option(None, help="Output directory (default out/loops/<trailhead>_<total>mi)"),
 ):
-    """Generate candidate loops from a trailhead within a total distance range."""
-    try:
-        lo_mi, hi_mi = (float(x) for x in total.split("-"))
-        if not 0 < lo_mi < hi_mi:
-            raise ValueError
-    except ValueError:
-        typer.echo(f"--total must look like 18-26 (miles, low-high); got {total!r}", err=True)
+    """Generate candidate loops from a trailhead within a total distance range, optionally split into days."""
+    lo_mi, hi_mi = _parse_range(total, "--total")
+    if nights is not None and daily is None:
+        typer.echo("--nights needs --daily (e.g. --daily 6-11)", err=True)
         raise typer.Exit(code=1)
+    daily_range = _parse_range(daily, "--daily") if daily else None
     kinds = {"loop": ("loop",), "lollipop": ("lollipop",), "any": ("loop", "lollipop")}.get(type_)
     if kinds is None:
         typer.echo("--type must be loop, lollipop, or any", err=True)
@@ -302,14 +315,27 @@ def generate(
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
     weights = Weights(road=road_weight, repeat=repeat_weight)
-    report = search(tg, start["node"], lo_mi * M_PER_MI, hi_mi * M_PER_MI, kinds=kinds, count=count,
-                    no_roads=no_roads, weights=weights)
     dem = ingest.load_dem(r)
-    for c in report["candidates"]:
+    sites = ingest.camp_sites(raw)
+
+    def elevate(c):
         if dem is not None:
             add_elevation(c.route, dem, tg.crs)
         else:
+            c.route.profile = {"d_m": [0.0, c.route.length_m], "z_m": [None, None]}  # distance-only fallback
             c.route.notes.append("elevation unknown: no DEM cached (run `backcountry dem`)")
+
+    def evaluate(c):
+        elevate(c)
+        c.plan = split_route(c.route, nights, daily_range[0] * M_PER_MI, daily_range[1] * M_PER_MI, max_gain_day,
+                             weights, sites)
+        return c.plan.penalty
+
+    report = search(tg, start["node"], lo_mi * M_PER_MI, hi_mi * M_PER_MI, kinds=kinds, count=count,
+                    no_roads=no_roads, weights=weights, evaluate=evaluate if nights is not None else None)
+    if nights is None:
+        for c in report["candidates"]:
+            elevate(c)
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
     paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI)
 
@@ -318,8 +344,17 @@ def generate(
                + (" [widened: nothing fit the range]" if report["widened"] else "")
                + (" [time budget hit]" if report["truncated"] else ""))
     for i, c in enumerate(report["candidates"], 1):
-        gain = f"+{c.route.gain_ft:,.0f}/-{c.route.loss_ft:,.0f} ft" if c.route.gain_ft is not None else "elev unknown"
+        gain = f"+{c.route.gain_ft:,.0f}/-{c.route.loss_ft:,.0f} ft" if c.route.gain_ft is not None else "elevation unknown"
         names = [s["label"] for s in route_segments(c.route)]
         typer.echo(f"  {i}. {c.kind:8} {mi(c.length_m):>9}  {gain:>18}  road {mi(c.road_m):>8}  penalty {c.penalty:5.2f}")
         typer.echo(f"     " + " > ".join(dict.fromkeys(names)))
+        if c.plan is not None:
+            for d in c.plan.days:
+                g = f"+{d.gain_ft:,.0f} ft" if d.gain_ft is not None else "gain unknown"
+                typer.echo(f"     Day {d.index}: {d.start_label} -> {d.end_label}, {mi(d.length_m)}, {g}")
+            for camp in c.plan.camps:
+                near = f"{len(camp.nearby)} OSM camp site(s) within {ft(500)}" if camp.nearby else "no OSM camp site nearby"
+                typer.echo(f"     Camp {camp.index}: {camp.lat:.5f}, {camp.lon:.5f} on {camp.on_name or 'unnamed'} ({camp.note}; {near})")
+            for v in c.plan.violations:
+                typer.echo(f"     NOT MET: {v}")
     typer.echo(f"summary: {paths['summary']}\nmap:     {paths['map']}")

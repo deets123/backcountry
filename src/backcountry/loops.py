@@ -54,6 +54,7 @@ class Candidate:
     repeated_m: float = 0.0
     penalty: float = 0.0
     lengths: dict = field(default_factory=dict)
+    plan: object = None  # a split.DayPlan once days are planned (M5)
 
     def overlap(self, other: "Candidate") -> float:
         return overlap(self.keys, other.keys, self.lengths | other.lengths)
@@ -202,7 +203,8 @@ def _expand(H: nx.MultiGraph, super_steps) -> tuple[list[str], list[int]]:
 
 def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"), count: int = 3,
            no_roads: bool = False, weights: Weights = Weights(), max_overlap: float = 0.5,
-           max_seconds: float = MAX_SECONDS) -> dict:
+           max_seconds: float = MAX_SECONDS, evaluate=None) -> dict:
+    """Find, score, and pick candidates. `evaluate(candidate)` may add penalty (e.g. a day plan's)."""
     t0 = time.time()
     deadline = t0 + max_seconds
     lg = loop_graph(tg, start, no_roads)
@@ -237,6 +239,8 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
         found = collect(min_m * (1 - WIDEN), max_m * (1 + WIDEN))
     for c in found:
         c.penalty = penalty(c.length_m, c.road_m, c.last_resort_m, c.repeated_m, min_m, max_m, weights)
+        if evaluate is not None:
+            c.penalty += evaluate(c)
     mid = (min_m + max_m) / 2
     found.sort(key=lambda c: (c.penalty, abs(c.length_m - mid), c.length_m))
 

@@ -264,7 +264,7 @@ run plus a CalTopo import each, and `tests/test_reference.py` keeps every one of
 - Red Creek Trail has a 0.04 mi unnamed connector (osm:way/1427983302) in the middle of it.
 - Added module `route.py` (not in the CLAUDE.md layout); `loops.py` stays reserved for M4.
 
-## M4 — Loop generation (built 2026-10-10; awaiting your CalTopo review)
+## M4 — Loop generation (done 2026-10-11)
 
 **Done**
 - `backcountry generate --region dolly_sods --trailhead bear_rocks --total 18-26 [--type loop|lollipop|any]
@@ -299,9 +299,43 @@ which is what "3 meaningfully different candidates" needs.
 - blackbird_knob: 18.72 mi (1.37 mi road), 20.88 mi (1.51 mi road), 19.29 mi (2.10 mi road)
 - Every loop's gain equals its loss, as a closed loop must.
 
+**Acceptance:** you imported `out/loops/bear_rocks_18-26mi/candidate_1/route.gpx` into CalTopo on
+2026-10-11 and confirmed it follows the trail lines throughout (Red Creek, Stonecoal Run, Breathed Mountain,
+Blackbird Knob Trail, back to Bear Rocks). Note that CalTopo's trail layer is itself OSM-derived; the
+independent geometry check remains the USFS comparison from M1.
+
 **Known limits / open**
-- Your review: load `out/loops/bear_rocks_18-26mi/candidate_1/route.gpx` (and others) in CalTopo and confirm
-  they follow real trails. That's the M4 "done when".
 - Waypoint loops can cross themselves at a junction (edges never repeat, nodes may). Not seen in the
   results so far; say if you'd rather forbid it.
 - Elevation enters scoring only in M5 (per-day gain cap after splitting).
+
+## M5 — Day splitting (done 2026-10-12)
+
+**Done**
+- `generate ... --nights 2 --daily 6-11 --max-gain-day 2500`: every scored loop is split into nights+1 days and
+  the day plan's cost joins the ranking (roadmap objective: elevation over cap applied after the split).
+- `split.py`: dynamic programming over candidate camp points every ~0.1 mi along the route profile. Per-day
+  cost = miles outside the daily range ×10 + thousands of ft over the gain cap ×5 + miles away from an equal
+  split ×0.5 (weights in `scoring.Weights`). Day gain/loss come from running totals of the same hysteresis
+  rule, so the days add up to the route exactly. If nothing fits, the least-bad split is returned and each
+  violated constraint is named, plus a note when the total can't fit the day range at all.
+- Camps are points on the route line, labeled `camp_location: unverified`, with the OSM way they're on.
+  OSM `tourism=camp_site|camp_pitch` features within 1,640 ft (500 m) are listed with their source; otherwise
+  "no OSM camp site within 1,640 ft". Nothing is said about legality or water.
+- Outputs: `candidates.md` and each `candidate_<i>/summary.md` get a Days section; `route.gpx` gets a
+  waypoint per camp. Per-day GPX tracks come in M6.
+- OSM data refreshed 2026-10-12 so the raw cache includes camp sites (76 in the bbox, 1 named). The graph
+  was unchanged by the refresh.
+
+**Results, the roadmap's target request** (`--trailhead bear_rocks --nights 2 --total 18-26 --daily 6-11
+--max-gain-day 2500 --type loop`, 11 s):
+1. 19.02 mi, +2,023 ft: days 6.34 / 6.34 / 6.34 mi, +784 / +331 / +908 ft.
+2. 22.16 mi, +2,984 ft: days 7.39 / 7.39 / 7.39 mi, +413 / +1,403 / +1,168 ft; camps near 11 and 6 OSM camp
+   sites (Red Creek, Big Stonecoal).
+3. 18.33 mi, +2,051 ft: days 6.06 / 6.15 / 6.12 mi, +474 / +800 / +777 ft.
+All three plans satisfy every constraint. An impossible request (1 night, 6–8 mi days) returns the shortest
+loops with "can't fit 2 days of 6.0–8.0 mi: it is 18.33 mi ..." and each over-limit day named.
+
+**Ideas not built (say if you want them)**
+- Prefer camps near known OSM camp sites (a soft bonus). Right now camps are placed purely for mileage.
+- A per-day gain *minimum* or "big day first" preference.

@@ -611,8 +611,9 @@ def read_gpx_line(path: Path):
 # --- routes (M3) -------------------------------------------------------------------
 
 
-def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_retrieved_at: str) -> dict[str, Path]:
-    """route.gpx (exact vertices, start/end waypoints), route.geojson, summary.md."""
+def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_retrieved_at: str,
+                plan=None) -> dict[str, Path]:
+    """route.gpx (exact vertices, start/end/camp waypoints), route.geojson, summary.md."""
     import gpxpy.gpx
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -631,6 +632,9 @@ def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_
     (lon0, lat0), (lon1, lat1) = route.line_wgs84.coords[0], route.line_wgs84.coords[-1]
     gpx.waypoints += [gpxpy.gpx.GPXWaypoint(lat0, lon0, name="Start", description=from_text),
                       gpxpy.gpx.GPXWaypoint(lat1, lon1, name="End", description=to_text)]
+    for camp in (plan.camps if plan else []):
+        gpx.waypoints.append(gpxpy.gpx.GPXWaypoint(camp.lat, camp.lon, name=f"Camp {camp.index}",
+                                                   description=f"{camp.note}; on {camp.on_name or 'unnamed'} ({camp.on_source})"))
     paths["gpx"].write_text(gpx.to_xml())
 
     features = [{"type": "Feature", "geometry": mapping(route.line_wgs84),
@@ -638,7 +642,7 @@ def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_
                                 "loss_ft": route.loss_ft, "edges": [e["key"] for e in route.edges]}}]
     paths["geojson"].write_text(json.dumps({"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
                                             "features": features}))
-    paths["summary"].write_text(route_markdown(route, region, from_text, to_text, osm_retrieved_at))
+    paths["summary"].write_text(route_markdown(route, region, from_text, to_text, osm_retrieved_at, plan))
     return paths
 
 
@@ -657,7 +661,33 @@ def route_segments(route) -> list[dict]:
     return segments
 
 
-def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at: str) -> str:
+def plan_markdown(plan) -> list[str]:
+    """Days, camps, and any violated constraints for a split.DayPlan."""
+    L = [f"## Days ({plan.nights} night{'s' if plan.nights != 1 else ''})", ""]
+    for n in plan.notes:
+        L.append(f"- {n}")
+    for v in plan.violations:
+        L.append(f"- **Constraint not met:** {v}")
+    if plan.notes or plan.violations:
+        L.append("")
+    L += _table(["day", "from", "to", "distance", "gain", "loss"],
+                [[f"Day {d.index}", d.start_label, d.end_label, mi(d.length_m),
+                  f"{d.gain_ft:,.0f} ft" if d.gain_ft is not None else "unknown",
+                  f"{d.loss_ft:,.0f} ft" if d.loss_ft is not None else "unknown"] for d in plan.days])
+    L += ["", "Camps are points on the route chosen for mileage, not known campsites. Legality and water: unknown.", ""]
+    for c in plan.camps:
+        near = ("; ".join(f"{n['kind']} {n['name'] or '(unnamed)'} {n['source']} at {ft(n['distance_m'])}" for n in c.nearby)
+                or f"no OSM camp site within {ft(NEARBY_CAMP_FT)}")
+        L.append(f"- **Camp {c.index}** at {_loc(c.lat, c.lon)}, {mi(c.dist_m)} in, on {c.on_name or 'unnamed'} "
+                 f"({c.on_source}). {c.note}. Nearby: {near}.")
+    L.append("")
+    return L
+
+
+NEARBY_CAMP_FT = 500.0  # meters; formatted in feet by ft()
+
+
+def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at: str, plan=None) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     gain = f"gain {route.gain_ft:,.0f} ft, loss {route.loss_ft:,.0f} ft" if route.gain_ft is not None else "gain: unknown, loss: unknown"
     L = [f"# Route: {from_text} to {to_text}", "", f"Region: {region.name}. Generated {now}.", "",
@@ -674,6 +704,8 @@ def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at
         kind = ("last-resort road" if s["last_resort"] else "road" if s["is_road"] else "trail") + f" ({s['highway']})"
         rows.append([i, s["label"], kind, mi(s["length_m"]), mi(cumulative), ", ".join(s["sources"][:4])])
     L += _table(["#", "name", "type", "length", "cumulative", "OSM ways"], rows)
+    if plan is not None:
+        L += [""] + plan_markdown(plan)
     L += ["", "## Data sources", "", f"- Trail geometry: {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}."]
     if route.elevation_source:
         src = route.elevation_source
@@ -700,7 +732,8 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
     paths = {"summary": out_dir / "candidates.md", "map": out_dir / "candidates_map.html",
              "search": out_dir / "search.json"}
     for i, c in enumerate(cands, 1):
-        write_route(c.route, region, out_dir / f"candidate_{i}", start_text, f"{start_text} (loop)", osm_retrieved_at)
+        write_route(c.route, region, out_dir / f"candidate_{i}", start_text, f"{start_text} (loop)", osm_retrieved_at,
+                    plan=c.plan)
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     L = [f"# Loop candidates from {start_text}", "",
@@ -713,12 +746,14 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
     L += [f"Searched {report['via_pairs_tried']:,} waypoint pairs and {report['stems_tried']} lollipop stems in "
           f"{report['seconds']:.1f} s; {report['scored']} distinct loops scored. "
           f"The {len(cands)} below are the lowest-penalty ones that overlap each other by less than 50%.", ""]
-    L += _table(["#", "shape", "distance", "gain", "loss", "road", "walked twice", "penalty"],
+    L += _table(["#", "shape", "distance", "gain", "loss", "road", "walked twice", "days ok", "penalty"],
                 [[i, c.kind, mi(c.length_m), f"{c.route.gain_ft:,.0f} ft" if c.route.gain_ft is not None else "unknown",
                   f"{c.route.loss_ft:,.0f} ft" if c.route.loss_ft is not None else "unknown", mi(c.road_m),
-                  mi(c.repeated_m), f"{c.penalty:.2f}"] for i, c in enumerate(cands, 1)])
-    L += ["", "Penalty = miles outside the range x10 + road miles x1 + last-resort road miles x5 + miles walked twice x0.5. "
-          "Lower is better.", ""]
+                  mi(c.repeated_m), ("yes" if c.plan.ok else "NO") if c.plan else "n/a", f"{c.penalty:.2f}"]
+                 for i, c in enumerate(cands, 1)])
+    L += ["", "Penalty = miles outside the range x10 + road miles x1 + last-resort road miles x5 + miles walked twice x0.5"
+          + (" + the day plan's cost (miles outside the daily range x10, thousands of ft over the gain cap x5, "
+             "imbalance x0.5)" if any(c.plan for c in cands) else "") + ". Lower is better.", ""]
     for i, c in enumerate(cands, 1):
         L += [f"## Candidate {i}: {c.kind}, {mi(c.length_m)}", ""]
         L += [f"- {n}" for n in c.route.notes]
@@ -726,10 +761,11 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
                     [[j, s["label"], ("last-resort road" if s["last_resort"] else "road" if s["is_road"] else "trail"),
                       mi(s["length_m"]), mi(cum)]
                      for j, (s, cum) in enumerate(_cumulative(route_segments(c.route)), 1)])
+        if c.plan is not None:
+            L += [""] + ["#" + line if line.startswith("## ") else line for line in plan_markdown(c.plan)]
         L += [f"", f"Files: `candidate_{i}/route.gpx`, `candidate_{i}/summary.md`.", ""]
     L += ["## Not checked by this tool", "",
-          "Water, campsites, permits, closures, trail conditions, and trailhead access: **unknown**. "
-          "Day splitting and per-day gain limits come in M5.", "",
+          "Water, campsites, permits, closures, trail conditions, and trailhead access: **unknown**.", "",
           f"Data: {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}.", ""]
     paths["summary"].write_text("\n".join(L))
     paths["search"].write_text(json.dumps({k: v for k, v in report.items() if k != "candidates"}, indent=1, default=str))
