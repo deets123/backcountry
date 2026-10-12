@@ -339,3 +339,34 @@ loops with "can't fit 2 days of 6.0–8.0 mi: it is 18.33 mi ..." and each over-
 **Ideas not built (say if you want them)**
 - Prefer camps near known OSM camp sites (a soft bonus). Right now camps are placed purely for mileage.
 - A per-day gain *minimum* or "big day first" preference.
+
+## M5b — Customizable camps, camp sites and water along the route (done 2026-10-12, your request)
+
+**Done**
+- `--camp <spec>` (repeatable) pins camps: miles in (`6.5`), `lat,lon` (snapped to the route within 200 m),
+  or a camp site id (`osm:node/402289780`). Pinned camps stay put; the planner places the rest. A day may not
+  pass over a pin. A pin that a loop doesn't pass near is reported ("Pinned camp ... is 1.2 mi from this
+  route") and costs that loop 100 penalty points, so loops that pass the pin win.
+- `--camps-at-sites`: designated-site mode. Camps only at known OSM camp sites within 200 m of the route.
+  If there aren't enough, it says so and falls back to mileage placement with `days ok = NO`.
+- Camp sites and water along each route (`features.py`): OSM camp sites/pitches, springs, drinking-water taps
+  and water bodies within 492 ft (150 m), USFS campgrounds within 500 m, and every stream/river crossing,
+  each with mile marker, day, distance off route, and source. Each camp lists its nearest water feature.
+  Every water mention carries: "Whether water is actually there, flowing, or drinkable is unknown."
+- OSM refreshed 2026-10-12 with the new feature queries. In this bbox OSM has 52 streams/rivers (30 named),
+  35 ponds/lakes, 76 camp sites, and **no springs or drinking-water taps tagged**.
+
+**Results (Bear Rocks, 2 nights, 18–26 mi, 6–11 mi/day, 2,500 ft/day)**
+- Default: candidate 1's mileage camps sit 0.8 and 1.6 mi from the nearest stream crossing, while the loop
+  passes ~20 known sites along Stonecoal Run (miles 7.4–9.4) with three crossings.
+- `--camps-at-sites`: 22.97 mi loop, days 7.66 / 7.66 / 7.66 mi, camps at osm:node/12284468382 (Rocky Point
+  Trail, 5 sites nearby) and osm:node/12714841235 (Big Stonecoal Trail, 7 sites nearby, stream crossing 201 ft).
+- `--camp osm:node/402289780`: the ranking shifts to loops passing that site; days 7.67 / 7.69 / 7.59 mi.
+
+**Phase 1 scope change:** the roadmap excluded water data. At your request it's in, as sourced map features
+with an explicit unknown-presence warning, never as a claim that water exists.
+
+**Not built (ideas)**
+- A soft preference for camps near known sites or water, instead of pins/sites-only.
+- USGS NHD hydrography as a second water source: it has springs/seeps and flowlines OSM lacks here.
+- Editing camps in the field is the Phase 2 app; the engine side (pins) is ready for it.

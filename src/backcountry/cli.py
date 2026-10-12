@@ -13,11 +13,12 @@ from backcountry.export import (ft, mi, route_segments, write_candidates, write_
 from backcountry.graph import bbox_coverage, build_graph, chain_named_trail, qa_summary
 from backcountry.region import REPO_ROOT, load_region
 from backcountry.trailheads import find_candidates
-from backcountry.elevation import FT_PER_M, annotate, graph_bounds_ll, line_profile
+from backcountry.elevation import FT_PER_M, annotate, densify, graph_bounds_ll, line_profile
 from backcountry.loops import search
 from backcountry.route import add_elevation, resolve_point, shortest_route
 from backcountry.scoring import M_PER_MI, Weights
-from backcountry.split import split_route
+from backcountry.features import along_route
+from backcountry.split import resolve_pins, split_route
 from backcountry.verify import verify
 
 OUT_DIR = REPO_ROOT / "out"
@@ -296,6 +297,9 @@ def generate(
     nights: int = typer.Option(None, help="Split each candidate into nights+1 days (needs --daily)"),
     daily: str = typer.Option(None, help="Daily distance range in miles, e.g. 6-11"),
     max_gain_day: float = typer.Option(None, help="Daily elevation gain cap in feet, e.g. 2500"),
+    camp: list[str] = typer.Option(None, "--camp", help="Pin a camp: miles in (6.5), lat,lon, or osm:node/<id>. Repeatable."),
+    camps_at_sites: bool = typer.Option(False, "--camps-at-sites",
+                                        help="Designated-site mode: camps only at known camp sites on the route."),
     out_dir: Path = typer.Option(None, help="Output directory (default out/loops/<trailhead>_<total>mi)"),
 ):
     """Generate candidate loops from a trailhead within a total distance range, optionally split into days."""
@@ -322,20 +326,35 @@ def generate(
         if dem is not None:
             add_elevation(c.route, dem, tg.crs)
         else:
-            c.route.profile = {"d_m": [0.0, c.route.length_m], "z_m": [None, None]}  # distance-only fallback
+            d, _ = densify(c.route.line_utm)  # distance-only profile so days can still be split
+            c.route.profile = {"d_m": d, "z_m": [None] * len(d)}
             c.route.notes.append("elevation unknown: no DEM cached (run `backcountry dem`)")
+
+    water = ingest.water_features(raw)
+    usfs = ingest.load_usfs(r) if r.usfs_crosscheck else None
+    usfs_sites = [{"source": f"usfs:site/{f['properties'].get('site_id')}", "subtype": f['properties'].get("site_subtype"),
+                   "name": f["properties"].get("public_site_name") or f["properties"].get("site_name"),
+                   "lat": f["geometry"]["coordinates"][1], "lon": f["geometry"]["coordinates"][0]}
+                  for f in (usfs or {"layers": {}})["layers"].get("rec_sites", {}).get("geojson", {}).get("features", [])
+                  if f["properties"].get("site_subtype") == "CAMPGROUND"]
 
     def evaluate(c):
         elevate(c)
+        pins, problems = resolve_pins(c.route, camp or [], sites)
         c.plan = split_route(c.route, nights, daily_range[0] * M_PER_MI, daily_range[1] * M_PER_MI, max_gain_day,
-                             weights, sites)
-        return c.plan.penalty
+                             weights, sites, pins_m=pins, sites_only=camps_at_sites)
+        for p in problems:
+            c.plan.notes.append(f"Pinned {p}")
+            c.plan.ok = False
+        c.features = along_route(c.route, sites, water, usfs_sites, c.plan)
+        return c.plan.penalty + 100.0 * len(problems)
 
     report = search(tg, start["node"], lo_mi * M_PER_MI, hi_mi * M_PER_MI, kinds=kinds, count=count,
                     no_roads=no_roads, weights=weights, evaluate=evaluate if nights is not None else None)
     if nights is None:
         for c in report["candidates"]:
             elevate(c)
+            c.features = along_route(c.route, sites, water, usfs_sites)
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
     paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI)
 
@@ -352,9 +371,18 @@ def generate(
             for d in c.plan.days:
                 g = f"+{d.gain_ft:,.0f} ft" if d.gain_ft is not None else "gain unknown"
                 typer.echo(f"     Day {d.index}: {d.start_label} -> {d.end_label}, {mi(d.length_m)}, {g}")
-            for camp in c.plan.camps:
-                near = f"{len(camp.nearby)} OSM camp site(s) within {ft(500)}" if camp.nearby else "no OSM camp site nearby"
-                typer.echo(f"     Camp {camp.index}: {camp.lat:.5f}, {camp.lon:.5f} on {camp.on_name or 'unnamed'} ({camp.note}; {near})")
+            for cp in c.plan.camps:
+                near = f"{len(cp.nearby)} OSM camp site(s) within {ft(500)}" if cp.nearby else "no OSM camp site nearby"
+                how = "pinned" if cp.pinned else f"known site {cp.site}" if cp.site else "placed for mileage"
+                water_txt = (f"nearest water {cp.nearest_water['kind']} at {ft(cp.nearest_water['distance_m'])} (presence unknown)"
+                             if cp.nearest_water else "no water feature listed nearby")
+                typer.echo(f"     Camp {cp.index}: {cp.lat:.5f}, {cp.lon:.5f} on {cp.on_name or 'unnamed'}, {how}; {near}; {water_txt}")
+            for n in c.plan.notes:
+                typer.echo(f"     note: {n}")
             for v in c.plan.violations:
                 typer.echo(f"     NOT MET: {v}")
+        if c.features:
+            crossings = sum(1 for f in c.features if f["kind"].endswith("crossing"))
+            typer.echo(f"     features: {len(c.features)} along the route ({crossings} stream crossings); see summary.md. "
+                       "Water presence unknown.")
     typer.echo(f"summary: {paths['summary']}\nmap:     {paths['map']}")

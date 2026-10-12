@@ -230,3 +230,27 @@ def test_camp_sites_from_raw_use_centers_and_sources():
     assert sites[0]["name"] == "A Camp" and sites[1]["name"] is None
     assert sites[1]["lat"] == pytest.approx(39.000667, abs=1e-5) and sites[1]["lon"] == pytest.approx(-79.001333, abs=1e-5)
     assert sites[0]["kind"] == "camp_site" and sites[1]["kind"] == "camp_pitch"
+
+
+def test_query_includes_water_features():
+    q = ingest.build_query(REGION)
+    assert "spring" in q and "waterway" in q and "drinking_water" in q
+
+
+def test_water_features_from_raw():
+    raw = {"response": {"elements": [
+        {"type": "node", "id": 1, "lat": 39.0, "lon": -79.0, "tags": {"natural": "spring", "name": "Cold Spring"}},
+        {"type": "node", "id": 2, "lat": 39.0, "lon": -79.0, "tags": {"amenity": "drinking_water"}},
+        {"type": "way", "id": 3, "nodes": [1, 2], "tags": {"waterway": "stream", "name": "Red Creek"},
+         "geometry": [{"lat": 39.0, "lon": -79.0}, {"lat": 39.1, "lon": -79.1}]},
+        {"type": "way", "id": 4, "nodes": [1, 2, 3, 1], "tags": {"natural": "water", "water": "pond"},
+         "geometry": [{"lat": 39.0, "lon": -79.0}, {"lat": 39.0, "lon": -79.002}, {"lat": 39.002, "lon": -79.002},
+                      {"lat": 39.0, "lon": -79.0}]},
+        {"type": "way", "id": 5, "nodes": [1, 2], "tags": {"highway": "path"}, "geometry": []},
+    ]}}
+    w = ingest.water_features(raw)
+    assert [p["source"] for p in w["points"]] == ["osm:node/1", "osm:node/2", "osm:way/4"]
+    assert [p["kind"] for p in w["points"]] == ["spring", "drinking_water", "water"]
+    assert w["points"][0]["name"] == "Cold Spring" and w["points"][2]["name"] is None
+    assert [l["source"] for l in w["lines"]] == ["osm:way/3"]
+    assert w["lines"][0]["kind"] == "stream" and w["lines"][0]["name"] == "Red Creek"

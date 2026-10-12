@@ -612,7 +612,7 @@ def read_gpx_line(path: Path):
 
 
 def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_retrieved_at: str,
-                plan=None) -> dict[str, Path]:
+                plan=None, features=None) -> dict[str, Path]:
     """route.gpx (exact vertices, start/end/camp waypoints), route.geojson, summary.md."""
     import gpxpy.gpx
 
@@ -637,12 +637,12 @@ def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_
                                                    description=f"{camp.note}; on {camp.on_name or 'unnamed'} ({camp.on_source})"))
     paths["gpx"].write_text(gpx.to_xml())
 
-    features = [{"type": "Feature", "geometry": mapping(route.line_wgs84),
-                 "properties": {"name": title, "length_m": route.length_m, "gain_ft": route.gain_ft,
-                                "loss_ft": route.loss_ft, "edges": [e["key"] for e in route.edges]}}]
+    geo = [{"type": "Feature", "geometry": mapping(route.line_wgs84),
+            "properties": {"name": title, "length_m": route.length_m, "gain_ft": route.gain_ft,
+                           "loss_ft": route.loss_ft, "edges": [e["key"] for e in route.edges]}}]
     paths["geojson"].write_text(json.dumps({"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
-                                            "features": features}))
-    paths["summary"].write_text(route_markdown(route, region, from_text, to_text, osm_retrieved_at, plan))
+                                            "features": geo}))
+    paths["summary"].write_text(route_markdown(route, region, from_text, to_text, osm_retrieved_at, plan, features))
     return paths
 
 
@@ -678,16 +678,34 @@ def plan_markdown(plan) -> list[str]:
     for c in plan.camps:
         near = ("; ".join(f"{n['kind']} {n['name'] or '(unnamed)'} {n['source']} at {ft(n['distance_m'])}" for n in c.nearby)
                 or f"no OSM camp site within {ft(NEARBY_CAMP_FT)}")
+        how = "pinned by you" if c.pinned else f"at known site {c.site}" if c.site else "placed for mileage"
+        water = (f"nearest water feature: {c.nearest_water['kind']} {c.nearest_water['name'] or ''} "
+                 f"{c.nearest_water['source']} at {ft(c.nearest_water['distance_m'])} (presence unknown)"
+                 if c.nearest_water else "nearest water feature: none within the listed features")
         L.append(f"- **Camp {c.index}** at {_loc(c.lat, c.lon)}, {mi(c.dist_m)} in, on {c.on_name or 'unnamed'} "
-                 f"({c.on_source}). {c.note}. Nearby: {near}.")
+                 f"({c.on_source}), {how}. {c.note}. Nearby camp sites: {near}. {water}.")
     L.append("")
     return L
+
+
+def features_markdown(features) -> list[str]:
+    from backcountry.features import NEAR_ROUTE_M, WATER_WARNING
+
+    L = ["## Camp sites and water along the route", "",
+         f"Map features within {ft(NEAR_ROUTE_M)} of the route, plus every stream the route crosses, from OpenStreetMap "
+         f"(and USFS where noted). {WATER_WARNING}", ""]
+    if not features:
+        return L + ["None found in the source data.", ""]
+    L += _table(["mile", "day", "feature", "name", "off route", "source"],
+                [[f"{f['dist_m'] / M_PER_MI:.2f}", f.get("day") or "—", f["kind"], f["name"], ft(f["off_m"]), f["source"]]
+                 for f in features])
+    return L + [""]
 
 
 NEARBY_CAMP_FT = 500.0  # meters; formatted in feet by ft()
 
 
-def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at: str, plan=None) -> str:
+def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at: str, plan=None, features=None) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     gain = f"gain {route.gain_ft:,.0f} ft, loss {route.loss_ft:,.0f} ft" if route.gain_ft is not None else "gain: unknown, loss: unknown"
     L = [f"# Route: {from_text} to {to_text}", "", f"Region: {region.name}. Generated {now}.", "",
@@ -706,6 +724,8 @@ def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at
     L += _table(["#", "name", "type", "length", "cumulative", "OSM ways"], rows)
     if plan is not None:
         L += [""] + plan_markdown(plan)
+    if features is not None:
+        L += [""] + features_markdown(features)
     L += ["", "## Data sources", "", f"- Trail geometry: {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}."]
     if route.elevation_source:
         src = route.elevation_source
@@ -713,8 +733,9 @@ def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at
     else:
         L.append("- Elevation: none (no DEM cached).")
     L += ["", "## Not checked by this tool", "",
-          "Water, campsites, permits, closures, trail conditions, and trailhead access: **unknown**. "
-          "This summary describes distance, elevation, and data gaps only.", ""]
+          "Permits, closures, trail conditions, and trailhead access: **unknown**. Camp sites and water above are "
+          "map features only; whether they exist today, are open or legal to use, or hold water is **unknown**. "
+          "This summary describes distance, elevation, map features, and data gaps only.", ""]
     return "\n".join(L)
 
 
@@ -733,7 +754,7 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
              "search": out_dir / "search.json"}
     for i, c in enumerate(cands, 1):
         write_route(c.route, region, out_dir / f"candidate_{i}", start_text, f"{start_text} (loop)", osm_retrieved_at,
-                    plan=c.plan)
+                    plan=c.plan, features=getattr(c, "features", None))
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     L = [f"# Loop candidates from {start_text}", "",
@@ -763,6 +784,8 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
                      for j, (s, cum) in enumerate(_cumulative(route_segments(c.route)), 1)])
         if c.plan is not None:
             L += [""] + ["#" + line if line.startswith("## ") else line for line in plan_markdown(c.plan)]
+        if getattr(c, "features", None) is not None:
+            L += ["#" + line if line.startswith("## ") else line for line in features_markdown(c.features)]
         L += [f"", f"Files: `candidate_{i}/route.gpx`, `candidate_{i}/summary.md`.", ""]
     L += ["## Not checked by this tool", "",
           "Water, campsites, permits, closures, trail conditions, and trailhead access: **unknown**.", "",

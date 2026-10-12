@@ -55,6 +55,7 @@ class Candidate:
     penalty: float = 0.0
     lengths: dict = field(default_factory=dict)
     plan: object = None  # a split.DayPlan once days are planned (M5)
+    features: list | None = None  # camp sites / water along the route (features.along_route)
 
     def overlap(self, other: "Candidate") -> float:
         return overlap(self.keys, other.keys, self.lengths | other.lengths)

@@ -86,6 +86,9 @@ def build_query(region: Region) -> str:
         f'  node["highway"="trailhead"]({bbox});\n'
         f'  nwr["amenity"="parking"]({bbox});\n'
         f'  nwr["tourism"~"^(camp_site|camp_pitch)$"]({bbox});\n'
+        f'  nwr["natural"~"^(spring|water)$"]({bbox});\n'
+        f'  way["waterway"~"^(stream|river)$"]({bbox});\n'
+        f'  node["amenity"="drinking_water"]({bbox});\n'
         f"{boundary}"
         ");\n"
         "out body geom;\n"
@@ -121,6 +124,36 @@ def camp_sites(raw: dict) -> list[dict]:
 
 
 CAMP_TAGS = ("tourism", "name", "backcountry", "access", "fee", "capacity", "camp_type", "description")
+WATER_TAGS = ("natural", "water", "waterway", "amenity", "name", "intermittent", "seasonal", "drinking_water", "description")
+
+
+def water_features(raw: dict) -> dict:
+    """OSM water features: points (springs, drinking water, water bodies) and lines (streams, rivers).
+
+    These are map features with sources. Whether water is present, flowing, or drinkable is unknown.
+    """
+    points, lines = [], []
+    for e in raw["response"]["elements"]:
+        tags = e.get("tags", {})
+        kind = None
+        if tags.get("natural") == "spring":
+            kind = "spring"
+        elif tags.get("amenity") == "drinking_water":
+            kind = "drinking_water"
+        elif tags.get("natural") == "water":
+            kind = "water"
+        elif e["type"] == "way" and tags.get("waterway") in ("stream", "river"):
+            coords = [[g["lon"], g["lat"]] for g in e.get("geometry", []) if g]
+            if len(coords) >= 2:
+                lines.append({"source": f"osm:way/{e['id']}", "kind": tags["waterway"], "name": tags.get("name"),
+                              "coords": coords, "tags": {k: v for k, v in tags.items() if k in WATER_TAGS}})
+            continue
+        if kind is None:
+            continue
+        lon, lat = feature_center(e)
+        points.append({"source": f"osm:{e['type']}/{e['id']}", "kind": kind, "name": tags.get("name"),
+                       "lat": lat, "lon": lon, "tags": {k: v for k, v in tags.items() if k in WATER_TAGS}})
+    return {"points": points, "lines": lines}
 
 
 def _http_json(url: str, data: bytes | None = None) -> dict:
