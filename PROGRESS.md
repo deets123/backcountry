@@ -371,7 +371,7 @@ with an explicit unknown-presence warning, never as a claim that water exists.
 - USGS NHD hydrography as a second water source: it has springs/seeps and flowlines OSM lacks here.
 - Editing camps in the field is the Phase 2 app; the engine side (pins) is ready for it.
 
-## M6 — Outputs (built 2026-10-13; awaiting your CalTopo / Garmin Connect import check)
+## M6 — Outputs (done 2026-10-13; CalTopo import verified, Garmin Connect not yet tried)
 
 **Done** (per candidate, in `out/loops/<trailhead>_<range>mi/candidate_<i>/`)
 - `route.gpx`: one track per day ("Day 1: Start to Camp 1", ...) plus waypoints: Start, End, each Camp, and a
@@ -391,8 +391,11 @@ with an explicit unknown-presence warning, never as a claim that water exists.
 - `route.gpx`, `day_1.gpx`, and a reference GPX validate against the GPX 1.1 XSD
   (`xmllint --noout --schema gpx.xsd <file>`; xmllint is a macOS system tool, the XSD is from topografix.com).
 
-**Acceptance (yours):** import `candidate_1/route.gpx` into CalTopo (expect 3 tracks + waypoints) and into
-Garmin Connect as a course. If Garmin Connect only takes one track per import, use `day_<n>.gpx`.
+**Acceptance:** you imported `candidate_1/route.gpx` into CalTopo on 2026-10-13 and exported the map back
+(`candidate_1/test.gpx`, creator CALTOPO). The export holds our three day tracks by name (7.67 / 7.67 / 7.66 mi),
+all 1,307 track points (none missing or moved), all 29 waypoints with names, and our elevations (median 1.7 ft,
+max 3.3 ft rounding difference). Garmin Connect import hasn't been tried; if it only takes one track per file,
+`day_<n>.gpx` exists for that.
 
 **Not built**
 - An elevation profile chart (per-edge profiles are stored for it; `profiles.json`).
