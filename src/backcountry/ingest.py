@@ -91,7 +91,7 @@ def build_query(region: Region) -> str:
         f'  node["amenity"="drinking_water"]({bbox});\n'
         f"{boundary}"
         ");\n"
-        "out body geom;\n"
+        "out meta geom;\n"  # meta = edit timestamp/version/changeset, kept as evidence of how established a feature is
     )
 
 
@@ -119,8 +119,14 @@ def camp_sites(raw: dict) -> list[dict]:
             continue
         lon, lat = feature_center(e)
         out.append({"source": f"osm:{e['type']}/{e['id']}", "kind": kind, "name": e["tags"].get("name"),
-                    "lat": lat, "lon": lon, "tags": {k: v for k, v in e["tags"].items() if k in CAMP_TAGS}})
+                    "lat": lat, "lon": lon, "tags": dict(e["tags"]), "meta": osm_meta(e),
+                    "url": f"https://www.openstreetmap.org/{e['type']}/{e['id']}"})
     return out
+
+
+def osm_meta(e: dict) -> dict:
+    """Edit timestamp and version of an OSM element (present when the query used `out meta`)."""
+    return {"timestamp": e.get("timestamp"), "version": e.get("version")}
 
 
 CAMP_TAGS = ("tourism", "name", "backcountry", "access", "fee", "capacity", "camp_type", "description")
@@ -146,13 +152,15 @@ def water_features(raw: dict) -> dict:
             coords = [[g["lon"], g["lat"]] for g in e.get("geometry", []) if g]
             if len(coords) >= 2:
                 lines.append({"source": f"osm:way/{e['id']}", "kind": tags["waterway"], "name": tags.get("name"),
-                              "coords": coords, "tags": {k: v for k, v in tags.items() if k in WATER_TAGS}})
+                              "coords": coords, "tags": {k: v for k, v in tags.items() if k in WATER_TAGS},
+                              "meta": osm_meta(e), "url": f"https://www.openstreetmap.org/way/{e['id']}"})
             continue
         if kind is None:
             continue
         lon, lat = feature_center(e)
         points.append({"source": f"osm:{e['type']}/{e['id']}", "kind": kind, "name": tags.get("name"),
-                       "lat": lat, "lon": lon, "tags": {k: v for k, v in tags.items() if k in WATER_TAGS}})
+                       "lat": lat, "lon": lon, "tags": {k: v for k, v in tags.items() if k in WATER_TAGS},
+                       "meta": osm_meta(e), "url": f"https://www.openstreetmap.org/{e['type']}/{e['id']}"})
     return {"points": points, "lines": lines}
 
 

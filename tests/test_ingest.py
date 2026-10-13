@@ -58,7 +58,7 @@ def test_query_covers_bbox_and_needed_features():
     assert '"amenity"="parking"' in q
     assert 'tourism' in q and 'camp_site' in q and 'camp_pitch' in q  # M5 lists nearby OSM camp sites
     assert '"name"~"Test"' in q
-    assert "out body geom" in q
+    assert "out meta geom" in q  # meta: edit timestamp/version, used to judge how well-established a feature is
 
 
 def _fake_fetcher(calls):
@@ -225,7 +225,11 @@ def test_camp_sites_from_raw_use_centers_and_sources():
                       {"lat": 39.0, "lon": -79.0}]},
         {"type": "node", "id": 3, "lat": 39.1, "lon": -79.1, "tags": {"amenity": "parking"}},
     ]}}
+    raw["response"]["elements"][0].update(timestamp="2025-08-01T10:00:00Z", version=1, changeset=99)
     sites = ingest.camp_sites(raw)
+    assert sites[0]["meta"] == {"timestamp": "2025-08-01T10:00:00Z", "version": 1}
+    assert sites[0]["url"] == "https://www.openstreetmap.org/node/1"
+    assert sites[1]["meta"] == {"timestamp": None, "version": None}
     assert [s["source"] for s in sites] == ["osm:node/1", "osm:way/2"]
     assert sites[0]["name"] == "A Camp" and sites[1]["name"] is None
     assert sites[1]["lat"] == pytest.approx(39.000667, abs=1e-5) and sites[1]["lon"] == pytest.approx(-79.001333, abs=1e-5)

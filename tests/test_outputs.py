@@ -96,3 +96,28 @@ def test_summary_has_known_gaps_and_per_day_table(outputs):
     for text in ("Day 1", "Day 2", "Day 3", "retrieved 2026-01-01", "synthetic plane", "Cold Spring"):
         assert text in md, text
     assert " m " not in md and "safe" not in md.lower()
+
+
+def test_feature_popups_carry_evidence_and_imagery_links(network, tmp_path):
+    tg = build_graph(network.doc(), crs=CRS)
+    route = add_elevation(shortest_route(tg, network.ids["A"], network.ids["F"]), plane_dem(0.1, 0.0, 1000), CRS)
+    lon, lat = lonlat(1200, 80)
+    sites = [{"source": "osm:node/50", "kind": "camp_site", "name": None, "lat": lat, "lon": lon,
+              "tags": {"tourism": "camp_site", "backcountry": "yes"},
+              "meta": {"timestamp": "2024-05-02T00:00:00Z", "version": 3}, "url": "https://www.openstreetmap.org/node/50"}]
+    feats = along_route(route, camp_sites=sites)
+    paths = write_route(route, REGION, tmp_path / "r", "A", "F", "2026-01-01T00:00:00Z", features=feats)
+    html = paths["map"].read_text()
+    assert "backcountry=yes" in html and "2024-05-02" in html and "version 3" in html
+    assert "google.com/maps/@" in html and "openstreetmap.org/node/50" in html
+    md = paths["summary"].read_text()
+    assert "backcountry=yes" in md and "2024-05-02" in md
+
+
+def test_basemap_choice(network, tmp_path):
+    tg = build_graph(network.doc(), crs=CRS)
+    route = shortest_route(tg, network.ids["A"], network.ids["F"])
+    html = write_route(route, REGION, tmp_path / "r", "A", "F", "2026-01-01T00:00:00Z", basemap="satellite")["map"].read_text()
+    assert "USGSImageryOnly" in html
+    with pytest.raises(ValueError, match="basemap"):
+        write_route(route, REGION, tmp_path / "r2", "A", "F", "2026-01-01T00:00:00Z", basemap="mars")

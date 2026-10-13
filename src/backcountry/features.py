@@ -25,7 +25,8 @@ def along_route(route, camp_sites=(), water=None, usfs_sites=(), plan=None) -> l
         off = line.distance(pt)
         if off <= off_limit:
             feats.append({"source": item["source"], "kind": kind, "name": item.get("name"), "dist_m": float(line.project(pt)),
-                          "off_m": float(off), "lat": item["lat"], "lon": item["lon"], "tags": item.get("tags", {})})
+                          "off_m": float(off), "lat": item["lat"], "lon": item["lon"], "tags": item.get("tags", {}),
+                          "meta": item.get("meta", {}), "url": item.get("url")})
 
     for s in camp_sites:
         add_point(s, s.get("kind", "camp_site"))
@@ -42,7 +43,8 @@ def along_route(route, camp_sites=(), water=None, usfs_sites=(), plan=None) -> l
             p = g if g.geom_type == "Point" else g.representative_point()
             lon, lat = to_ll.transform(p.x, p.y)
             feats.append({"source": l["source"], "kind": f"{l['kind']} crossing", "name": l.get("name"),
-                          "dist_m": float(line.project(p)), "off_m": 0.0, "lat": lat, "lon": lon, "tags": l.get("tags", {})})
+                          "dist_m": float(line.project(p)), "off_m": 0.0, "lat": lat, "lon": lon, "tags": l.get("tags", {}),
+                          "meta": l.get("meta", {}), "url": l.get("url")})
     feats.sort(key=lambda f: (f["dist_m"], f["source"]))
 
     if plan is not None:

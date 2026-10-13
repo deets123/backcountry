@@ -300,6 +300,7 @@ def generate(
     camp: list[str] = typer.Option(None, "--camp", help="Pin a camp: miles in (6.5), lat,lon, or osm:node/<id>. Repeatable."),
     camps_at_sites: bool = typer.Option(False, "--camps-at-sites",
                                         help="Designated-site mode: camps only at known camp sites on the route."),
+    basemap: str = typer.Option("topo", help="Map background: topo, hybrid, or satellite"),
     out_dir: Path = typer.Option(None, help="Output directory (default out/loops/<trailhead>_<total>mi)"),
 ):
     """Generate candidate loops from a trailhead within a total distance range, optionally split into days."""
@@ -356,7 +357,12 @@ def generate(
             elevate(c)
             c.features = along_route(c.route, sites, water, usfs_sites)
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
-    paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI)
+    try:
+        paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,
+                                 basemap=basemap)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
 
     typer.echo(f"{start['how']}, {total} mi: {len(report['candidates'])} candidates from {report['scored']} loops "
                f"({report['via_pairs_tried']:,} waypoint pairs, {report['seconds']:.1f} s)"

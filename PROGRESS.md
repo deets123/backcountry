@@ -396,3 +396,15 @@ Garmin Connect as a course. If Garmin Connect only takes one track per import, u
 
 **Not built**
 - An elevation profile chart (per-edge profiles are stored for it; `profiles.json`).
+
+## M6 follow-up — satellite mode and campsite evidence (2026-10-13, your request)
+
+- `--basemap topo|hybrid|satellite` on `generate`; every map also has all three USGS base layers in its
+  layer box (public domain; imagery is ~1 m, native to zoom 16).
+- Clicking a camp site or water dot now shows evidence: all OSM tags, last edit date and version, and links to
+  that exact spot in Google satellite view, on openstreetmap.org, and its edit history. The summary's feature
+  table has "OSM last edit" and "tags" columns and a how-to-check note.
+- The Overpass query now uses `out meta geom` (edit timestamp/version); OSM refreshed 2026-10-13.
+- The site you flagged, osm:node/12830535560 at mile 21.3 on the ridge: mapped 2025-05-12, one edit,
+  `description=no water`. In the bbox: 76 camp sites; 54 `backcountry=yes`, 30 `informal=yes`, 11 with a
+  `survey:date`, 49 edited only once.

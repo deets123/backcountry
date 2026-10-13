@@ -22,6 +22,34 @@ FT_PER_M = 3.28084
 # block pages opened from disk, and CLAUDE.md rule 6 says to respect tile terms.
 USGS_TOPO = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}"
 USGS_IMAGERY = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}"
+USGS_IMAGERY_ONLY = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
+BASEMAPS = {"topo": ("USGS Topo", USGS_TOPO), "hybrid": ("USGS Imagery + Topo", USGS_IMAGERY),
+            "satellite": ("USGS Imagery (satellite)", USGS_IMAGERY_ONLY)}
+
+
+def add_basemaps(m: folium.Map, default: str = "topo") -> None:
+    """USGS National Map base layers (public domain); `default` is shown first."""
+    if default not in BASEMAPS:
+        raise ValueError(f"basemap must be one of {', '.join(BASEMAPS)}; got {default!r}")
+    credit = f"Base map: USGS The National Map | Trail data {OSM_ATTRIBUTION}"
+    for key in [default] + [k for k in BASEMAPS if k != default]:
+        name, url = BASEMAPS[key]
+        folium.TileLayer(tiles=url, attr=credit, name=name, max_native_zoom=16, max_zoom=19, show=key == default).add_to(m)
+
+
+def evidence_html(f: dict) -> str:
+    """What the data says about a feature, plus links to look at the spot yourself."""
+    meta = f.get("meta") or {}
+    when = (meta.get("timestamp") or "")[:10]
+    tags = "; ".join(f"{k}={v}" for k, v in sorted((f.get("tags") or {}).items()) if k != "name") or "no other tags"
+    edit = f"OSM: last edited {when}, version {meta.get('version')}" if when else "OSM edit history: unknown"
+    links = [f'<a href="https://www.google.com/maps/@{f["lat"]:.6f},{f["lon"]:.6f},300m/data=!3m1!1e3" target="_blank">satellite view</a>']
+    if f.get("url"):
+        links.append(f'<a href="{f["url"]}" target="_blank">openstreetmap.org</a>')
+        links.append(f'<a href="{f["url"]}/history" target="_blank">edit history</a>')
+    return (f"<b>{f['kind']} {f['name'] or ''}</b> ({f['source']})<br>mile {f['dist_m'] / M_PER_MI:.1f}, "
+            f"{ft(f['off_m'])} off route<br>tags: {tags}<br>{edit}<br>" + " · ".join(links)
+            + "<br><i>Existence, status, and (for water) presence are unknown. Check before relying on it.</i>")
 MAIN_COLOR = "#1f4fd1"
 USFS_TRAIL_COLOR = "#ffc400"
 USFS_ROAD_COLOR = "#8d5524"
@@ -680,7 +708,7 @@ def route_waypoints(route, from_text: str, to_text: str, plan=None) -> list[dict
 
 
 def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_retrieved_at: str,
-                plan=None, features=None) -> dict[str, Path]:
+                plan=None, features=None, basemap: str = "topo") -> dict[str, Path]:
     """route.gpx (a track per day, waypoints), day_<n>.gpx, route.geojson, map.html, summary.md."""
     import gpxpy.gpx
 
@@ -729,7 +757,7 @@ def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_
             for w in waypoints]
     paths["geojson"].write_text(json.dumps({"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
                                             "edges": [e["key"] for e in route.edges], "features": geo}))
-    route_map(route, region, title, pieces, waypoints, features, osm_retrieved_at).save(str(paths["map"]))
+    route_map(route, region, title, pieces, waypoints, features, osm_retrieved_at, basemap).save(str(paths["map"]))
     paths["summary"].write_text(route_markdown(route, region, from_text, to_text, osm_retrieved_at, plan, features))
     return paths
 
@@ -737,15 +765,13 @@ def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_
 FEATURE_COLORS = {"camp": "#8d5524", "water": "#1565c0"}
 
 
-def route_map(route, region, title: str, pieces, waypoints, features, osm_retrieved_at: str) -> folium.Map:
+def route_map(route, region, title: str, pieces, waypoints, features, osm_retrieved_at: str,
+              basemap: str = "topo") -> folium.Map:
     lats = [lat for _, lat in route.line_wgs84.coords]
     lons = [lon for lon, _ in route.line_wgs84.coords]
     m = folium.Map(location=[(min(lats) + max(lats)) / 2, (min(lons) + max(lons)) / 2], zoom_start=13, tiles=None,
                    control_scale=True)
-    credit = f"Base map: USGS The National Map | Trail data {OSM_ATTRIBUTION}"
-    folium.TileLayer(tiles=USGS_TOPO, attr=credit, name="USGS Topo", max_native_zoom=16, max_zoom=19).add_to(m)
-    folium.TileLayer(tiles=USGS_IMAGERY, attr=credit, name="USGS Imagery + Topo", max_native_zoom=16, max_zoom=19,
-                     show=False).add_to(m)
+    add_basemaps(m, basemap)
     for i, p in enumerate(pieces):
         color = CANDIDATE_COLORS[i % len(CANDIDATE_COLORS)]
         gain = f", +{p['gain_ft']:,.0f} / -{p['loss_ft']:,.0f} ft" if p["gain_ft"] is not None else ""
@@ -777,9 +803,11 @@ def route_map(route, region, title: str, pieces, waypoints, features, osm_retrie
             is_camp = f["kind"] in ("camp_site", "camp_pitch") or f["kind"].startswith("usfs")
             color = FEATURE_COLORS["camp" if is_camp else "water"]
             tip = (f"{f['kind']} {f['name'] or ''} ({f['source']}), mile {f['dist_m'] / M_PER_MI:.1f}, "
-                   f"{ft(f['off_m'])} off route. " + ("Status unknown." if is_camp else "Water presence unknown."))
+                   f"{ft(f['off_m'])} off route. " + ("Status unknown." if is_camp else "Water presence unknown.")
+                   + " Click for evidence and a satellite link.")
             folium.CircleMarker((f["lat"], f["lon"]), radius=5 if is_camp else 4, color=color, fill=True,
-                                fill_opacity=0.8, tooltip=tip).add_to(camps if is_camp else water)
+                                fill_opacity=0.8, tooltip=tip,
+                                popup=folium.Popup(evidence_html(f), max_width=360)).add_to(camps if is_camp else water)
         camps.add_to(m)
         water.add_to(m)
     rows = "".join(f'<div class="bc-row">{_swatch_line(CANDIDATE_COLORS[i % len(CANDIDATE_COLORS)], 5)}<span>{p["name"]}, '
@@ -858,9 +886,20 @@ def features_markdown(features) -> list[str]:
          f"(and USFS where noted). {WATER_WARNING}", ""]
     if not features:
         return L + ["None found in the source data.", ""]
-    L += _table(["mile", "day", "feature", "name", "off route", "source"],
-                [[f"{f['dist_m'] / M_PER_MI:.2f}", f.get("day") or "—", f["kind"], f["name"], ft(f["off_m"]), f["source"]]
-                 for f in features])
+    def tags(f):
+        return "; ".join(f"{k}={v}" for k, v in sorted((f.get("tags") or {}).items()) if k not in ("name", "tourism", "natural", "waterway"))
+
+    def edited(f):
+        meta = f.get("meta") or {}
+        return f"{(meta.get('timestamp') or '')[:10]} v{meta.get('version')}" if meta.get("timestamp") else None
+
+    L += _table(["mile", "day", "feature", "name", "off route", "source", "OSM last edit", "tags"],
+                [[f"{f['dist_m'] / M_PER_MI:.2f}", f.get("day") or "—", f["kind"], f["name"], ft(f["off_m"]), f["source"],
+                  edited(f), tags(f)] for f in features])
+    L += ["", "To check a site yourself: open it in satellite imagery (the map's dots link there) and on "
+          "openstreetmap.org (the source id is the node/way id). A feature mapped once, recently, with no other tags "
+          "is weaker evidence than one with several edits and descriptive tags. USFS campgrounds are official; "
+          "everything else is a volunteer map entry."]
     return L + [""]
 
 
@@ -915,7 +954,7 @@ CANDIDATE_COLORS = ["#d32f2f", "#1976d2", "#388e3c", "#f57c00", "#7b1fa2"]
 
 
 def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_retrieved_at: str,
-                     min_m: float, max_m: float) -> dict[str, Path]:
+                     min_m: float, max_m: float, basemap: str = "topo") -> dict[str, Path]:
     """candidates.md, candidates_map.html, search.json, and candidate_<i>/ (route.gpx, summary.md, geojson)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     cands = report["candidates"]
@@ -923,7 +962,7 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
              "search": out_dir / "search.json"}
     for i, c in enumerate(cands, 1):
         write_route(c.route, region, out_dir / f"candidate_{i}", start_text, f"{start_text} (loop)", osm_retrieved_at,
-                    plan=c.plan, features=getattr(c, "features", None))
+                    plan=c.plan, features=getattr(c, "features", None), basemap=basemap)
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     L = [f"# Loop candidates from {start_text}", "",
@@ -961,7 +1000,7 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
           f"Data: {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}.", ""]
     paths["summary"].write_text("\n".join(L))
     paths["search"].write_text(json.dumps({k: v for k, v in report.items() if k != "candidates"}, indent=1, default=str))
-    candidates_map(cands, region, start_text).save(str(paths["map"]))
+    candidates_map(cands, region, start_text, basemap).save(str(paths["map"]))
     return paths
 
 
@@ -975,7 +1014,7 @@ def _cumulative(segments):
         yield s, total
 
 
-def candidates_map(cands, region, start_text: str) -> folium.Map:
+def candidates_map(cands, region, start_text: str, basemap: str = "topo") -> folium.Map:
     if cands:
         lats = [lat for c in cands for _, lat in c.route.line_wgs84.coords]
         lons = [lon for c in cands for lon, _ in c.route.line_wgs84.coords]
@@ -984,10 +1023,7 @@ def candidates_map(cands, region, start_text: str) -> folium.Map:
         b = region.bbox
         center = [(b.south + b.north) / 2, (b.west + b.east) / 2]
     m = folium.Map(location=center, zoom_start=13, tiles=None, control_scale=True)
-    credit = f"Base map: USGS The National Map | Trail data {OSM_ATTRIBUTION}"
-    folium.TileLayer(tiles=USGS_TOPO, attr=credit, name="USGS Topo", max_native_zoom=16, max_zoom=19).add_to(m)
-    folium.TileLayer(tiles=USGS_IMAGERY, attr=credit, name="USGS Imagery + Topo", max_native_zoom=16, max_zoom=19,
-                     show=False).add_to(m)
+    add_basemaps(m, basemap)
     for i, c in enumerate(cands, 1):
         color = CANDIDATE_COLORS[(i - 1) % len(CANDIDATE_COLORS)]
         gain = f", +{c.route.gain_ft:,.0f} / -{c.route.loss_ft:,.0f} ft" if c.route.gain_ft is not None else ""
