@@ -13,6 +13,8 @@ the same way. Used only to cross-check the OSM graph, never as routing geometry.
 import json
 import re
 import ssl
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
@@ -24,6 +26,11 @@ import certifi
 from backcountry.region import REPO_ROOT, Region
 
 RAW_DIR = REPO_ROOT / "data" / "raw"
+RETRY_WAIT_S = 30.0  # one polite retry after a server-side timeout/overload
+
+
+class FetchError(RuntimeError):
+    """A source server refused or timed out; the message says what to try."""
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "backcountry-route-engine/0.1 (personal non-commercial tool; responses cached locally)"
 OSM_ATTRIBUTION = "© OpenStreetMap contributors, ODbL (openstreetmap.org/copyright)"
@@ -209,7 +216,20 @@ def fetch(
         return cached
 
     query = build_query(region)
-    response = fetcher(query)
+    try:
+        response = fetcher(query)
+    except urllib.error.HTTPError as e:
+        if e.code not in (429, 502, 503, 504):
+            raise FetchError(f"Overpass returned HTTP {e.code} {e.reason}.") from e
+        time.sleep(RETRY_WAIT_S)
+        try:
+            response = fetcher(query)
+        except urllib.error.HTTPError as e2:
+            raise FetchError(
+                f"HTTP {e2.code} {e2.reason} from Overpass twice. The server is busy or the query is too big for it. "
+                "Wait a few minutes and retry, or shrink the region bbox.") from e2
+    except urllib.error.URLError as e:
+        raise FetchError(f"Could not reach Overpass: {e.reason}") from e
     doc = {
         "region": region.id,
         "retrieved_at": _utc_now(),

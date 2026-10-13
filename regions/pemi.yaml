@@ -1,0 +1,71 @@
+# Pemigewasset Wilderness, White Mountain National Forest, NH.
+#
+# bbox is in WGS84 degrees. It is a fetch extent only, not a place claim; the QA
+# report checks it against the OSM/USFS wilderness boundary.
+id: pemi
+name: Pemigewasset Wilderness, NH
+crs: EPSG:32619  # UTM zone 19N; all internal distances are meters in this CRS
+bbox:
+  south: 44.00
+  west: -71.72
+  north: 44.26
+  east: -71.38
+
+boundary_name_regex: "Pemigewasset"
+usfs_crosscheck: true
+
+# Trailheads are added after `backcountry trailheads` / `backcountry verify` on real data,
+# by graph node (OSM node id), never by typed-in coordinates. `verified` is yours to set.
+# Each entry points at a graph node (OSM node id) nearest the USFS recreation-site location,
+# from `backcountry verify` on 2026-10-13. `verified` is yours to set after checking.
+trailheads:
+  - id: lincoln_woods
+    name: Lincoln Woods
+    node: 419855495
+    usfs: "site 05612, 51 ft from this node; no OSM trailhead tag"
+    verified: false
+  - id: zealand
+    name: Zealand Trailhead
+    node: 13057009126
+    usfs: "site 31036, 115 ft from this node"
+    verified: false
+  - id: gale_river
+    name: Gale River Trailhead
+    node: 4058233265
+    usfs: "site 31034, 51 ft from this node"
+    verified: false
+  - id: garfield
+    name: Garfield Trailhead
+    node: 1305371112
+    usfs: "site 97127, 139 ft from this node"
+    verified: false
+  - id: hancock
+    name: Hancock Trailhead
+    node: 194779049
+    usfs: "site 97111, 143 ft from this node"
+    verified: false
+  - id: north_twin
+    name: North Twin
+    node: 9499699032
+    usfs: "site 31035, 87 ft from this node"
+    verified: false
+  - id: ethan_pond
+    name: Ethan Pond - Ripley Falls Trailhead
+    node: 942132666
+    usfs: "site 96680, 23 ft from this node"
+    verified: false
+  - id: sawyer_river
+    name: Sawyer River
+    node: 4541017713
+    usfs: "site 96225, 18 ft from this node"
+    verified: false
+  - id: signal_ridge
+    name: Signal Ridge Trailhead
+    node: 194838340
+    usfs: "site 96226, 35 ft from this node"
+    verified: false
+  - id: hale_brook
+    name: Hale Brook Trailhead
+    node: 4032013336
+    usfs: "site 31037, 204 ft from this node"
+    verified: false

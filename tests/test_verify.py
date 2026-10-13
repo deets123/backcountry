@@ -130,3 +130,20 @@ def test_map_with_usfs_overlay_and_readable_legend(result):
     for row in ("Main network (C0)", "Other components", "Road", "Dead end", "Possible missing junction",
                 "USFS official trail", "USFS trailhead"):
         assert row in html
+
+
+def test_winter_only_usfs_trails_are_reported_separately(network):
+    from backcountry.export import verify_markdown
+
+    raw = network.doc()
+    usfs = usfs_doc({
+        "trails": [usfs_line([(0, 5), (2000, 5)], trail_no="1", trail_name="MAIN TRAIL", trail_type="TERRA"),
+                   usfs_line([(3000, -500), (3000, 500)], trail_no="2", trail_name="GHOST SNOMO", trail_type="SNOW")],
+    })
+    tg = build_graph(raw, CRS)
+    res = verify(tg, raw, usfs, REGION, qa_summary(tg)["node_component"])
+    by_no = {t["trail_no"]: t for t in res["usfs_trails"]}
+    assert by_no["1"]["trail_type"] == "TERRA" and by_no["2"]["trail_type"] == "SNOW"
+    md = verify_markdown(res, REGION)
+    assert "USFS lists 1 ground trail" in md and "Winter-only USFS trails (1)" in md
+    assert "100.0% of that mileage" in md  # the snowmobile trail's gap doesn't drag the hiking number down

@@ -435,3 +435,38 @@ max 3.3 ft rounding difference). Garmin Connect import hasn't been tried; if it 
 - Adding `--avoid "Raven Ridge Trail"` leaves the trailhead on a spur: 0 loops, with the hint; `--type any` then
   gives 3 lollipops that start with 6.5 mi on Dolly Sods Road (reported as road miles). `diff.md` lists the old
   three as gone and the new three as new.
+
+## M8 — Second region: Pemigewasset Wilderness, NH (built 2026-10-13; awaiting your CalTopo check)
+
+**Done**
+- `regions/pemi.yaml`: bbox 44.00–44.26 N, −71.72 to −71.38 W, EPSG:32619 (UTM 19N), USFS cross-check on,
+  10 trailheads by graph node from USFS recreation sites (Lincoln Woods, Zealand, Gale River, Garfield, Hancock,
+  North Twin, Ethan Pond, Sawyer River, Signal Ridge, Hale Brook). All `verified: false`.
+- Data: 3,780 OSM elements (5x Dolly Sods); 2,932 nodes, 3,049 edges, 280 components; C0 = 383 mi (Bondcliff,
+  Franconia Brook, Ethan Pond, Nancy Pond, ...). bbox contains the OSM wilderness relation with 1–4.6 mi margins.
+  DEM: two 1/3" tiles (n44w072, n45w072), 4595x3327 cells.
+- USFS: 80 ground trails, 194.7 mi in bbox, **98.5% within 100 ft**, 4 gaps totaling 0.93 mi (Ethan Pond 787 ft,
+  East Side 951 ft, Lincoln Brook 328 ft, Gale River 2,854 ft). 47 winter-only (snowmobile/XC) trails listed separately.
+- `generate --trailhead lincoln_woods --nights 2 --total 24-32 --daily 7-12 --max-gain-day 3500 --type loop`, 7 s:
+  1. 30.15 mi, +5,230 ft: Lincoln Woods > Franconia Brook > Twin Brook > Garfield Ridge > Twinway > Zeacliff >
+     Ethan Pond > Thoreau Falls; days 10.0 / 10.0 / 10.1 mi.
+  2. 29.32 mi, +4,848 ft: Lincoln Woods > East Side > Wilderness Trail > Shoal Pond > Ethan Pond > Zeacliff > Twinway >
+     Bondcliff; days 9.8 / 9.8 / 9.8 mi.
+  Only 32 loops fit the range from Lincoln Woods, so 2 candidates clear the 50% overlap bar.
+
+**What the second region exposed (fixed)**
+- Overpass returned HTTP 504 on the bigger query and the tool showed a raw traceback. Now: one polite retry after
+  30 s, then a clear message (`ingest.FetchError`).
+- The USFS report mixed snowmobile/ski trails (`trail_type=SNOW`) into hiking coverage, which read as 90% with
+  30 gaps. They're now reported separately; hiking coverage is scored on TERRA trails only.
+- Nothing in the routing, splitting, elevation, or output code needed to change. Region-specific knowledge lives
+  only in the yaml and the caches.
+
+**Data notes (not fixed; they're the data)**
+- OSM names a trail "Thoreau Falls Trail (Bridge Removed ...)"; the summary shows the name as is. This tool doesn't
+  interpret such notes.
+- Only 1 of 24 USFS trailheads has an OSM `highway=trailhead` tag in this area, so the yaml entries use the nearest
+  graph node to the USFS site (23–204 ft away).
+
+**Acceptance (yours):** import `out/loops/lincoln_woods_24-32mi/candidate_1/route.gpx` into CalTopo and check it
+follows the trails. That completes Phase 1.

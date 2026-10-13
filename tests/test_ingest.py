@@ -258,3 +258,25 @@ def test_water_features_from_raw():
     assert w["points"][0]["name"] == "Cold Spring" and w["points"][2]["name"] is None
     assert [l["source"] for l in w["lines"]] == ["osm:way/3"]
     assert w["lines"][0]["kind"] == "stream" and w["lines"][0]["name"] == "Red Creek"
+
+
+def test_fetch_retries_once_on_server_timeout_then_explains(tmp_path, monkeypatch):
+    import urllib.error
+
+    monkeypatch.setattr(ingest.time, "sleep", lambda s: None)
+    calls = []
+
+    def flaky(query):
+        calls.append(query)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError("https://overpass", 504, "Gateway Timeout", {}, None)
+        return {"osm3s": {"timestamp_osm_base": "2026-01-01T00:00:00Z"}, "elements": []}
+
+    path = ingest.fetch(REGION, raw_dir=tmp_path, fetcher=flaky)
+    assert path.exists() and len(calls) == 2
+
+    def dead(query):
+        raise urllib.error.HTTPError("https://overpass", 504, "Gateway Timeout", {}, None)
+
+    with pytest.raises(ingest.FetchError, match="504.*Overpass"):
+        ingest.fetch(REGION, raw_dir=tmp_path, fetcher=dead, refresh=True)

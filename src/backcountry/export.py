@@ -507,7 +507,8 @@ def write_verify_report(v: dict, region, out_dir: Path) -> dict[str, Path]:
 
 
 def verify_markdown(v: dict, region) -> str:
-    trails = v["usfs_trails"]
+    winter = [t for t in v["usfs_trails"] if t.get("trail_type") == "SNOW"]
+    trails = [t for t in v["usfs_trails"] if t.get("trail_type") != "SNOW"]
     usfs_total = sum(t["usfs_m"] for t in trails)
 
     def weighted(key):
@@ -530,7 +531,8 @@ def verify_markdown(v: dict, region) -> str:
         "",
         "## Summary",
         "",
-        f"- USFS lists {len(trails)} official trails with {mi(usfs_total)} inside the region bbox. Routable OSM lines "
+        f"- USFS lists {len(trails)} ground trail{'s' if len(trails) != 1 else ''} with {mi(usfs_total)} inside the region bbox"
+        + (f" (plus {len(winter)} winter-only trails, listed at the end)" if winter else "") + ". Routable OSM lines "
         f"are within 100 ft of {weighted('within_match_pct'):.1f}% of that mileage and within 250 ft of "
         f"{weighted('within_offset_pct'):.1f}%.",
         f"- {len(gaps)} gap(s) totaling {mi(sum(g['length_m'] for _, g in gaps))}.",
@@ -602,6 +604,11 @@ def verify_markdown(v: dict, region) -> str:
         L += ["", "OSM trailheads with no USFS trailhead within 490 ft:", ""]
         L += [f"- {u['name'] or '(unnamed)'} {u['source']} at {_loc(u['lat'], u['lon'])}" for u in v["osm_trailheads_unmatched"]]
 
+    L += ["", f"## Winter-only USFS trails ({len(winter)})", "",
+          "Snowmobile and ski trails (USFS trail_type SNOW). A hiking graph isn't expected to cover them; OSM often maps "
+          "ski trails with foot=no, which this tool excludes.", ""]
+    L += _table(["USFS trail", "USFS (in bbox)", "within 100 ft", "gaps"],
+                [[t["label"], mi(t["usfs_m"]), f"{t['within_match_pct']:.0f}%", len(t["gaps"])] for t in winter])
     L += ["", "## Wilderness areas in the bbox (USFS)", ""]
     L += [f"- {w.get('wildernessname')}: {w.get('gis_acres', 0):,.0f} acres, boundary status "
           f"\"{w.get('boundarystatus')}\"" for w in v["wilderness"]] or ["None returned."]

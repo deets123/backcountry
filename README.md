@@ -57,9 +57,10 @@ for a CalTopo comparison). `uv run backcountry --help` lists them all.
 
 ## Regions
 
-Only `regions/dolly_sods.yaml` exists so far. A region is a bounding box, a projected CRS, and
-a trailhead list; nothing region-specific lives in the code. To add one, copy the yaml, adjust
-it, and run `ingest` and `dem` for it.
+Two regions exist: `regions/dolly_sods.yaml` (Dolly Sods Wilderness, WV) and `regions/pemi.yaml`
+(Pemigewasset Wilderness, NH). A region is a bounding box, a projected CRS, and a trailhead list;
+nothing region-specific lives in the code. To add one, copy a yaml, adjust it, and run `ingest`,
+`dem`, and optionally `verify` for it.
 
 ## Development
 

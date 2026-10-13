@@ -105,6 +105,7 @@ def verify(tg, raw: dict, usfs: dict, region, node_component: dict) -> dict:
             "trail_no": trail_no,
             "name": name,
             "label": f"TR {trail_no} {name}",
+            "trail_type": feats[0]["properties"].get("trail_type") or "TERRA",  # SNOW = snowmobile / ski only
             "usfs_m": usfs_m,
             "outside_bbox_m": full_m - usfs_m,
             "within_match_pct": 100 * sum(o <= MATCH_M for o in offsets) / len(offsets),

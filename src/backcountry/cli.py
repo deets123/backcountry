@@ -54,7 +54,11 @@ def ingest_cmd(
     """Fetch OSM trail data for a region and cache the raw response."""
     r = load_region(region)
     cached = ingest.latest_cache(r)
-    path = ingest.fetch(r, refresh=refresh)
+    try:
+        path = ingest.fetch(r, refresh=refresh)
+    except ingest.FetchError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
     raw = ingest.load_raw(r)
     verb = "Using cached" if cached == path else "Fetched"
     typer.echo(f"{verb} {path}")
