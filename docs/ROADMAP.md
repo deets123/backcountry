@@ -125,7 +125,13 @@ Web or mobile UI, natural-language/LLM input, weather, permits, closures, water
 data, offline tiles, user accounts, the TripOS integration, and social features.
 Keep them in `docs/vision.md` until Phase 1 is done.
 
-## Phase 2 preview (don't build yet)
-Small web map (MapLibre) to pick a trailhead, set constraints, compare 3 loops, and
-export. Then an LLM layer that turns "make day 2 shorter" into constraint changes,
-never into geometry. Then official alerts/permit metadata with provenance.
+## Phase 2 (started 2026-10-13; Phase 1 complete)
+Destination: web and phones, later the app stores, with offline use of saved trips
+("plan online, carry offline"). Pieces, in order; each gets its own design and plan:
+
+1. **API**: the engine as a FastAPI service. 2. **Web app**: MapLibre progressive web app,
+   phone-first (pieces 1–2 designed together: `docs/superpowers/specs/2026-10-13-phase2-api-and-web-app-design.md`).
+3. **Offline**: saved trips with map tiles, elevation, camps, GPS position.
+4. **LLM layer**: turns "make day 2 shorter" into constraint changes, never into geometry.
+5. **App-store packaging** (Capacitor), hosting, accounts.
+6. **Alerts and permit metadata** with provenance.

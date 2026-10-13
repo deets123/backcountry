@@ -7,10 +7,11 @@ using real trail geometry, then exports GPX for Garmin/CalTopo.
 
 It is a personal tool first. The user is an experienced software engineer and
 backpacker who will validate every route against CalTopo and his own trip knowledge.
-Future phases may add a web map and friends as testers, but NOT yet.
+Friends as testers, hosting and accounts come later in Phase 2.
 
-Current scope: **one region (Dolly Sods Wilderness, WV), CLI only.**
-Follow `docs/ROADMAP.md` milestone by milestone.
+Phase 1 (CLI, two regions) is complete. Current scope: **Phase 2, built piece by piece
+per `docs/ROADMAP.md`**: an API over the engine and a phone-first web app first. Design
+docs live in `docs/superpowers/specs/`.
 
 ## Non-negotiable rules
 1. **Never invent geometry.** Every route edge must come from source data (OSM way IDs).
