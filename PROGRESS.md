@@ -370,3 +370,29 @@ with an explicit unknown-presence warning, never as a claim that water exists.
 - A soft preference for camps near known sites or water, instead of pins/sites-only.
 - USGS NHD hydrography as a second water source: it has springs/seeps and flowlines OSM lacks here.
 - Editing camps in the field is the Phase 2 app; the engine side (pins) is ready for it.
+
+## M6 — Outputs (built 2026-10-13; awaiting your CalTopo / Garmin Connect import check)
+
+**Done** (per candidate, in `out/loops/<trailhead>_<range>mi/candidate_<i>/`)
+- `route.gpx`: one track per day ("Day 1: Start to Camp 1", ...) plus waypoints: Start, End, each Camp, and a
+  "Jct n: <next trail>" waypoint at every trail-name change (29 waypoints on the Bear Rocks loop). Track and
+  waypoint points carry DEM elevations (meters, interpolated from the route profile) so devices can show a
+  profile. Day tracks share their boundary point; every OSM vertex is kept.
+- `day_<n>.gpx`: one file per day with one track and that day's waypoints, for importing a single day as a course.
+- `route.geojson`: one LineString per day (length, gain, loss) plus Point features for the waypoints.
+- `map.html`: each day in its own color, S/E and camp badges, junction layer (off by default), OSM/USFS camp
+  sites and water features as dots with "status unknown" / "presence unknown" tooltips, USGS base maps, legend
+  with attribution and retrieval date.
+- `summary.md`: totals and per-day miles/gain/loss, segments in order with OSM ways, road miles, camps with
+  nearest water, features along the route with the water warning, data sources with retrieval dates, a
+  "Known gaps" section ("not checked by this tool: water, campsites, permits, closures, trail conditions,
+  trailhead access"), and a Files list.
+- Reference GPX files (`write_trail_gpx`) deliberately stay elevation-free so CalTopo computes its own profile.
+- `route.gpx`, `day_1.gpx`, and a reference GPX validate against the GPX 1.1 XSD
+  (`xmllint --noout --schema gpx.xsd <file>`; xmllint is a macOS system tool, the XSD is from topografix.com).
+
+**Acceptance (yours):** import `candidate_1/route.gpx` into CalTopo (expect 3 tracks + waypoints) and into
+Garmin Connect as a course. If Garmin Connect only takes one track per import, use `day_<n>.gpx`.
+
+**Not built**
+- An elevation profile chart (per-edge profiles are stored for it; `profiles.json`).

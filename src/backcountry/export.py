@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import folium
+from pyproj import Transformer
 from shapely.geometry import mapping
 
 from backcountry.ingest import LAST_RESORT_HIGHWAYS, OSM_ATTRIBUTION, ROAD_HIGHWAYS, TRAIL_HIGHWAYS, USFS_ATTRIBUTION
@@ -611,39 +612,200 @@ def read_gpx_line(path: Path):
 # --- routes (M3) -------------------------------------------------------------------
 
 
+def route_pieces(route, plan=None) -> list[dict]:
+    """The route cut into days (or one piece), each as exact source vertices plus the day's boundary points.
+
+    Points are (lon, lat, ele_m or None); elevations are interpolated from the route profile (DEM-based).
+    """
+    import numpy as np
+
+    coords_utm, coords_ll = list(route.line_utm.coords), list(route.line_wgs84.coords)
+    cum = np.concatenate([[0.0], np.cumsum([math.dist(a, b) for a, b in zip(coords_utm, coords_utm[1:])])])
+    to_ll = Transformer.from_crs(route.crs, "EPSG:4326", always_xy=True)
+    prof = route.profile if route.profile and None not in route.profile["z_m"] else None
+
+    def ele(dist):
+        return float(np.interp(dist, prof["d_m"], prof["z_m"])) if prof else None
+
+    def point_at(dist):
+        i = int(np.searchsorted(cum, dist))
+        if i < len(cum) and abs(cum[i] - dist) < 1e-6:
+            return (*coords_ll[i], ele(dist))
+        pt = route.line_utm.interpolate(dist)
+        lon, lat = to_ll.transform(pt.x, pt.y)
+        return (lon, lat, ele(dist))
+
+    spans = ([(d.start_m, d.end_m, f"Day {d.index}: {d.start_label} to {d.end_label}", d) for d in plan.days]
+             if plan else [(0.0, cum[-1], "Route", None)])
+    pieces = []
+    for start_m, end_m, name, day in spans:
+        pts = [point_at(start_m)]
+        pts += [(*coords_ll[i], ele(cum[i])) for i in range(len(cum)) if start_m + 1e-6 < cum[i] < end_m - 1e-6]
+        pts.append(point_at(end_m))
+        pieces.append({"name": name, "points": pts, "start_m": start_m, "end_m": end_m, "length_m": end_m - start_m,
+                       "gain_ft": day.gain_ft if day else route.gain_ft, "loss_ft": day.loss_ft if day else route.loss_ft,
+                       "day": day.index if day else None})
+    return pieces
+
+
+def route_waypoints(route, from_text: str, to_text: str, plan=None) -> list[dict]:
+    """Start, End, camps, and a waypoint at each trail-name change (junction), with mile markers."""
+    import numpy as np
+
+    prof = route.profile if route.profile and None not in route.profile["z_m"] else None
+
+    def ele(dist):
+        return float(np.interp(dist, prof["d_m"], prof["z_m"])) if prof else None
+
+    (lon0, lat0), (lon1, lat1) = route.line_wgs84.coords[0], route.line_wgs84.coords[-1]
+    wps = [{"name": "Start", "desc": from_text, "lat": lat0, "lon": lon0, "dist_m": 0.0, "ele": ele(0.0), "kind": "start"},
+           {"name": "End", "desc": to_text, "lat": lat1, "lon": lon1, "dist_m": route.length_m, "ele": ele(route.length_m),
+            "kind": "end"}]
+    for c in (plan.camps if plan else []):
+        wps.append({"name": f"Camp {c.index}", "kind": "camp", "lat": c.lat, "lon": c.lon, "dist_m": c.dist_m,
+                    "ele": ele(c.dist_m),
+                    "desc": f"{c.note}; mile {c.dist_m / M_PER_MI:.1f}; on {c.on_name or 'unnamed'} ({c.on_source})"})
+    to_ll = Transformer.from_crs(route.crs, "EPSG:4326", always_xy=True)
+    cum, n = 0.0, 0
+    for prev, e in zip(route.edges, route.edges[1:]):
+        cum += prev["length_m"]
+        a, b = prev["name"] or f"unnamed {prev['highway']}", e["name"] or f"unnamed {e['highway']}"
+        if a != b:
+            n += 1
+            pt = route.line_utm.interpolate(cum)
+            lon, lat = to_ll.transform(pt.x, pt.y)
+            wps.append({"name": f"Jct {n}: {b}"[:40], "kind": "junction", "lat": lat, "lon": lon, "dist_m": cum,
+                        "ele": ele(cum), "desc": f"mile {cum / M_PER_MI:.1f}: {a} to {b} ({e['source']})"})
+    return wps
+
+
 def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_retrieved_at: str,
                 plan=None, features=None) -> dict[str, Path]:
-    """route.gpx (exact vertices, start/end/camp waypoints), route.geojson, summary.md."""
+    """route.gpx (a track per day, waypoints), day_<n>.gpx, route.geojson, map.html, summary.md."""
     import gpxpy.gpx
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    paths = {"gpx": out_dir / "route.gpx", "geojson": out_dir / "route.geojson", "summary": out_dir / "summary.md"}
+    paths = {"gpx": out_dir / "route.gpx", "geojson": out_dir / "route.geojson", "summary": out_dir / "summary.md",
+             "map": out_dir / "map.html"}
     title = f"{from_text} to {to_text}"
+    pieces = route_pieces(route, plan)
+    waypoints = route_waypoints(route, from_text, to_text, plan)
+    desc = (f"Trail data {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}. Geometry is exact OSM vertices from "
+            f"{', '.join(dict.fromkeys(e['source'] for e in route.edges))}."
+            + (f" Elevations from {route.elevation_source.get('dataset', 'DEM')} ({route.elevation_source.get('attribution', '')})."
+               if route.elevation_source else " No elevations."))
 
-    gpx = gpxpy.gpx.GPX()
-    gpx.creator = "backcountry route engine"
-    gpx.name = title
-    gpx.description = (f"Trail data {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}. Geometry is exact OSM vertices "
-                       f"from {', '.join(dict.fromkeys(e['source'] for e in route.edges))}.")
-    track = gpxpy.gpx.GPXTrack(name=title)
-    track.segments.append(gpxpy.gpx.GPXTrackSegment(
-        [gpxpy.gpx.GPXTrackPoint(lat, lon) for lon, lat in route.line_wgs84.coords]))
-    gpx.tracks.append(track)
-    (lon0, lat0), (lon1, lat1) = route.line_wgs84.coords[0], route.line_wgs84.coords[-1]
-    gpx.waypoints += [gpxpy.gpx.GPXWaypoint(lat0, lon0, name="Start", description=from_text),
-                      gpxpy.gpx.GPXWaypoint(lat1, lon1, name="End", description=to_text)]
-    for camp in (plan.camps if plan else []):
-        gpx.waypoints.append(gpxpy.gpx.GPXWaypoint(camp.lat, camp.lon, name=f"Camp {camp.index}",
-                                                   description=f"{camp.note}; on {camp.on_name or 'unnamed'} ({camp.on_source})"))
+    def gpx_track(piece):
+        track = gpxpy.gpx.GPXTrack(name=piece["name"])
+        track.segments.append(gpxpy.gpx.GPXTrackSegment(
+            [gpxpy.gpx.GPXTrackPoint(lat, lon, elevation=e) for lon, lat, e in piece["points"]]))
+        return track
+
+    def gpx_doc(name):
+        g = gpxpy.gpx.GPX()
+        g.creator = "backcountry route engine"
+        g.name, g.description = name, desc
+        return g
+
+    gpx = gpx_doc(title)
+    gpx.tracks += [gpx_track(p) for p in pieces]
+    gpx.waypoints += [gpxpy.gpx.GPXWaypoint(w["lat"], w["lon"], elevation=w["ele"], name=w["name"], description=w["desc"])
+                      for w in waypoints]
     paths["gpx"].write_text(gpx.to_xml())
+    if plan:
+        for piece in pieces:
+            g = gpx_doc(f"{title}, {piece['name']}")
+            g.tracks.append(gpx_track(piece))
+            g.waypoints += [gpxpy.gpx.GPXWaypoint(w["lat"], w["lon"], elevation=w["ele"], name=w["name"], description=w["desc"])
+                            for w in waypoints if piece["start_m"] - 1 <= w["dist_m"] <= piece["end_m"] + 1]
+            paths[f"day_{piece['day']}"] = out_dir / f"day_{piece['day']}.gpx"
+            paths[f"day_{piece['day']}"].write_text(g.to_xml())
 
-    geo = [{"type": "Feature", "geometry": mapping(route.line_wgs84),
-            "properties": {"name": title, "length_m": route.length_m, "gain_ft": route.gain_ft,
-                           "loss_ft": route.loss_ft, "edges": [e["key"] for e in route.edges]}}]
+    geo = [{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[lon, lat] for lon, lat, _ in p["points"]]},
+            "properties": {"name": p["name"].split(":")[0], "day": p["day"], "length_m": p["length_m"],
+                           "gain_ft": p["gain_ft"], "loss_ft": p["loss_ft"]}} for p in pieces]
+    geo += [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [w["lon"], w["lat"]]},
+             "properties": {"name": w["name"], "kind": w["kind"], "description": w["desc"], "dist_m": w["dist_m"]}}
+            for w in waypoints]
     paths["geojson"].write_text(json.dumps({"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
-                                            "features": geo}))
+                                            "edges": [e["key"] for e in route.edges], "features": geo}))
+    route_map(route, region, title, pieces, waypoints, features, osm_retrieved_at).save(str(paths["map"]))
     paths["summary"].write_text(route_markdown(route, region, from_text, to_text, osm_retrieved_at, plan, features))
     return paths
+
+
+FEATURE_COLORS = {"camp": "#8d5524", "water": "#1565c0"}
+
+
+def route_map(route, region, title: str, pieces, waypoints, features, osm_retrieved_at: str) -> folium.Map:
+    lats = [lat for _, lat in route.line_wgs84.coords]
+    lons = [lon for lon, _ in route.line_wgs84.coords]
+    m = folium.Map(location=[(min(lats) + max(lats)) / 2, (min(lons) + max(lons)) / 2], zoom_start=13, tiles=None,
+                   control_scale=True)
+    credit = f"Base map: USGS The National Map | Trail data {OSM_ATTRIBUTION}"
+    folium.TileLayer(tiles=USGS_TOPO, attr=credit, name="USGS Topo", max_native_zoom=16, max_zoom=19).add_to(m)
+    folium.TileLayer(tiles=USGS_IMAGERY, attr=credit, name="USGS Imagery + Topo", max_native_zoom=16, max_zoom=19,
+                     show=False).add_to(m)
+    for i, p in enumerate(pieces):
+        color = CANDIDATE_COLORS[i % len(CANDIDATE_COLORS)]
+        gain = f", +{p['gain_ft']:,.0f} / -{p['loss_ft']:,.0f} ft" if p["gain_ft"] is not None else ""
+        label = f"{p['name']} ({mi(p['length_m'])}{gain})"
+        group = folium.FeatureGroup(name=label)
+        folium.PolyLine([(lat, lon) for lon, lat, _ in p["points"]], color=color, weight=5, opacity=0.85,
+                        tooltip=label).add_to(group)
+        group.add_to(m)
+    marks = folium.FeatureGroup(name="Start, end, camps")
+    jcts = folium.FeatureGroup(name="Trail junctions", show=False)
+    is_loop = waypoints[0]["lat"] == waypoints[1]["lat"] and waypoints[0]["lon"] == waypoints[1]["lon"]
+    for w in waypoints:
+        if is_loop and w["kind"] == "end":
+            continue  # same spot as the start on a loop; one badge says both
+        if w["kind"] == "junction":
+            folium.CircleMarker((w["lat"], w["lon"]), radius=4, color="#333", fill=True, fill_opacity=0.9,
+                                tooltip=f"{w['name']}: {w['desc']}").add_to(jcts)
+        else:
+            text = ("S/E" if is_loop else "S") if w["kind"] == "start" else "E" if w["kind"] == "end" else f"C{w['name'].split()[-1]}"
+            folium.Marker((w["lat"], w["lon"]), tooltip=f"{w['name']}: {w['desc']}",
+                          icon=folium.DivIcon(html=f'<div class="bc-wp">{text}</div>', icon_size=(26, 18),
+                                              icon_anchor=(13, 9))).add_to(marks)
+    marks.add_to(m)
+    jcts.add_to(m)
+    if features:
+        camps = folium.FeatureGroup(name="Camp sites (OSM/USFS; status unknown)")
+        water = folium.FeatureGroup(name="Water features (OSM; presence unknown)")
+        for f in features:
+            is_camp = f["kind"] in ("camp_site", "camp_pitch") or f["kind"].startswith("usfs")
+            color = FEATURE_COLORS["camp" if is_camp else "water"]
+            tip = (f"{f['kind']} {f['name'] or ''} ({f['source']}), mile {f['dist_m'] / M_PER_MI:.1f}, "
+                   f"{ft(f['off_m'])} off route. " + ("Status unknown." if is_camp else "Water presence unknown."))
+            folium.CircleMarker((f["lat"], f["lon"]), radius=5 if is_camp else 4, color=color, fill=True,
+                                fill_opacity=0.8, tooltip=tip).add_to(camps if is_camp else water)
+        camps.add_to(m)
+        water.add_to(m)
+    rows = "".join(f'<div class="bc-row">{_swatch_line(CANDIDATE_COLORS[i % len(CANDIDATE_COLORS)], 5)}<span>{p["name"]}, '
+                   f'{mi(p["length_m"])}</span></div>' for i, p in enumerate(pieces))
+    legend = f"""
+<style>
+  #bc-legend {{ position: fixed; bottom: 28px; left: 12px; z-index: 9999; max-width: 300px; background: #fff; color: #1b1b1b;
+    border-radius: 8px; box-shadow: 0 1px 8px rgba(0,0,0,.35); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+  #bc-legend summary {{ padding: 8px 12px; font-weight: 600; cursor: pointer; }}
+  #bc-legend .bc-body {{ padding: 0 12px 10px; }}
+  #bc-legend .bc-row {{ display: flex; align-items: center; gap: 8px; min-height: 20px; }}
+  #bc-legend .bc-row svg {{ flex: 0 0 30px; }}
+  #bc-legend .bc-src {{ margin-top: 8px; font-size: 11px; color: #666; }}
+  .bc-wp {{ background: #1b5e20; color: #fff; font: 700 11px/18px sans-serif; text-align: center; border-radius: 4px;
+    border: 1px solid #fff; box-shadow: 0 0 2px rgba(0,0,0,.6); }}
+</style>
+<div id="bc-legend"><details open><summary>{title}</summary><div class="bc-body">
+  {rows}
+  <div class="bc-row"><span class="bc-wp" style="width:26px">S/C1/E</span><span>start, camps, end</span></div>
+  <div class="bc-row">{_swatch_dot(FEATURE_COLORS["camp"], FEATURE_COLORS["camp"], 5)}<span>OSM/USFS camp site (status unknown)</span></div>
+  <div class="bc-row">{_swatch_dot(FEATURE_COLORS["water"], FEATURE_COLORS["water"], 4)}<span>water feature (presence unknown)</span></div>
+  <div class="bc-src">Trail data {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at[:10]}. Water, camp sites, permits, closures, conditions: unknown.</div>
+</div></details></div>"""
+    m.get_root().html.add_child(folium.Element(legend))
+    folium.LayerControl(collapsed=False).add_to(m)
+    return m
 
 
 def route_segments(route) -> list[dict]:
@@ -729,13 +891,20 @@ def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at
     L += ["", "## Data sources", "", f"- Trail geometry: {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}."]
     if route.elevation_source:
         src = route.elevation_source
-        L.append(f"- Elevation: {src.get('dataset', 'DEM')}, {src.get('attribution', '')}, retrieved {src.get('retrieved_at')}.")
+        L.append(f"- Elevation: {src.get('dataset') or src.get('title') or 'DEM'}, {src.get('attribution', '')}, "
+                 f"retrieved {src.get('retrieved_at', 'unknown')}.")
     else:
         L.append("- Elevation: none (no DEM cached).")
-    L += ["", "## Not checked by this tool", "",
-          "Permits, closures, trail conditions, and trailhead access: **unknown**. Camp sites and water above are "
-          "map features only; whether they exist today, are open or legal to use, or hold water is **unknown**. "
-          "This summary describes distance, elevation, map features, and data gaps only.", ""]
+    L += ["", "## Known gaps", "",
+          "These are not checked by this tool: water, campsites, permits, closures, trail conditions, trailhead access. "
+          "Camp sites and water listed above are map features only; whether they exist today, are open or legal to use, "
+          "or hold water is **unknown**. This summary describes distance, elevation, map features, and data gaps only.", "",
+          "## Files", "",
+          "- `route.gpx`: one track per day (or one track if days weren't planned) plus Start/End/camp/junction waypoints, "
+          "with DEM elevations when available.",
+          "- `day_<n>.gpx`: one file per day, one track each, for importing a single day as a course.",
+          "- `map.html`: each day in its own color, with camps, junctions, camp sites and water features.",
+          "- `route.geojson`: the same days and points as GeoJSON.", ""]
     return "\n".join(L)
 
 

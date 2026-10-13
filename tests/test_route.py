@@ -120,10 +120,10 @@ def test_write_route_outputs(network, tg, tmp_path):
     for key in ("gpx", "geojson", "summary"):
         assert paths[key].exists()
     gpx = gpxpy.parse(paths["gpx"].read_text())
-    assert [w.name for w in gpx.waypoints] == ["Start", "End"]
+    assert [w.name for w in gpx.waypoints][:2] == ["Start", "End"]
     assert list(read_gpx_line(paths["gpx"]).coords) == pytest.approx(list(r.line_wgs84.coords))
     md = paths["summary"].read_text()
-    for text in ("2.17 mi", "820 ft", "Main Trail", "FR 1", "Not checked", "OpenStreetMap contributors", "unknown"):
+    for text in ("2.17 mi", "820 ft", "Main Trail", "FR 1", "not checked by this tool", "OpenStreetMap contributors", "unknown"):
         assert text in md, text
     assert " m " not in md and "safe" not in md.lower()
 
