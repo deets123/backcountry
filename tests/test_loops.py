@@ -188,7 +188,7 @@ def test_candidate_outputs_include_days_and_camps(grid, tg, tmp_path):
     paths = write_candidates(report, region, tmp_path / "loops", "osm:node/1000", "2026-01-01T00:00:00Z",
                              3.9 * KM, 8.1 * KM)
     md = paths["summary"].read_text()
-    for text in ("Day 1", "Day 2", "Camp 1", "camp_location: unverified", "no OSM camp site within"):
+    for text in ("Day 1", "Day 2", "Camp 1", "Location unverified", "no known camp site within"):
         assert text in md, text
     gpx = gpxpy.parse((tmp_path / "loops" / "candidate_1" / "route.gpx").read_text())
     assert "Camp 1" in [w.name for w in gpx.waypoints]

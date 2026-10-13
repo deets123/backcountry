@@ -214,7 +214,7 @@ def _camp(route: Route, index: int, dist_m: float, camp_sites) -> Camp:
             x, y = to_utm.transform(s["lon"], s["lat"])
             dist = pt.distance(Point(x, y))
             if dist <= NEARBY_CAMP_M:
-                nearby.append({**{k: s[k] for k in ("source", "kind", "name")}, "distance_m": dist})
+                nearby.append({**{k: s.get(k) for k in ("source", "kind", "name", "url", "meta")}, "distance_m": dist})
         nearby.sort(key=lambda n: n["distance_m"])
     return Camp(index, dist_m, lat, lon, on["source"], on["name"], nearby)
 

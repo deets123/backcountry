@@ -196,3 +196,12 @@ def test_generate_with_pinned_camp_and_sites_mode(tmp_path, monkeypatch, grid):
                                  "--nights", "1", "--daily", "0.5-4", "--camps-at-sites"])
     assert result.exit_code == 0, result.output
     assert "designated-site mode" in result.output.lower()
+
+
+def test_generate_output_has_no_raw_osm_ids(tmp_path, monkeypatch, grid):
+    _cache(tmp_path, monkeypatch, grid.doc())
+    g00 = grid.ids["g00"]
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(g00), "--total", "2.4-5.1",
+                                 "--nights", "1", "--daily", "0.5-4"])
+    assert result.exit_code == 0, result.output
+    assert "osm:node/" not in result.output.replace(f"osm:node/{g00}", "")  # the start you typed is echoed back; nothing else

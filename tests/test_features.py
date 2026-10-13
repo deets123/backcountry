@@ -80,6 +80,7 @@ def test_route_summary_lists_features_with_water_warning(route, data, tmp_path):
     md = write_route(route, region, tmp_path / "r", "a", "b", "2026-01-01T00:00:00Z", plan=plan,
                      features=feats)["summary"].read_text()
     assert "## Camp sites and water along the route" in md and WATER_WARNING in md
-    assert "Cold Spring" in md and "stream crossing" in md and "osm:way/70" in md
+    assert "Cold Spring" in md and "Stream crossing" in md and "openstreetmap.org/way/70" in md
     assert "nearest water" in md.lower() and "pinned" in md.lower()
     assert " m " not in md
+    assert "osm:node/" not in md and "camp_site" not in md  # readable labels, no raw ids in prose

@@ -59,6 +59,7 @@ def test_gpx_waypoints_start_end_camps_and_junctions(outputs):
     assert names[:2] == ["Start", "End"] and "Camp 1" in names and "Camp 2" in names
     jcts = [w for w in gpx.waypoints if w.name.startswith("Jct")]
     assert jcts and all("FR 1" in w.description or "Override Trail" in w.description for w in jcts)
+    assert all("osm:" not in w.description for w in gpx.waypoints)
     assert all(w.elevation is not None for w in gpx.waypoints)
 
 
@@ -83,10 +84,10 @@ def test_geojson_one_feature_per_day_plus_points(outputs):
 def test_map_colors_days_and_shows_features(outputs):
     _, _, paths, _ = outputs
     html = paths["map"].read_text()
-    for text in ("Day 1", "Day 2", "Day 3", "Camp 1", "Cold Spring", "stream crossing", "basemap.nationalmap.gov",
+    for text in ("Day 1", "Day 2", "Day 3", "Camp 1", "Cold Spring", "Stream crossing", "basemap.nationalmap.gov",
                  "OpenStreetMap contributors", "unknown"):
         assert text in html, text
-    assert "tile.openstreetmap.org" not in html
+    assert "tile.openstreetmap.org" not in html and "osm:node/" not in html
 
 
 def test_summary_has_known_gaps_and_per_day_table(outputs):
@@ -110,8 +111,10 @@ def test_feature_popups_carry_evidence_and_imagery_links(network, tmp_path):
     html = paths["map"].read_text()
     assert "backcountry=yes" in html and "2024-05-02" in html and "version 3" in html
     assert "google.com/maps/@" in html and "openstreetmap.org/node/50" in html
+    assert "osm:node/" not in html and "camp_site" not in html and "Campsite" in html
     md = paths["summary"].read_text()
     assert "backcountry=yes" in md and "2024-05-02" in md
+    assert "osm:node/" not in md
 
 
 def test_basemap_choice(network, tmp_path):

@@ -37,18 +37,52 @@ def add_basemaps(m: folium.Map, default: str = "topo") -> None:
         folium.TileLayer(tiles=url, attr=credit, name=name, max_native_zoom=16, max_zoom=19, show=key == default).add_to(m)
 
 
+KIND_LABELS = {"camp_site": "Campsite", "camp_pitch": "Tent pitch", "spring": "Spring", "drinking_water": "Drinking water",
+               "water": "Lake/pond", "stream crossing": "Stream crossing", "river crossing": "River crossing"}
+HIDDEN_TAGS = ("name", "tourism", "natural", "waterway", "amenity")
+
+
+def kind_label(kind: str) -> str:
+    """Human label for a feature kind ('camp_site' -> 'Campsite', 'usfs campground' -> 'USFS campground')."""
+    if kind in KIND_LABELS:
+        return KIND_LABELS[kind]
+    return kind.replace("usfs", "USFS").replace("_", " ").capitalize() if not kind.startswith("usfs") else \
+        "USFS " + kind[5:].strip().replace("_", " ").lower()
+
+
+def feature_title(f: dict) -> str:
+    return f"{kind_label(f['kind'])}" + (f": {f['name']}" if f.get("name") else "")
+
+
+def osm_url(f: dict) -> str | None:
+    if f.get("url"):
+        return f["url"]
+    src = str(f.get("source", ""))
+    return f"https://www.openstreetmap.org/{src[4:]}" if src.startswith("osm:") else None
+
+
+def source_link_md(f: dict) -> str:
+    """Provenance as a short markdown link, never a raw id in prose."""
+    url = osm_url(f)
+    if url:
+        return f"[OSM]({url})"
+    return "USFS" if str(f.get("source", "")).startswith("usfs") else "source on file"
+
+
 def evidence_html(f: dict) -> str:
     """What the data says about a feature, plus links to look at the spot yourself."""
     meta = f.get("meta") or {}
     when = (meta.get("timestamp") or "")[:10]
-    tags = "; ".join(f"{k}={v}" for k, v in sorted((f.get("tags") or {}).items()) if k != "name") or "no other tags"
-    edit = f"OSM: last edited {when}, version {meta.get('version')}" if when else "OSM edit history: unknown"
+    tags = "; ".join(f"{k}={v}" for k, v in sorted((f.get("tags") or {}).items()) if k not in HIDDEN_TAGS) or "no other tags"
+    edit = f"last edited {when}, version {meta.get('version')}" if when else "edit history unknown"
     links = [f'<a href="https://www.google.com/maps/@{f["lat"]:.6f},{f["lon"]:.6f},300m/data=!3m1!1e3" target="_blank">satellite view</a>']
-    if f.get("url"):
-        links.append(f'<a href="{f["url"]}" target="_blank">openstreetmap.org</a>')
-        links.append(f'<a href="{f["url"]}/history" target="_blank">edit history</a>')
-    return (f"<b>{f['kind']} {f['name'] or ''}</b> ({f['source']})<br>mile {f['dist_m'] / M_PER_MI:.1f}, "
-            f"{ft(f['off_m'])} off route<br>tags: {tags}<br>{edit}<br>" + " · ".join(links)
+    url = osm_url(f)
+    if url:
+        links.append(f'<a href="{url}" target="_blank">OpenStreetMap entry</a>')
+        links.append(f'<a href="{url}/history" target="_blank">edit history</a>')
+    src = "OpenStreetMap" if url else "USFS" if str(f.get("source", "")).startswith("usfs") else "source on file"
+    return (f"<b>{feature_title(f)}</b><br>mile {f['dist_m'] / M_PER_MI:.1f}, {ft(f['off_m'])} off route<br>"
+            f"details: {tags}<br>{src}: {edit}<br>" + " · ".join(links)
             + "<br><i>Existence, status, and (for water) presence are unknown. Check before relying on it.</i>")
 MAIN_COLOR = "#1f4fd1"
 USFS_TRAIL_COLOR = "#ffc400"
@@ -692,7 +726,7 @@ def route_waypoints(route, from_text: str, to_text: str, plan=None) -> list[dict
     for c in (plan.camps if plan else []):
         wps.append({"name": f"Camp {c.index}", "kind": "camp", "lat": c.lat, "lon": c.lon, "dist_m": c.dist_m,
                     "ele": ele(c.dist_m),
-                    "desc": f"{c.note}; mile {c.dist_m / M_PER_MI:.1f}; on {c.on_name or 'unnamed'} ({c.on_source})"})
+                    "desc": f"Camp {c.index}, mile {c.dist_m / M_PER_MI:.1f}, on {c.on_name or 'an unnamed trail'}. Location unverified."})
     to_ll = Transformer.from_crs(route.crs, "EPSG:4326", always_xy=True)
     cum, n = 0.0, 0
     for prev, e in zip(route.edges, route.edges[1:]):
@@ -703,7 +737,7 @@ def route_waypoints(route, from_text: str, to_text: str, plan=None) -> list[dict
             pt = route.line_utm.interpolate(cum)
             lon, lat = to_ll.transform(pt.x, pt.y)
             wps.append({"name": f"Jct {n}: {b}"[:40], "kind": "junction", "lat": lat, "lon": lon, "dist_m": cum,
-                        "ele": ele(cum), "desc": f"mile {cum / M_PER_MI:.1f}: {a} to {b} ({e['source']})"})
+                        "ele": ele(cum), "desc": f"mile {cum / M_PER_MI:.1f}: {a} to {b}"})
     return wps
 
 
@@ -802,9 +836,8 @@ def route_map(route, region, title: str, pieces, waypoints, features, osm_retrie
         for f in features:
             is_camp = f["kind"] in ("camp_site", "camp_pitch") or f["kind"].startswith("usfs")
             color = FEATURE_COLORS["camp" if is_camp else "water"]
-            tip = (f"{f['kind']} {f['name'] or ''} ({f['source']}), mile {f['dist_m'] / M_PER_MI:.1f}, "
-                   f"{ft(f['off_m'])} off route. " + ("Status unknown." if is_camp else "Water presence unknown.")
-                   + " Click for evidence and a satellite link.")
+            tip = (f"{feature_title(f)}, mile {f['dist_m'] / M_PER_MI:.1f}, {ft(f['off_m'])} off route. "
+                   + ("Status unknown." if is_camp else "Water presence unknown.") + " Click for details and a satellite link.")
             folium.CircleMarker((f["lat"], f["lon"]), radius=5 if is_camp else 4, color=color, fill=True,
                                 fill_opacity=0.8, tooltip=tip,
                                 popup=folium.Popup(evidence_html(f), max_width=360)).add_to(camps if is_camp else water)
@@ -866,14 +899,13 @@ def plan_markdown(plan) -> list[str]:
                   f"{d.loss_ft:,.0f} ft" if d.loss_ft is not None else "unknown"] for d in plan.days])
     L += ["", "Camps are points on the route chosen for mileage, not known campsites. Legality and water: unknown.", ""]
     for c in plan.camps:
-        near = ("; ".join(f"{n['kind']} {n['name'] or '(unnamed)'} {n['source']} at {ft(n['distance_m'])}" for n in c.nearby)
-                or f"no OSM camp site within {ft(NEARBY_CAMP_FT)}")
-        how = "pinned by you" if c.pinned else f"at known site {c.site}" if c.site else "placed for mileage"
-        water = (f"nearest water feature: {c.nearest_water['kind']} {c.nearest_water['name'] or ''} "
-                 f"{c.nearest_water['source']} at {ft(c.nearest_water['distance_m'])} (presence unknown)"
-                 if c.nearest_water else "nearest water feature: none within the listed features")
-        L.append(f"- **Camp {c.index}** at {_loc(c.lat, c.lon)}, {mi(c.dist_m)} in, on {c.on_name or 'unnamed'} "
-                 f"({c.on_source}), {how}. {c.note}. Nearby camp sites: {near}. {water}.")
+        near = ("; ".join(f"{feature_title(n).lower()} {ft(n['distance_m'])} away ({source_link_md(n)})" for n in c.nearby)
+                or f"no known camp site within {ft(NEARBY_CAMP_FT)}")
+        how = "pinned by you" if c.pinned else "at a known campsite" if c.site else "placed for mileage"
+        water = (f"nearest water feature: {feature_title(c.nearest_water).lower()}, {ft(c.nearest_water['distance_m'])} away "
+                 f"(presence unknown)" if c.nearest_water else "nearest water feature: none listed")
+        L.append(f"- **Camp {c.index}** at {_loc(c.lat, c.lon)}, {mi(c.dist_m)} in, on {c.on_name or 'an unnamed trail'}, "
+                 f"{how}. Location unverified. Nearby camp sites: {near}. {water}.")
     L.append("")
     return L
 
@@ -887,19 +919,18 @@ def features_markdown(features) -> list[str]:
     if not features:
         return L + ["None found in the source data.", ""]
     def tags(f):
-        return "; ".join(f"{k}={v}" for k, v in sorted((f.get("tags") or {}).items()) if k not in ("name", "tourism", "natural", "waterway"))
+        return "; ".join(f"{k}={v}" for k, v in sorted((f.get("tags") or {}).items()) if k not in HIDDEN_TAGS)
 
     def edited(f):
         meta = f.get("meta") or {}
-        return f"{(meta.get('timestamp') or '')[:10]} v{meta.get('version')}" if meta.get("timestamp") else None
+        return f"{(meta.get('timestamp') or '')[:10]}, {meta.get('version')} edit(s)" if meta.get("timestamp") else None
 
-    L += _table(["mile", "day", "feature", "name", "off route", "source", "OSM last edit", "tags"],
-                [[f"{f['dist_m'] / M_PER_MI:.2f}", f.get("day") or "—", f["kind"], f["name"], ft(f["off_m"]), f["source"],
-                  edited(f), tags(f)] for f in features])
-    L += ["", "To check a site yourself: open it in satellite imagery (the map's dots link there) and on "
-          "openstreetmap.org (the source id is the node/way id). A feature mapped once, recently, with no other tags "
-          "is weaker evidence than one with several edits and descriptive tags. USFS campgrounds are official; "
-          "everything else is a volunteer map entry."]
+    L += _table(["mile", "day", "feature", "off route", "last edited", "details", "source"],
+                [[f"{f['dist_m'] / M_PER_MI:.2f}", f.get("day") or "—", feature_title(f), ft(f["off_m"]),
+                  edited(f), tags(f), source_link_md(f)] for f in features])
+    L += ["", "To check a site yourself: click its dot on the map for a satellite view and its OpenStreetMap entry. "
+          "A feature mapped once, recently, with no details is weaker evidence than one with several edits and "
+          "descriptive tags. USFS campgrounds are official; everything else is a volunteer map entry."]
     return L + [""]
 
 

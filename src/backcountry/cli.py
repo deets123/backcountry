@@ -378,11 +378,11 @@ def generate(
                 g = f"+{d.gain_ft:,.0f} ft" if d.gain_ft is not None else "gain unknown"
                 typer.echo(f"     Day {d.index}: {d.start_label} -> {d.end_label}, {mi(d.length_m)}, {g}")
             for cp in c.plan.camps:
-                near = f"{len(cp.nearby)} OSM camp site(s) within {ft(500)}" if cp.nearby else "no OSM camp site nearby"
-                how = "pinned" if cp.pinned else f"known site {cp.site}" if cp.site else "placed for mileage"
-                water_txt = (f"nearest water {cp.nearest_water['kind']} at {ft(cp.nearest_water['distance_m'])} (presence unknown)"
+                near = f"{len(cp.nearby)} known camp site(s) within {ft(500)}" if cp.nearby else "no known camp site nearby"
+                how = "pinned" if cp.pinned else "at a known campsite" if cp.site else "placed for mileage"
+                water_txt = (f"nearest water: {cp.nearest_water['kind']} {ft(cp.nearest_water['distance_m'])} away (presence unknown)"
                              if cp.nearest_water else "no water feature listed nearby")
-                typer.echo(f"     Camp {cp.index}: {cp.lat:.5f}, {cp.lon:.5f} on {cp.on_name or 'unnamed'}, {how}; {near}; {water_txt}")
+                typer.echo(f"     Camp {cp.index}: {cp.lat:.5f}, {cp.lon:.5f} on {cp.on_name or 'an unnamed trail'}, {how}; {near}; {water_txt}")
             for n in c.plan.notes:
                 typer.echo(f"     note: {n}")
             for v in c.plan.violations:
