@@ -411,3 +411,27 @@ max 3.3 ft rounding difference). Garmin Connect import hasn't been tried; if it 
 - The site you flagged, osm:node/12830535560 at mile 21.3 on the ridge: mapped 2025-05-12, one edit,
   `description=no water`. In the bbox: 76 camp sites; 54 `backcountry=yes`, 30 `informal=yes`, 11 with a
   `survey:date`, 49 edited only once.
+
+## M7 — Constraints (done 2026-10-13)
+
+**Done**
+- `--must-visit <spot>` (repeatable): a trailhead id, OSM node id, `lat,lon` (snapped within 200 m), or a trail
+  name. A loop qualifies if it passes the node (or uses an edge of the named trail). A node off the loop is
+  reached by an out-and-back detour from the loop's nearest point, at most 1 mi one way, counted as repeated
+  miles (`Candidate.detour_keys`). Unreachable spots are named in the output.
+- `--avoid <name or way id>` (repeatable): those edges are removed before the search (`generate` and `route`).
+  Whole-name, case-insensitive; an unknown name is an error.
+- `--direction cw|ccw`: loops are walked in that orientation (shoelace sign of the walked line; the whole walk is
+  reversed when needed). Figure-8 loops have no clear orientation; none have appeared so far.
+- Re-running into the same output folder writes `diff.md`: request changes, then per candidate "unchanged" /
+  "changed (N% of edges shared, trails added/dropped, camps moved)" / "new", and previous candidates that are gone.
+  `candidates.json` (current) and `candidates.previous.json` back it.
+- When nothing fits, the output now says why and what to try (e.g. the start became a dead-end spur after
+  `--avoid`, so only lollipops are possible: `--type any`).
+
+**Real examples (Bear Rocks, 2 nights, 18–26 mi, 6–11 mi/day, 2,500 ft/day)**
+- `--must-visit "Rocky Point Trail" --avoid "Dobbin Grade Trail" --direction cw`: 3 clockwise loops in 5 s, all on
+  Rocky Point Trail, none on Dobbin Grade (83 of 229 loops qualified).
+- Adding `--avoid "Raven Ridge Trail"` leaves the trailhead on a spur: 0 loops, with the hint; `--type any` then
+  gives 3 lollipops that start with 6.5 mi on Dolly Sods Road (reported as road miles). `diff.md` lists the old
+  three as gone and the new three as new.

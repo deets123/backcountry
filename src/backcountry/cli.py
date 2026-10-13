@@ -14,7 +14,7 @@ from backcountry.graph import bbox_coverage, build_graph, chain_named_trail, qa_
 from backcountry.region import REPO_ROOT, load_region
 from backcountry.trailheads import find_candidates
 from backcountry.elevation import FT_PER_M, annotate, densify, graph_bounds_ll, line_profile
-from backcountry.loops import search
+from backcountry.loops import avoided_keys, search
 from backcountry.route import add_elevation, resolve_point, shortest_route
 from backcountry.scoring import M_PER_MI, Weights
 from backcountry.features import along_route
@@ -164,6 +164,16 @@ def dem(
         typer.echo(f"  {s['title']} (published {s['publication_date']})")
 
 
+def _must_spec(tg, region, text: str) -> dict:
+    """A --must-visit value: a point (trailhead id, node id, lat,lon) or a trail name."""
+    try:
+        return {"node": resolve_point(tg, region, text)["node"]}
+    except ValueError as point_err:
+        if any((d["name"] or "").lower() == text.lower() for *_, d in tg.graph.edges(data=True)):
+            return {"name": text}
+        raise ValueError(f"--must-visit {text!r}: not a trail name here, and {point_err}")
+
+
 def _parse_range(text: str, flag: str) -> tuple[float, float]:
     try:
         lo, hi = (float(x) for x in text.split("-"))
@@ -246,6 +256,7 @@ def route(
     to: str = typer.Option(..., "--to", help="Same forms as --from"),
     no_roads: bool = typer.Option(False, "--no-roads", help="Refuse to use any road edge."),
     road_factor: float = typer.Option(1.0, help="A road mile costs this many trail miles when choosing the path."),
+    avoid: list[str] = typer.Option(None, "--avoid", help="A trail/road name or way id to stay off. Repeatable."),
     out_dir: Path = typer.Option(None, help="Output directory (default out/routes/<from>-to-<to>)."),
     reference: str = typer.Option(None, help="Also save the GPX + a CalTopo stub as tests/reference/<name>."),
 ):
@@ -253,7 +264,8 @@ def route(
     r, raw, tg = _load(region)
     try:
         a, b = resolve_point(tg, r, from_), resolve_point(tg, r, to)
-        rt = shortest_route(tg, a["node"], b["node"], no_roads=no_roads, road_factor=road_factor)
+        rt = shortest_route(tg, a["node"], b["node"], no_roads=no_roads, road_factor=road_factor,
+                            exclude_keys=avoided_keys(tg, avoid) if avoid else frozenset())
     except ValueError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
@@ -301,10 +313,17 @@ def generate(
     camps_at_sites: bool = typer.Option(False, "--camps-at-sites",
                                         help="Designated-site mode: camps only at known camp sites on the route."),
     basemap: str = typer.Option("topo", help="Map background: topo, hybrid, or satellite"),
+    must_visit: list[str] = typer.Option(None, "--must-visit",
+                                         help="A place the loop must include: trailhead id, OSM node id, lat,lon, or a trail name. Repeatable."),
+    avoid: list[str] = typer.Option(None, "--avoid", help="A trail/road name or way id to stay off. Repeatable."),
+    direction: str = typer.Option(None, help="Walk loops clockwise (cw) or counterclockwise (ccw)."),
     out_dir: Path = typer.Option(None, help="Output directory (default out/loops/<trailhead>_<total>mi)"),
 ):
     """Generate candidate loops from a trailhead within a total distance range, optionally split into days."""
     lo_mi, hi_mi = _parse_range(total, "--total")
+    if direction not in (None, "cw", "ccw"):
+        typer.echo("--direction must be cw or ccw", err=True)
+        raise typer.Exit(code=1)
     if nights is not None and daily is None:
         typer.echo("--nights needs --daily (e.g. --daily 6-11)", err=True)
         raise typer.Exit(code=1)
@@ -316,6 +335,9 @@ def generate(
     r, raw, tg = _load(region)
     try:
         start = resolve_point(tg, r, trailhead)
+        musts = [_must_spec(tg, r, m) for m in (must_visit or [])]
+        if avoid:
+            avoided_keys(tg, avoid)  # fail early with a clear message
     except ValueError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
@@ -351,7 +373,12 @@ def generate(
         return c.plan.penalty + 100.0 * len(problems)
 
     report = search(tg, start["node"], lo_mi * M_PER_MI, hi_mi * M_PER_MI, kinds=kinds, count=count,
-                    no_roads=no_roads, weights=weights, evaluate=evaluate if nights is not None else None)
+                    no_roads=no_roads, weights=weights, evaluate=evaluate if nights is not None else None,
+                    avoid=avoid or (), must_visit=musts, direction=direction)
+    request = {"trailhead": trailhead, "total": total, "type": type_, "nights": nights, "daily": daily,
+               "max_gain_day": max_gain_day, "no_roads": no_roads, "road_weight": road_weight, "camps": camp or [],
+               "camps_at_sites": camps_at_sites, "must_visit": must_visit or [], "avoid": avoid or [],
+               "direction": direction}
     if nights is None:
         for c in report["candidates"]:
             elevate(c)
@@ -359,7 +386,7 @@ def generate(
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
     try:
         paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,
-                                 basemap=basemap)
+                                 basemap=basemap, request=request)
     except ValueError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
@@ -367,7 +394,11 @@ def generate(
     typer.echo(f"{start['how']}, {total} mi: {len(report['candidates'])} candidates from {report['scored']} loops "
                f"({report['via_pairs_tried']:,} waypoint pairs, {report['seconds']:.1f} s)"
                + (" [widened: nothing fit the range]" if report["widened"] else "")
-               + (" [time budget hit]" if report["truncated"] else ""))
+               + (" [time budget hit]" if report["truncated"] else "")
+               + (f" [avoiding {report['avoided_edges']} segment(s)]" if report.get("avoided_edges") else "")
+               + (f" [direction {direction}]" if direction else ""))
+    for n in report.get("notes", []) + report.get("must_visit_notes", []):
+        typer.echo(f"  {n}")
     for i, c in enumerate(report["candidates"], 1):
         gain = f"+{c.route.gain_ft:,.0f}/-{c.route.loss_ft:,.0f} ft" if c.route.gain_ft is not None else "elevation unknown"
         names = [s["label"] for s in route_segments(c.route)]
@@ -392,3 +423,5 @@ def generate(
             typer.echo(f"     features: {len(c.features)} along the route ({crossings} stream crossings); see summary.md. "
                        "Water presence unknown.")
     typer.echo(f"summary: {paths['summary']}\nmap:     {paths['map']}")
+    if "diff" in paths:
+        typer.echo(f"diff:    {paths['diff']} (what changed since the previous run in this folder)")

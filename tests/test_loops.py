@@ -27,14 +27,14 @@ def _check_invariants(tg, cands):
             counts[e["key"]] = counts.get(e["key"], 0) + 1
         repeated = {k for k, n in counts.items() if n > 1}
         assert all(n <= 2 for n in counts.values())
-        assert repeated == set(c.stem_keys), "only stem edges may be walked twice"
+        assert repeated == set(c.stem_keys) | set(c.detour_keys), "only stem or detour edges may be walked twice"
+        lengths = {e["key"]: e["length_m"] for e in r.edges}
         if c.stem_keys:  # lollipop: stem out, loop, same stem back
             n = len(c.stem_keys)
             assert [e["key"] for e in r.edges[:n]] == c.stem_keys
             assert [e["key"] for e in r.edges[-n:]] == c.stem_keys[::-1]
-            assert c.repeated_m == pytest.approx(sum(e["length_m"] for e in r.edges[:n]), abs=0.01)
-        else:
-            assert c.repeated_m == 0
+        # repeated miles = trail walked twice, counted once (stem + detours)
+        assert c.repeated_m == pytest.approx(sum(lengths[k] for k in c.stem_keys) + sum(lengths[k] for k in c.detour_keys), abs=0.01)
 
 
 # --- loop graph ------------------------------------------------------------------
@@ -193,3 +193,106 @@ def test_candidate_outputs_include_days_and_camps(grid, tg, tmp_path):
     gpx = gpxpy.parse((tmp_path / "loops" / "candidate_1" / "route.gpx").read_text())
     assert "Camp 1" in [w.name for w in gpx.waypoints]
     assert "Day 1" in (tmp_path / "loops" / "candidate_1" / "summary.md").read_text()
+
+
+# --- M7 constraints -----------------------------------------------------------------
+
+
+def test_avoid_by_name_and_by_way_id(grid, tg):
+    from backcountry.loops import avoided_keys
+
+    keys = avoided_keys(tg, ["Grid Road"])
+    assert keys and all(tg.graph.edges[u, v, k]["way_id"] == 112 for u, v, k in
+                        [(u, v, k) for u, v, k in tg.graph.edges(keys=True) if k in keys])
+    assert avoided_keys(tg, ["osm:way/112"]) == keys and avoided_keys(tg, ["112"]) == keys
+    assert avoided_keys(tg, ["grid road"]) == keys  # case-insensitive
+    with pytest.raises(ValueError, match="No trail or road"):
+        avoided_keys(tg, ["Nope Trail"])
+
+
+def test_avoided_trail_never_appears(grid, tg):
+    cands = find_candidates(tg, grid.ids["g00"], 3.9 * KM, 8.1 * KM, avoid=["Grid Road"], count=5)
+    assert cands
+    assert all(e["way_id"] != 112 for c in cands for e in c.route.edges)
+
+
+def test_must_visit_node_on_the_network(grid, tg):
+    g22 = grid.ids["g22"]
+    cands = find_candidates(tg, grid.ids["g00"], 3.9 * KM, 8.1 * KM, must_visit=[{"node": g22}], count=5)
+    _check_invariants(tg, cands)
+    assert cands and all(g22 in c.route.nodes for c in cands)
+    # Loops that don't pass the corner naturally reach it by an out-and-back, which counts as repeated miles.
+    assert all(c.length_m >= 8 * KM - 1 for c in cands if not c.detour_keys)
+    assert all(c.repeated_m > 0 for c in cands if c.detour_keys)
+
+
+def test_must_visit_spur_gets_an_out_and_back_detour(grid, tg):
+    D = grid.ids["D"]
+    cands = find_candidates(tg, grid.ids["g00"], 3.9 * KM, 8.1 * KM, must_visit=[{"node": D}], count=3)
+    assert cands
+    for c in cands:
+        assert D in c.route.nodes
+        assert c.detour_keys and c.repeated_m == pytest.approx(500, abs=0.01)  # 500 m of trail walked twice
+        keys = [e["key"] for e in c.route.edges]
+        assert all(keys.count(k) == 2 for k in c.detour_keys)
+        assert c.route.length_m == pytest.approx(sum(e["length_m"] for e in c.route.edges), abs=0.01)
+
+
+def test_must_visit_trail_by_name(grid, tg):
+    cands = find_candidates(tg, grid.ids["g00"], 3.9 * KM, 8.1 * KM, must_visit=[{"name": "Row 2"}], count=5)
+    assert cands and all(any(e["name"] == "Row 2" for e in c.route.edges) for c in cands)
+
+
+def test_impossible_must_visit_is_explained(grid, tg):
+    from backcountry.loops import search
+
+    grid.node("Z1", 9000, 9000)
+    grid.node("Z2", 9000, 9500)
+    grid.way(200, ["Z1", "Z2"], highway="path", name="Island")
+    tg2 = build_graph(grid.doc(), crs=CRS)
+    report = search(tg2, grid.ids["g00"], 3.9 * KM, 8.1 * KM, must_visit=[{"node": grid.ids["Z1"]}])
+    assert report["candidates"] == []
+    assert any("not reachable" in n for n in report["must_visit_notes"])
+
+
+def test_direction_can_be_forced(grid, tg):
+    from backcountry.loops import orientation
+
+    cw = find_candidates(tg, grid.ids["g00"], 3.9 * KM, 4.1 * KM, direction="cw")
+    ccw = find_candidates(tg, grid.ids["g00"], 3.9 * KM, 4.1 * KM, direction="ccw")
+    assert orientation(cw[0].route) == "cw" and orientation(ccw[0].route) == "ccw"
+    assert cw[0].route.nodes == ccw[0].route.nodes[::-1]
+    assert set(e["key"] for e in cw[0].route.edges) == set(e["key"] for e in ccw[0].route.edges)
+    _check_invariants(tg, cw + ccw)
+
+
+# --- diff against the previous run -------------------------------------------------
+
+
+def test_second_run_into_the_same_folder_writes_a_diff(grid, tg, tmp_path):
+    from backcountry.export import write_candidates
+    from backcountry.loops import search
+    from backcountry.region import BBox, Region
+
+    region = Region(id="synthetic", name="Synthetic", crs=CRS, bbox=BBox(36.0, -81.1, 36.2, -80.9))
+    out = tmp_path / "loops"
+    first = search(tg, grid.ids["g00"], 3.9 * KM, 8.1 * KM)
+    paths = write_candidates(first, region, out, "osm:node/1000", "2026-01-01T00:00:00Z", 3.9 * KM, 8.1 * KM,
+                             request={"total": "2.4-5.0"})
+    assert "diff" not in paths and (out / "candidates.json").exists()
+
+    second = search(tg, grid.ids["g00"], 3.9 * KM, 8.1 * KM, avoid=["Grid Road"])
+    paths = write_candidates(second, region, out, "osm:node/1000", "2026-01-01T00:00:00Z", 3.9 * KM, 8.1 * KM,
+                             request={"total": "2.4-5.0", "avoid": ["Grid Road"]})
+    md = paths["diff"].read_text()
+    assert "## Request" in md and "avoid" in md and "Grid Road" in md
+    assert "Candidate 1" in md and ("unchanged" in md or "changed" in md or "new" in md)
+    assert (out / "candidates.previous.json").exists()
+
+
+def test_no_loops_from_a_spur_explains_and_suggests_lollipops(grid, tg):
+    from backcountry.loops import search
+
+    report = search(tg, grid.ids["T"], 3.9 * KM, 4.1 * KM, kinds=("loop",))
+    assert report["candidates"] == []
+    assert any("dead-end" in n and "--type any" in n for n in report["notes"])

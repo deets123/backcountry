@@ -75,11 +75,11 @@ def edge_weight(d: dict, road_factor: float = 1.0) -> float:
     return d["length_m"] * (road_factor if d["is_road"] else 1.0)
 
 
-def routing_graph(tg, no_roads: bool = False, road_factor: float = 1.0) -> nx.Graph:
+def routing_graph(tg, no_roads: bool = False, road_factor: float = 1.0, exclude_keys=frozenset()) -> nx.Graph:
     """Simple weighted graph: for parallel edges keep the lightest, remembering its key."""
     R = nx.Graph()
     for u, v, k, d in tg.graph.edges(keys=True, data=True):
-        if u == v or (no_roads and d["is_road"]):
+        if u == v or (no_roads and d["is_road"]) or k in exclude_keys:
             continue
         w = edge_weight(d, road_factor)
         if not R.has_edge(u, v) or w < R[u][v]["w"]:
@@ -87,8 +87,9 @@ def routing_graph(tg, no_roads: bool = False, road_factor: float = 1.0) -> nx.Gr
     return R
 
 
-def shortest_route(tg, start: int, end: int, no_roads: bool = False, road_factor: float = 1.0) -> Route:
-    R = routing_graph(tg, no_roads, road_factor)
+def shortest_route(tg, start: int, end: int, no_roads: bool = False, road_factor: float = 1.0,
+                   exclude_keys=frozenset()) -> Route:
+    R = routing_graph(tg, no_roads, road_factor, exclude_keys)
     try:
         nodes = nx.shortest_path(R, start, end, weight="w")
     except (nx.NetworkXNoPath, nx.NodeNotFound):

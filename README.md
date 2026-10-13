@@ -36,6 +36,9 @@ uv run backcountry generate --region dolly_sods --trailhead bear_rocks \
 | `--type loop|lollipop|any` | loop shape (default any) |
 | `--camps-at-sites` | camps only at known campsites on the route |
 | `--camp 8.5` / `--camp lat,lon` | pin a camp (repeatable); the planner places the rest |
+| `--must-visit X` | a spot or trail the loop must include (trailhead id, node id, `lat,lon`, or trail name); repeatable |
+| `--avoid X` | a trail/road name or way id to stay off; repeatable |
+| `--direction cw|ccw` | walk the loop clockwise or counterclockwise |
 | `--no-roads`, `--road-weight N` | forbid roads, or make a road mile cost N trail miles |
 | `--basemap topo|hybrid|satellite` | map background |
 | `--count 3` | how many candidates |
@@ -46,6 +49,7 @@ Results go to `out/loops/<trailhead>_<total>mi/`:
 - `candidate_<i>/route.gpx`: one track per day plus Start/End/camp/junction waypoints (import this)
 - `candidate_<i>/day_<n>.gpx`: one day per file
 - `candidate_<i>/map.html`, `summary.md`, `route.geojson`
+- `diff.md` when you re-run into the same folder: what changed since last time
 
 Other commands: `route --from A --to B` (shortest point-to-point), `trailheads` (candidate
 trailheads from the data), `qa` (data quality report and map), `reference` (export a trail

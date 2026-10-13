@@ -984,20 +984,99 @@ def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at
 CANDIDATE_COLORS = ["#d32f2f", "#1976d2", "#388e3c", "#f57c00", "#7b1fa2"]
 
 
+def candidate_record(i: int, c) -> dict:
+    """What a diff needs to know about a candidate."""
+    return {
+        "index": i, "kind": c.kind, "length_m": c.length_m, "gain_ft": c.route.gain_ft, "loss_ft": c.route.loss_ft,
+        "road_m": c.road_m, "repeated_m": c.repeated_m, "penalty": c.penalty, "keys": c.keys,
+        "segments": [s["label"] for s in route_segments(c.route)],
+        "days": [{"length_m": d.length_m, "gain_ft": d.gain_ft} for d in c.plan.days] if c.plan else None,
+        "camps": [{"dist_m": cp.dist_m, "lat": cp.lat, "lon": cp.lon, "on": cp.on_name} for cp in c.plan.camps] if c.plan else None,
+        "days_ok": c.plan.ok if c.plan else None,
+    }
+
+
+def diff_markdown(prev: dict, cur: dict) -> str:
+    """How this run differs from the previous one written to the same folder."""
+    L = [f"# What changed since the previous run", "",
+         f"Previous run: {prev.get('generated')}. This run: {cur.get('generated')}.", "", "## Request", ""]
+    keys = sorted(set(prev.get("request", {})) | set(cur.get("request", {})))
+    changed = [(k, prev.get("request", {}).get(k), cur.get("request", {}).get(k)) for k in keys
+               if prev.get("request", {}).get(k) != cur.get("request", {}).get(k)]
+    L += ([f"- `{k}`: {a!r} -> {b!r}" for k, a, b in changed] or ["Same request as before."])
+    L += ["", "## Candidates", ""]
+    prev_c = prev.get("candidates", [])
+    matched_prev = set()
+    for c in cur.get("candidates", []):
+        best, best_overlap = None, 0.0
+        for p in prev_c:
+            a, b = set(c["keys"]), set(p["keys"])
+            ov = len(a & b) / len(a | b) if a | b else 0.0
+            if ov > best_overlap:
+                best, best_overlap = p, ov
+        if best is None or best_overlap < 0.5:
+            L.append(f"- **Candidate {c['index']}: new** ({mi(c['length_m'])}, "
+                     f"{'+%s ft' % format(c['gain_ft'], ',.0f') if c['gain_ft'] is not None else 'gain unknown'}). "
+                     f"Trails: {' > '.join(dict.fromkeys(c['segments']))}.")
+            continue
+        matched_prev.add(best["index"])
+        if set(c["keys"]) == set(best["keys"]):
+            line = f"- **Candidate {c['index']}: unchanged route** (was candidate {best['index']})"
+        else:
+            added = [s for s in dict.fromkeys(c["segments"]) if s not in best["segments"]]
+            removed = [s for s in dict.fromkeys(best["segments"]) if s not in c["segments"]]
+            line = (f"- **Candidate {c['index']}: changed** (was candidate {best['index']}, {best_overlap:.0%} of edges shared): "
+                    f"{mi(best['length_m'])} -> {mi(c['length_m'])}")
+            if c["gain_ft"] is not None and best["gain_ft"] is not None:
+                line += f", gain {best['gain_ft']:,.0f} -> {c['gain_ft']:,.0f} ft"
+            if added:
+                line += f". Added: {', '.join(added)}"
+            if removed:
+                line += f". Dropped: {', '.join(removed)}"
+        if c.get("camps") and best.get("camps"):
+            moves = [f"Camp {i + 1} moved {abs(a['dist_m'] - b['dist_m']) / M_PER_MI:.1f} mi"
+                     for i, (a, b) in enumerate(zip(c["camps"], best["camps"])) if abs(a["dist_m"] - b["dist_m"]) > 50]
+            if moves:
+                line += ". " + "; ".join(moves)
+        elif c.get("camps") and not best.get("camps"):
+            line += ". Days are now planned."
+        L.append(line + ".")
+    for p in prev_c:
+        if p["index"] not in matched_prev:
+            L.append(f"- Previous candidate {p['index']} ({mi(p['length_m'])}) is gone: "
+                     f"{' > '.join(dict.fromkeys(p['segments']))}.")
+    return "\n".join(L) + "\n"
+
+
 def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_retrieved_at: str,
-                     min_m: float, max_m: float, basemap: str = "topo") -> dict[str, Path]:
-    """candidates.md, candidates_map.html, search.json, and candidate_<i>/ (route.gpx, summary.md, geojson)."""
+                     min_m: float, max_m: float, basemap: str = "topo", request: dict | None = None) -> dict[str, Path]:
+    """candidates.md, candidates_map.html, search.json, candidates.json, candidate_<i>/ ..., and diff.md on a re-run."""
     out_dir.mkdir(parents=True, exist_ok=True)
     cands = report["candidates"]
     paths = {"summary": out_dir / "candidates.md", "map": out_dir / "candidates_map.html",
-             "search": out_dir / "search.json"}
+             "search": out_dir / "search.json", "records": out_dir / "candidates.json"}
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    current = {"generated": now, "request": request or {}, "candidates": [candidate_record(i, c) for i, c in enumerate(cands, 1)]}
+    if paths["records"].exists():
+        previous = json.loads(paths["records"].read_text())
+        (out_dir / "candidates.previous.json").write_text(json.dumps(previous, indent=1))
+        paths["diff"] = out_dir / "diff.md"
+        paths["diff"].write_text(diff_markdown(previous, current))
+    paths["records"].write_text(json.dumps(current, indent=1))
     for i, c in enumerate(cands, 1):
         write_route(c.route, region, out_dir / f"candidate_{i}", start_text, f"{start_text} (loop)", osm_retrieved_at,
                     plan=c.plan, features=getattr(c, "features", None), basemap=basemap)
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     L = [f"# Loop candidates from {start_text}", "",
          f"Region: {region.name}. Requested {mi(min_m)} to {mi(max_m)}. Generated {now}.", ""]
+    if request:
+        L += ["Request: " + ", ".join(f"{k}={v}" for k, v in request.items() if v not in (None, [], False)), ""]
+    for n in report.get("notes", []) + report.get("must_visit_notes", []):
+        L += [f"- {n}"]
+    if report.get("avoided_edges"):
+        L += [f"- Avoided {report['avoided_edges']} trail segment(s) as requested."]
+    if report.get("must_visit_notes") or report.get("avoided_edges"):
+        L.append("")
     if report["widened"]:
         L += [f"**Nothing fit the requested range**, so the search was widened by {WIDEN_PCT}% and the "
               "distance deviation is included in each penalty.", ""]

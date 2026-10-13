@@ -205,3 +205,29 @@ def test_generate_output_has_no_raw_osm_ids(tmp_path, monkeypatch, grid):
                                  "--nights", "1", "--daily", "0.5-4"])
     assert result.exit_code == 0, result.output
     assert "osm:node/" not in result.output.replace(f"osm:node/{g00}", "")  # the start you typed is echoed back; nothing else
+
+
+def test_generate_constraints_flags(tmp_path, monkeypatch, grid):
+    _cache(tmp_path, monkeypatch, grid.doc())
+    g00, g22 = grid.ids["g00"], grid.ids["g22"]
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(g00), "--total", "2.4-5.1",
+                                 "--must-visit", str(g22), "--avoid", "Grid Road", "--direction", "cw"])
+    assert result.exit_code == 0, result.output
+    assert "must-visit" in result.output and "avoid" in result.output.lower() and "cw" in result.output
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(g00), "--total", "2.4-5.1",
+                                 "--must-visit", "Row 2"])
+    assert result.exit_code == 0, result.output
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(g00), "--total", "2.4-5.1",
+                                 "--avoid", "Nope Trail"])
+    assert result.exit_code == 1 and "No trail or road" in result.output
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(g00), "--total", "2.4-5.1",
+                                 "--direction", "sideways"])
+    assert result.exit_code == 1 and "--direction" in result.output
+
+
+def test_route_avoid_flag(tmp_path, monkeypatch, grid):
+    _cache(tmp_path, monkeypatch, grid.doc())
+    result = runner.invoke(app, ["route", "--region", "dolly_sods", "--from", str(grid.ids["g00"]), "--to", str(grid.ids["g21"]),
+                                 "--avoid", "Grid Road"])
+    assert result.exit_code == 0, result.output
+    assert "Grid Road" not in (tmp_path / "out" / "routes" / f"{grid.ids['g00']}-to-{grid.ids['g21']}" / "summary.md").read_text().split("## Data sources")[0].split("## Segments")[1]
