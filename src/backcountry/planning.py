@@ -136,7 +136,8 @@ def usfs_campgrounds(region) -> list[dict]:
             for f in feats if f["properties"].get("site_subtype") == "CAMPGROUND"]
 
 
-def plan_trip(region, raw, tg, req: GenerateRequest) -> PlanResult:
+def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto") -> PlanResult:
+    """Resolve the start, search, and attach elevation/days/features. `dem="auto"` loads the cached DEM."""
     try:
         start = resolve_point(tg, region, req.trailhead)
     except ValueError as e:
@@ -148,7 +149,7 @@ def plan_trip(region, raw, tg, req: GenerateRequest) -> PlanResult:
         except ValueError as e:
             raise RequestError("avoid", str(e))
     weights = Weights(road=req.road_weight, repeat=req.repeat_weight)
-    dem = ingest.load_dem(region)
+    dem = ingest.load_dem(region) if isinstance(dem, str) and dem == "auto" else dem
     sites = ingest.camp_sites(raw)
     water = ingest.water_features(raw)
     campgrounds = usfs_campgrounds(region)

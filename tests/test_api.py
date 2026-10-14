@@ -87,3 +87,59 @@ def test_features_in_bbox_with_evidence(client, grid):
 def test_features_rejects_bad_bbox(client):
     r = client.get("/api/regions/dolly_sods/features?bbox=1,2,3")
     assert r.status_code == 400 and r.json()["field"] == "bbox"
+
+
+# --- generate and runs ---------------------------------------------------------------
+
+from conftest import plane_dem  # noqa: E402
+
+
+def test_generate_returns_a_run_and_saves_it(client, grid):
+    body = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "nights": 1, "daily": "0.5-4", "type": "loop"}
+    r = client.post("/api/regions/dolly_sods/generate", json=body)
+    assert r.status_code == 200, r.text
+    run = r.json()
+    assert run["region"] == "dolly_sods" and len(run["candidates"]) == 3
+    assert run["candidates"][0]["plan"]["days"] and run["candidates"][0]["gain_ft"] is None
+    assert any("elevation unknown" in n for n in run["candidates"][0]["notes"])
+    assert run["known_gaps"] and run["data_sources"][0]["retrieved_at"] == "2026-01-01T00:00:00Z"
+    assert run["diff"] is None
+    again = client.get(f"/api/runs/{run['run_id']}").json()
+    assert again == run
+
+
+def test_second_generate_for_same_trailhead_carries_a_diff(client, grid):
+    body = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "type": "loop"}
+    client.post("/api/regions/dolly_sods/generate", json=body)
+    run = client.post("/api/regions/dolly_sods/generate", json=body | {"avoid": ["Grid Road"]}).json()
+    assert run["diff"] and "Grid Road" in run["diff"] and "## Candidates" in run["diff"]
+
+
+@pytest.mark.parametrize("body, field, status", [
+    ({"trailhead": "1000", "total": "5-2"}, "total", 400),
+    ({"trailhead": "nowhere", "total": "2-5"}, "trailhead", 400),
+    ({"trailhead": "1000", "total": "2-5", "avoid": ["Nope"]}, "avoid", 400),
+    ({"trailhead": "1000", "total": "2-5", "nights": 1}, "daily", 400),
+])
+def test_generate_bad_requests_name_the_field(client, body, field, status):
+    r = client.post("/api/regions/dolly_sods/generate", json=body)
+    assert r.status_code == status and r.json()["field"] == field
+
+
+def test_generate_uses_the_cached_dem(env, grid, tmp_path):
+    from backcountry import ingest
+    from backcountry.region import load_region
+
+    dem = plane_dem(0.0, 0.05, 1000)
+    ingest.fetch_dem(load_region("dolly_sods"), (-180, -90, 180, 90), raw_dir=env.raw_dir,
+                     searcher=lambda ds, b: [{"title": "USGS 1/3 Arc Second n40w080 20260101", "publicationDate": "2026-01-01",
+                                               "downloadURL": "x"}],
+                     reader=lambda urls, b: (dem.array.astype("float32"), dem.transform, dem.crs))
+    c = TestClient(create_app(env))
+    run = c.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1"}).json()
+    assert run["candidates"][0]["gain_ft"] is not None and run["candidates"][0]["gain_ft"] > 0
+    assert run["data_sources"][1]["name"].startswith("National Elevation Dataset")
+
+
+def test_unknown_run_is_404(client):
+    assert client.get("/api/runs/nope").status_code == 404

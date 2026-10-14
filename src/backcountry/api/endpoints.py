@@ -1,11 +1,14 @@
 """HTTP endpoints. Each one serializes engine results; none computes geometry."""
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Request
 
 from backcountry import ingest
-from backcountry.export import edges_features
+from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
-from backcountry.planning import RequestError
+from backcountry.planning import GenerateRequest, RequestError, plan_trip
+from backcountry.serialize import run_payload
 from backcountry.trailheads import find_candidates
 
 router = APIRouter(prefix="/api")
@@ -80,3 +83,32 @@ def features(region_id: str, request: Request, bbox: str):
         "water_points": [p for p in water["points"] if inside(p["lat"], p["lon"])],
         "streams": [l for l in water["lines"] if any(inside(lat, lon) for lon, lat in l["coords"])],
     }
+
+
+# --- generate and runs ---------------------------------------------------------------
+
+
+def _record(run: dict) -> dict:
+    return {"generated": run["generated_at"], "request": run["request"],
+            "candidates": [c["record"] for c in run["candidates"]]}
+
+
+@router.post("/regions/{region_id}/generate")
+def generate(region_id: str, request: Request, body: dict):
+    loaded = _regions(request).get(region_id)
+    req = GenerateRequest.from_dict(body)
+    result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem)
+    runs = request.app.state.runs
+    previous = runs.latest(region_id, req.trailhead) if runs else None
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, now, diff=None)
+    if previous:
+        run["diff"] = diff_markdown(_record(previous), _record(run))
+    if runs:
+        runs.save(run)
+    return run
+
+
+@router.get("/runs/{run_id}")
+def get_run(run_id: str, request: Request):
+    return request.app.state.runs.load(run_id)
