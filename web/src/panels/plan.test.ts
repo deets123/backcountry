@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { INITIAL } from "../store";
+import type { FormState } from "../request";
+import { createStore, INITIAL } from "../store";
 import type { Trailhead } from "../types";
-import { renderPlan } from "./plan";
+import { bindPlan, renderPlan } from "./plan";
 
 const th = (over: Partial<Trailhead>): Trailhead => ({ id: "x", name: "X", node: 1, source: "yaml", verified: false, in_graph: true,
   lat: 39, lon: -79, component: "C0", ...over });
@@ -27,5 +28,20 @@ describe("renderPlan", () => {
   it("escapes HTML in names", () => {
     const html = renderPlan({ ...INITIAL, trailheads: [th({ id: "a", name: "<b>bold</b>" })] });
     expect(html).toContain("&lt;b&gt;bold&lt;/b&gt;");
+  });
+});
+
+describe("bindPlan", () => {
+  it("hands field edits to editForm instead of writing the store itself", () => {
+    const root = document.createElement("div");
+    root.innerHTML = renderPlan({ ...INITIAL, region: "dolly_sods" });
+    const edits: FormState[] = [];
+    const store = createStore(INITIAL);
+    bindPlan(root, store, { generate() {}, pickRegion() {}, backToCompare() {}, editForm: (f) => edits.push(f) });
+    const total = root.querySelector<HTMLInputElement>('input[name="total"]')!;
+    total.value = "26-18";
+    total.dispatchEvent(new Event("change"));
+    expect(edits.map((f) => f.total)).toEqual(["26-18"]);
+    expect(store.get().form.total).toBe(INITIAL.form.total);
   });
 });

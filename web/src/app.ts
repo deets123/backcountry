@@ -1,10 +1,12 @@
 import { ApiError, generate, getRegions, getTrailheads, getTrails } from "./api";
+import { BASEMAPS } from "./basemaps";
 import { createMap, type TripMap } from "./map";
 import { evidenceHtml } from "./evidence";
 import { bindCompare, renderCompare } from "./panels/compare";
 import { bindTrip, renderTrip } from "./panels/trip";
 import { bindPlan, renderPlan } from "./panels/plan";
-import { fromRun, toRequest } from "./request";
+import { fromRun, toRequest, type FormState } from "./request";
+import { nextSheet } from "./sheet";
 import { createStore, loadPersisted, persist, type Basemap, type State, type Store } from "./store";
 import type { Trailhead } from "./types";
 
@@ -13,6 +15,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   persist(store, storage);
   let map: TripMap | null = null;
   let abort: AbortController | null = null;
+  let editingInPanel = false;
 
   const actions = {
     async pickRegion(id: string) {
@@ -58,7 +61,10 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     replan() { const run = store.get().run; store.set({ view: "plan", form: run ? fromRun(run) : store.get().form }); },
     setBasemap(b: Basemap) { store.set({ basemap: b }); map?.setBasemap(b); },
     showJunctions(show: boolean) { const s = store.get(); map?.setJunctions(s.run?.candidates[s.selected - 1] ?? null, show); },
-    toggleSheet() { store.set((s) => ({ sheet: s.sheet === "collapsed" ? "half" : s.sheet === "half" ? "full" : "collapsed" })); },
+    sheet(gesture: "tap" | "up" | "down") { store.set((s) => ({ sheet: nextSheet(s.sheet, gesture) })); },
+    // Edits typed into the plan panel: record them without re-rendering the panel (a re-render on blur
+    // would replace the Generate button under the user's finger and lose the tap).
+    editForm(form: FormState) { editingInPanel = true; try { store.set({ form }); } finally { editingInPanel = false; } },
   };
 
   // The view decides the panel; the map layers follow the run and selection. Later tasks add compare/trip here.
@@ -75,7 +81,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     handle.parentElement!.className = `sheet sheet-${s.sheet}`;
   }
   store.subscribe((s, prev) => {
-    if (s.view !== prev.view || s.form !== prev.form || s.status !== prev.status || s.error !== prev.error || s.busy !== prev.busy
+    if (s.view !== prev.view || (s.form !== prev.form && !editingInPanel) || s.status !== prev.status || s.error !== prev.error || s.busy !== prev.busy
       || s.run !== prev.run || s.selected !== prev.selected || s.trailheads !== prev.trailheads || s.sheet !== prev.sheet
       || s.regions !== prev.regions) render();
     if (s.run !== prev.run || s.selected !== prev.selected || s.view !== prev.view) {
@@ -86,9 +92,23 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       } else { map?.setTrip(null); map?.setJunctions(null, false); map?.setCandidates(s.run.candidates, s.selected, (i) => actions.select(i)); }
     }
   });
-  handle.addEventListener("click", () => actions.toggleSheet());
+  // Tap cycles the sheet; a vertical drag of more than 30px on the handle moves it one step up or down.
+  let dragStart: number | null = null;
+  handle.addEventListener("pointerdown", (e) => { dragStart = e.clientY; });
+  handle.addEventListener("pointerup", (e) => {
+    const dy = dragStart == null ? 0 : e.clientY - dragStart;
+    dragStart = null;
+    actions.sheet(dy < -30 ? "up" : dy > 30 ? "down" : "tap");
+  });
 
   map = createMap(mapEl, store.get().basemap, [-79.35, 39.02], 11);
+  const basemapEl = doc.createElement("select");
+  basemapEl.id = "basemap";
+  basemapEl.setAttribute("aria-label", "Base map");
+  basemapEl.style.cssText = "position:fixed;top:10px;left:10px;z-index:5;width:auto;padding:6px;background:#fff";
+  basemapEl.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}"${k === store.get().basemap ? " selected" : ""}>${b.name}</option>`).join("");
+  basemapEl.addEventListener("change", () => actions.setBasemap(basemapEl.value as Basemap));
+  mapEl.parentElement!.appendChild(basemapEl);
   map.onMapTap((lon, lat) => actions.tapPoint(lon, lat));
   render();
   getRegions().then((regions) => {

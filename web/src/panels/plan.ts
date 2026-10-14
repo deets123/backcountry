@@ -1,3 +1,4 @@
+import type { FormState } from "../request";
 import type { State, Store } from "../store";
 import type { Trailhead } from "../types";
 import { esc } from "./common";
@@ -50,7 +51,7 @@ ${regions}
 ${s.run ? `<button class="link" id="back-to-compare">Back to the last results</button>` : ""}`;
 }
 
-export interface PlanActions { generate(): void; pickRegion(id: string): void; backToCompare(): void }
+export interface PlanActions { generate(): void; pickRegion(id: string): void; backToCompare(): void; editForm(form: FormState): void }
 
 export function bindPlan(root: HTMLElement, store: Store, actions: PlanActions): void {
   const lines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
@@ -62,7 +63,7 @@ export function bindPlan(root: HTMLElement, store: Store, actions: PlanActions):
       if (el instanceof HTMLInputElement && el.type === "checkbox") f[name] = el.checked;
       else if (name === "mustVisit" || name === "avoid" || name === "camps") f[name] = lines(el.value);
       else f[name] = el.value;
-      store.set({ form: f as unknown as State["form"], error: null });
+      actions.editForm(f as unknown as FormState);  // the app records it without re-rendering, so focus and the next tap survive
     });
   });
   root.querySelector("#generate")?.addEventListener("click", () => actions.generate());
