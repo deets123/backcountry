@@ -19,7 +19,7 @@ def env(tmp_path, grid):
 
 @pytest.fixture
 def client(env):
-    return TestClient(create_app(env))
+    return TestClient(create_app(env, web_dist=env.runs_dir / "no-web"))  # a built web/dist must not change test results
 
 
 def test_regions_lists_what_is_cached(client):
@@ -47,7 +47,7 @@ def test_unknown_region_and_uncached_region_are_404(client):
 
 def test_region_graph_is_built_once(env):
     LoadedRegion.builds = 0
-    c = TestClient(create_app(env))
+    c = TestClient(create_app(env, web_dist=env.runs_dir / "no-web"))
     c.get("/api/regions/dolly_sods/trailheads")
     c.get("/api/regions/dolly_sods/trailheads")
     assert LoadedRegion.builds == 1
@@ -135,7 +135,7 @@ def test_generate_uses_the_cached_dem(env, grid, tmp_path):
                      searcher=lambda ds, b: [{"title": "USGS 1/3 Arc Second n40w080 20260101", "publicationDate": "2026-01-01",
                                                "downloadURL": "x"}],
                      reader=lambda urls, b: (dem.array.astype("float32"), dem.transform, dem.crs))
-    c = TestClient(create_app(env))
+    c = TestClient(create_app(env, web_dist=env.runs_dir / "no-web"))
     run = c.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1"}).json()
     assert run["candidates"][0]["gain_ft"] is not None and run["candidates"][0]["gain_ft"] > 0
     assert run["data_sources"][1]["name"].startswith("National Elevation Dataset")
@@ -229,7 +229,7 @@ def test_without_a_built_web_app_root_explains(env, tmp_path):
 
 
 def test_only_store_misses_become_404_other_keyerrors_are_500(env):
-    app = create_app(env)
+    app = create_app(env, web_dist=env.runs_dir / "no-web")
 
     @app.get("/api/boom")
     def boom():
@@ -267,7 +267,7 @@ def test_concurrent_first_requests_build_the_graph_once(env):
     import threading
 
     LoadedRegion.builds = 0
-    c = TestClient(create_app(env))
+    c = TestClient(create_app(env, web_dist=env.runs_dir / "no-web"))
     threads = [threading.Thread(target=lambda: c.get("/api/regions/dolly_sods/trailheads")) for _ in range(4)]
     for t in threads:
         t.start()

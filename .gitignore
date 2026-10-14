@@ -16,3 +16,7 @@ build/
 .DS_Store
 data/runs/*
 !data/runs/.gitkeep
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
