@@ -15,6 +15,7 @@ html, body { margin: 0; height: 100%; font: 15px/1.4 -apple-system, BlinkMacSyst
 h1 { font-size: 18px; margin: 4px 0 8px; } h2 { font-size: 15px; margin: 14px 0 6px; }
 label { display: block; font-size: 13px; color: var(--muted); margin-top: 8px; }
 input, select, button, textarea { font: inherit; } input, select, textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+input[type="checkbox"] { width: auto; margin: 0 8px 0 0; vertical-align: middle; } label:has(> input[type="checkbox"]) { color: var(--ink); }
 .row { display: flex; gap: 8px; } .row > * { flex: 1; }
 button.primary { background: var(--green); color: #fff; border: 0; border-radius: 8px; padding: 12px; width: 100%; margin-top: 12px; font-weight: 600; }
 button.primary:disabled { opacity: .6; }
