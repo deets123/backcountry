@@ -3,12 +3,13 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
+from fastapi.responses import Response
 
 from backcountry import ingest
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
 from backcountry.planning import GenerateRequest, RequestError, plan_trip
-from backcountry.serialize import run_payload
+from backcountry.serialize import build_gpx, day_gpx, run_payload
 from backcountry.trailheads import find_candidates
 
 router = APIRouter(prefix="/api")
@@ -112,3 +113,40 @@ def generate(region_id: str, request: Request, body: dict):
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, request: Request):
     return request.app.state.runs.load(run_id)
+
+
+# --- downloads --------------------------------------------------------------------------
+
+
+def _candidate(request: Request, run_id: str, n: int) -> tuple[dict, dict]:
+    run = request.app.state.runs.load(run_id)
+    if not 1 <= n <= len(run["candidates"]):
+        raise KeyError(f"Run {run_id} has {len(run['candidates'])} candidates; there is no candidate {n}")
+    return run, run["candidates"][n - 1]
+
+
+@router.get("/runs/{run_id}/candidates/{n}.gpx")
+def candidate_gpx(run_id: str, n: int, request: Request, day: int | None = None):
+    run, c = _candidate(request, run_id, n)
+    pieces = [{**p, "points": [tuple(pt) for pt in p["points"]]} for p in c["pieces"]]
+    if day is None:
+        text, name = build_gpx(c["title"], c["description"], pieces, c["waypoints"]), f"{run_id}_candidate_{n}.gpx"
+    else:
+        piece = next((p for p in pieces if p["day"] == day), None)
+        if piece is None:
+            raise KeyError(f"Candidate {n} has no day {day}")
+        text, name = day_gpx(c["title"], c["description"], piece, c["waypoints"]), f"{run_id}_candidate_{n}_day_{day}.gpx"
+    return Response(content=text, media_type="application/gpx+xml",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/runs/{run_id}/candidates/{n}.geojson")
+def candidate_geojson(run_id: str, n: int, request: Request):
+    run, c = _candidate(request, run_id, n)
+    feats = [{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[lon, lat] for lon, lat, _ in p["points"]]},
+              "properties": {"name": p["name"].split(":")[0], "day": p["day"], "length_m": p["length_m"],
+                             "gain_ft": p["gain_ft"], "loss_ft": p["loss_ft"]}} for p in c["pieces"]]
+    feats += [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [w["lon"], w["lat"]]},
+               "properties": {"name": w["name"], "kind": w["kind"], "description": w["desc"], "dist_m": w["dist_m"]}}
+              for w in c["waypoints"]]
+    return {"type": "FeatureCollection", "attribution": run["data_sources"][0]["attribution"], "features": feats}

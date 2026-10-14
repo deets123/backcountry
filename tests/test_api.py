@@ -143,3 +143,66 @@ def test_generate_uses_the_cached_dem(env, grid, tmp_path):
 
 def test_unknown_run_is_404(client):
     assert client.get("/api/runs/nope").status_code == 404
+
+
+# --- downloads --------------------------------------------------------------------------
+
+import subprocess  # noqa: E402
+
+from backcountry import cli  # noqa: E402
+
+
+def test_gpx_download_matches_cli_bytes(client, grid, tmp_path, monkeypatch):
+    body = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "nights": 1, "daily": "0.5-4", "type": "loop"}
+    run = client.post("/api/regions/dolly_sods/generate", json=body).json()
+    gpx = client.get(f"/api/runs/{run['run_id']}/candidates/1.gpx")
+    assert gpx.status_code == 200 and gpx.headers["content-type"].startswith("application/gpx+xml")
+    assert 'filename="' in gpx.headers["content-disposition"]
+
+    # The CLI, on the same cache and request, writes the same bytes.
+    from typer.testing import CliRunner
+
+    monkeypatch.setattr(cli.ingest, "RAW_DIR", client.app.state.settings.raw_dir)
+    monkeypatch.setattr(cli, "OUT_DIR", tmp_path / "out")
+    monkeypatch.setattr(cli, "PROCESSED_DIR", tmp_path / "processed")
+    result = CliRunner().invoke(cli.app, ["generate", "--region", "dolly_sods", "--trailhead", str(grid.ids["g00"]),
+                                          "--total", "2.4-5.1", "--nights", "1", "--daily", "0.5-4", "--type", "loop"])
+    assert result.exit_code == 0, result.output
+    out = tmp_path / "out" / "loops" / f"{grid.ids['g00']}_2.4-5.1mi" / "candidate_1"
+    assert gpx.text == (out / "route.gpx").read_text()
+    day = client.get(f"/api/runs/{run['run_id']}/candidates/1.gpx?day=2")
+    assert day.text == (out / "day_2.gpx").read_text()
+
+
+def test_gpx_validates_against_schema(client, grid, tmp_path):
+    import shutil
+
+    if not shutil.which("xmllint"):
+        pytest.skip("xmllint not installed")
+    xsd = tmp_path.parent / "gpx.xsd"
+    if not xsd.exists():
+        r = subprocess.run(["curl", "-s", "--max-time", "20", "-o", str(xsd), "https://www.topografix.com/GPX/1/1/gpx.xsd"])
+        if r.returncode != 0 or not xsd.exists():
+            pytest.skip("could not download the GPX schema")
+    run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1"}).json()
+    path = tmp_path / "c1.gpx"
+    path.write_text(client.get(f"/api/runs/{run['run_id']}/candidates/1.gpx").text)
+    assert subprocess.run(["xmllint", "--noout", "--schema", str(xsd), str(path)], capture_output=True).returncode == 0
+
+
+def test_geojson_download(client, grid):
+    run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1",
+                                                              "nights": 1, "daily": "0.5-4", "type": "loop"}).json()
+    fc = client.get(f"/api/runs/{run['run_id']}/candidates/1.geojson").json()
+    lines = [f for f in fc["features"] if f["geometry"]["type"] == "LineString"]
+    assert [f["properties"]["name"] for f in lines] == ["Day 1", "Day 2"]
+    assert any(f["properties"]["name"] == "Camp 1" for f in fc["features"] if f["geometry"]["type"] == "Point")
+
+
+@pytest.mark.parametrize("path", ["/api/runs/nope/candidates/1.gpx", "/api/runs/{run}/candidates/0.gpx",
+                                  "/api/runs/{run}/candidates/9.gpx", "/api/runs/{run}/candidates/1.gpx?day=7"])
+def test_download_404s(client, grid, path):
+    run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1",
+                                                              "nights": 1, "daily": "0.5-4", "type": "loop"}).json()
+    r = client.get(path.format(run=run["run_id"]))
+    assert r.status_code == 404 and "error" in r.json()
