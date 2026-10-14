@@ -125,18 +125,25 @@ def _loc(lat: float, lon: float) -> str:
 ELEVATION_KEYS = ("gain_ft_fwd", "loss_ft_fwd", "gain_ft_rev", "loss_ft_rev", "elev_min_ft", "elev_max_ft")
 
 
-def write_graph_geojson(tg, node_component: dict, out_dir: Path) -> dict[str, Path]:
-    out_dir.mkdir(parents=True, exist_ok=True)
+def edges_features(tg, node_component: dict) -> list[dict]:
+    """GeoJSON features for every edge, with provenance; no profiles."""
     G = tg.graph
-    edges, profiles = [], {}
+    edges = []
     for u, v, k, d in G.edges(keys=True, data=True):
         props = {key: d[key] for key in ("source", "way_id", "segment", "retrieved_at", "name", "highway", "is_road",
                                           "last_resort", "length_m", "tags")}
         props.update({key: d[key] for key in ELEVATION_KEYS if key in d})
         props.update(key=k, u=u, v=v, from_node=d["osm_nodes"][0], component=node_component[u])
         edges.append({"type": "Feature", "geometry": mapping(d["geom_wgs84"]), "properties": props})
-        if "profile" in d:
-            profiles[k] = {"from_node": d["osm_nodes"][0], "source": d["source"]} | d["profile"]
+    return edges
+
+
+def write_graph_geojson(tg, node_component: dict, out_dir: Path) -> dict[str, Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    G = tg.graph
+    edges = edges_features(tg, node_component)
+    profiles = {k: {"from_node": d["osm_nodes"][0], "source": d["source"]} | d["profile"]
+                for _, _, k, d in G.edges(keys=True, data=True) if "profile" in d}
     nodes = [
         {
             "type": "Feature",
@@ -751,44 +758,20 @@ def route_waypoints(route, from_text: str, to_text: str, plan=None) -> list[dict
 def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_retrieved_at: str,
                 plan=None, features=None, basemap: str = "topo") -> dict[str, Path]:
     """route.gpx (a track per day, waypoints), day_<n>.gpx, route.geojson, map.html, summary.md."""
-    import gpxpy.gpx
-
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = {"gpx": out_dir / "route.gpx", "geojson": out_dir / "route.geojson", "summary": out_dir / "summary.md",
              "map": out_dir / "map.html"}
     title = f"{from_text} to {to_text}"
     pieces = route_pieces(route, plan)
     waypoints = route_waypoints(route, from_text, to_text, plan)
-    desc = (f"Trail data {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}. Geometry is exact OSM vertices from "
-            f"{', '.join(dict.fromkeys(e['source'] for e in route.edges))}."
-            + (f" Elevations from {route.elevation_source.get('dataset', 'DEM')} ({route.elevation_source.get('attribution', '')})."
-               if route.elevation_source else " No elevations."))
+    from backcountry.serialize import build_gpx, day_gpx, gpx_description  # local: serialize imports export
 
-    def gpx_track(piece):
-        track = gpxpy.gpx.GPXTrack(name=piece["name"])
-        track.segments.append(gpxpy.gpx.GPXTrackSegment(
-            [gpxpy.gpx.GPXTrackPoint(lat, lon, elevation=e) for lon, lat, e in piece["points"]]))
-        return track
-
-    def gpx_doc(name):
-        g = gpxpy.gpx.GPX()
-        g.creator = "backcountry route engine"
-        g.name, g.description = name, desc
-        return g
-
-    gpx = gpx_doc(title)
-    gpx.tracks += [gpx_track(p) for p in pieces]
-    gpx.waypoints += [gpxpy.gpx.GPXWaypoint(w["lat"], w["lon"], elevation=w["ele"], name=w["name"], description=w["desc"])
-                      for w in waypoints]
-    paths["gpx"].write_text(gpx.to_xml())
+    desc = gpx_description(route, osm_retrieved_at)
+    paths["gpx"].write_text(build_gpx(title, desc, pieces, waypoints))
     if plan:
         for piece in pieces:
-            g = gpx_doc(f"{title}, {piece['name']}")
-            g.tracks.append(gpx_track(piece))
-            g.waypoints += [gpxpy.gpx.GPXWaypoint(w["lat"], w["lon"], elevation=w["ele"], name=w["name"], description=w["desc"])
-                            for w in waypoints if piece["start_m"] - 1 <= w["dist_m"] <= piece["end_m"] + 1]
             paths[f"day_{piece['day']}"] = out_dir / f"day_{piece['day']}.gpx"
-            paths[f"day_{piece['day']}"].write_text(g.to_xml())
+            paths[f"day_{piece['day']}"].write_text(day_gpx(title, desc, piece, waypoints))
 
     geo = [{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[lon, lat] for lon, lat, _ in p["points"]]},
             "properties": {"name": p["name"].split(":")[0], "day": p["day"], "length_m": p["length_m"],

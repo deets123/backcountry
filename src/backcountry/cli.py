@@ -1,24 +1,22 @@
 """Command-line interface: `backcountry <command> --region <id>`."""
 
-import typer
-
-from backcountry import ingest
 import re
 from pathlib import Path
 
+import typer
 import yaml
 
+from backcountry import ingest
+from backcountry.elevation import FT_PER_M, annotate, graph_bounds_ll, line_profile
 from backcountry.export import (ft, mi, route_segments, write_candidates, write_graph_geojson, write_qa_outputs,
                                 write_route, write_trail_gpx, write_verify_report)
 from backcountry.graph import bbox_coverage, build_graph, chain_named_trail, qa_summary
+from backcountry.loops import avoided_keys
+from backcountry.planning import GenerateRequest, RequestError, plan_trip
 from backcountry.region import REPO_ROOT, load_region
-from backcountry.trailheads import find_candidates
-from backcountry.elevation import FT_PER_M, annotate, densify, graph_bounds_ll, line_profile
-from backcountry.loops import avoided_keys, search
 from backcountry.route import add_elevation, resolve_point, shortest_route
-from backcountry.scoring import M_PER_MI, Weights
-from backcountry.features import along_route
-from backcountry.split import resolve_pins, split_route
+from backcountry.scoring import M_PER_MI
+from backcountry.trailheads import find_candidates
 from backcountry.verify import verify
 
 OUT_DIR = REPO_ROOT / "out"
@@ -168,27 +166,6 @@ def dem(
         typer.echo(f"  {s['title']} (published {s['publication_date']})")
 
 
-def _must_spec(tg, region, text: str) -> dict:
-    """A --must-visit value: a point (trailhead id, node id, lat,lon) or a trail name."""
-    try:
-        return {"node": resolve_point(tg, region, text)["node"]}
-    except ValueError as point_err:
-        if any((d["name"] or "").lower() == text.lower() for *_, d in tg.graph.edges(data=True)):
-            return {"name": text}
-        raise ValueError(f"--must-visit {text!r}: not a trail name here, and {point_err}")
-
-
-def _parse_range(text: str, flag: str) -> tuple[float, float]:
-    try:
-        lo, hi = (float(x) for x in text.split("-"))
-        if not 0 < lo < hi:
-            raise ValueError
-    except (ValueError, AttributeError):
-        typer.echo(f"{flag} must look like 18-26 (miles, low-high); got {text!r}", err=True)
-        raise typer.Exit(code=1)
-    return lo, hi
-
-
 def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
@@ -324,69 +301,28 @@ def generate(
     out_dir: Path = typer.Option(None, help="Output directory (default out/loops/<trailhead>_<total>mi)"),
 ):
     """Generate candidate loops from a trailhead within a total distance range, optionally split into days."""
-    lo_mi, hi_mi = _parse_range(total, "--total")
-    if direction not in (None, "cw", "ccw"):
-        typer.echo("--direction must be cw or ccw", err=True)
-        raise typer.Exit(code=1)
-    if nights is not None and daily is None:
-        typer.echo("--nights needs --daily (e.g. --daily 6-11)", err=True)
-        raise typer.Exit(code=1)
-    daily_range = _parse_range(daily, "--daily") if daily else None
-    kinds = {"loop": ("loop",), "lollipop": ("lollipop",), "any": ("loop", "lollipop")}.get(type_)
-    if kinds is None:
-        typer.echo("--type must be loop, lollipop, or any", err=True)
+    try:
+        req = GenerateRequest.from_dict({
+            "trailhead": trailhead, "total": total, "nights": nights, "daily": daily, "max_gain_day": max_gain_day,
+            "type": type_, "count": count, "no_roads": no_roads, "road_weight": road_weight,
+            "repeat_weight": repeat_weight, "camps": camp or [], "camps_at_sites": camps_at_sites,
+            "must_visit": must_visit or [], "avoid": avoid or [], "direction": direction,
+        })
+    except RequestError as e:
+        typer.echo(f"--{e.field.replace('_', '-')}: {e}", err=True)
         raise typer.Exit(code=1)
     r, raw, tg = _load(region)
     try:
-        start = resolve_point(tg, r, trailhead)
-        musts = [_must_spec(tg, r, m) for m in (must_visit or [])]
-        if avoid:
-            avoided_keys(tg, avoid)  # fail early with a clear message
-    except ValueError as e:
+        result = plan_trip(r, raw, tg, req)
+    except RequestError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
-    weights = Weights(road=road_weight, repeat=repeat_weight)
-    dem = ingest.load_dem(r)
-    sites = ingest.camp_sites(raw)
-
-    def elevate(c):
-        if dem is not None:
-            add_elevation(c.route, dem, tg.crs)
-        else:
-            d, _ = densify(c.route.line_utm)  # distance-only profile so days can still be split
-            c.route.profile = {"d_m": d, "z_m": [None] * len(d)}
-            c.route.notes.append("elevation unknown: no DEM cached (run `backcountry dem`)")
-
-    water = ingest.water_features(raw)
-    usfs = ingest.load_usfs(r) if r.usfs_crosscheck else None
-    usfs_sites = [{"source": f"usfs:site/{f['properties'].get('site_id')}", "subtype": f['properties'].get("site_subtype"),
-                   "name": f["properties"].get("public_site_name") or f["properties"].get("site_name"),
-                   "lat": f["geometry"]["coordinates"][1], "lon": f["geometry"]["coordinates"][0]}
-                  for f in (usfs or {"layers": {}})["layers"].get("rec_sites", {}).get("geojson", {}).get("features", [])
-                  if f["properties"].get("site_subtype") == "CAMPGROUND"]
-
-    def evaluate(c):
-        elevate(c)
-        pins, problems = resolve_pins(c.route, camp or [], sites)
-        c.plan = split_route(c.route, nights, daily_range[0] * M_PER_MI, daily_range[1] * M_PER_MI, max_gain_day,
-                             weights, sites, pins_m=pins, sites_only=camps_at_sites)
-        for p in problems:
-            c.plan.notes.append(f"Pinned {p}")
-            c.plan.ok = False
-        c.features = along_route(c.route, sites, water, usfs_sites, c.plan)
-        return c.plan.penalty + 100.0 * len(problems)
-
-    report = search(tg, start["node"], lo_mi * M_PER_MI, hi_mi * M_PER_MI, kinds=kinds, count=count,
-                    no_roads=no_roads, weights=weights, evaluate=evaluate if nights is not None else None,
-                    avoid=avoid or (), must_visit=musts, direction=direction)
+    report, start = result.report, result.start
+    lo_mi, hi_mi = req.total
     request = {"trailhead": trailhead, "total": total, "type": type_, "nights": nights, "daily": daily,
                "max_gain_day": max_gain_day, "no_roads": no_roads, "road_weight": road_weight, "camps": camp or [],
                "camps_at_sites": camps_at_sites, "must_visit": must_visit or [], "avoid": avoid or [],
-               "direction": direction}
-    if nights is None:
-        for c in report["candidates"]:
-            elevate(c)
-            c.features = along_route(c.route, sites, water, usfs_sites)
+               "direction": direction}  # the CLI's own record format, unchanged from before the API
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
     try:
         paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,
@@ -429,3 +365,21 @@ def generate(
     typer.echo(f"summary: {paths['summary']}\nmap:     {paths['map']}")
     if "diff" in paths:
         typer.echo(f"diff:    {paths['diff']} (what changed since the previous run in this folder)")
+
+
+def _run_server(host: str, port: int) -> None:
+    import uvicorn
+
+    from backcountry.api.app import create_app
+
+    uvicorn.run(create_app(), host=host, port=port)
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Use 0.0.0.0 to let your phone connect over Wi-Fi."),
+    port: int = typer.Option(8000),
+):
+    """Run the API (and the web app once it's built) for the browser."""
+    typer.echo(f"Serving on http://{host}:{port} (API at /api). Ctrl-C to stop.")
+    _run_server(host, port)

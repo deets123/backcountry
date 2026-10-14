@@ -231,3 +231,22 @@ def test_route_avoid_flag(tmp_path, monkeypatch, grid):
                                  "--avoid", "Grid Road"])
     assert result.exit_code == 0, result.output
     assert "Grid Road" not in (tmp_path / "out" / "routes" / f"{grid.ids['g00']}-to-{grid.ids['g21']}" / "summary.md").read_text().split("## Data sources")[0].split("## Segments")[1]
+
+
+def test_serve_command_exists_and_delegates_to_uvicorn(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli, "_run_server", lambda host, port: calls.append((host, port)))
+    result = runner.invoke(app, ["serve", "--host", "0.0.0.0", "--port", "8123"])
+    assert result.exit_code == 0, result.output
+    assert calls == [("0.0.0.0", 8123)]
+
+
+def test_generate_request_record_keeps_the_cli_format(tmp_path, monkeypatch, grid):
+    _cache(tmp_path, monkeypatch, grid.doc())
+    g00 = grid.ids["g00"]
+    runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(g00), "--total", "2.4-5.1",
+                        "--nights", "1", "--daily", "0.5-4", "--type", "loop"])
+    md = (tmp_path / "out" / "loops" / f"{g00}_2.4-5.1mi" / "candidates.md").read_text()
+    assert "Request: trailhead=" in md and "total=2.4-5.1" in md and "daily=0.5-4" in md and "[2.4" not in md
+    record = json.loads((tmp_path / "out" / "loops" / f"{g00}_2.4-5.1mi" / "candidates.json").read_text())
+    assert record["request"]["total"] == "2.4-5.1" and "camps" in record["request"]

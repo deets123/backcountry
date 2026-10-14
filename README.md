@@ -51,6 +51,14 @@ Results go to `out/loops/<trailhead>_<total>mi/`:
 - `candidate_<i>/map.html`, `summary.md`, `route.geojson`
 - `diff.md` when you re-run into the same folder: what changed since last time
 
+### API
+
+`uv run backcountry serve --host 0.0.0.0` runs the engine as a local web service (the web app
+in Phase 2 piece 2 uses it). Endpoints under `/api`: `regions`, `regions/{id}/trailheads`,
+`regions/{id}/trails`, `regions/{id}/features?bbox=w,s,e,n`, `POST regions/{id}/generate`
+(same settings as the command, as JSON), `runs/{id}`, `runs/{id}/candidates/{n}.gpx[?day=k]`,
+`runs/{id}/candidates/{n}.geojson`. Runs are saved under `data/runs/`.
+
 Other commands: `route --from A --to B` (shortest point-to-point), `trailheads` (candidate
 trailheads from the data), `qa` (data quality report and map), `reference` (export a trail
 for a CalTopo comparison). `uv run backcountry --help` lists them all.
