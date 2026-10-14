@@ -1,6 +1,8 @@
 """Loaded regions (graph built once per process) and saved runs."""
 
 import json
+import logging
+import os
 import random
 import threading
 from dataclasses import dataclass
@@ -86,17 +88,37 @@ class RegionStore:
 
 
 class RunStore:
+    """Runs as data/runs/<run_id>.json, written atomically, with a small index.json for lookups."""
+
     def __init__(self, runs_dir: Path):
         self.runs_dir = runs_dir
+        self._lock = threading.Lock()
 
     def new_id(self) -> str:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         return f"{stamp}-{random.randrange(16**4):04x}"
 
+    def _write_atomic(self, path: Path, text: str) -> None:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(text)
+        os.replace(tmp, path)  # a half-written file never sits at the final name
+
+    def _index(self) -> dict:
+        path = self.runs_dir / "index.json"
+        try:
+            return json.loads(path.read_text()) if path.exists() else {}
+        except json.JSONDecodeError:
+            logging.getLogger("backcountry.api").warning("runs index unreadable; rebuilding")
+            return {}
+
     def save(self, run: dict) -> Path:
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         path = self.runs_dir / f"{run['run_id']}.json"
-        path.write_text(json.dumps(run))
+        with self._lock:
+            self._write_atomic(path, json.dumps(run))
+            index = self._index()
+            index[run["run_id"]] = {"region": run["region"], "trailhead": run["request"]["trailhead"]}
+            self._write_atomic(self.runs_dir / "index.json", json.dumps(index))
         return path
 
     def load(self, run_id: str) -> dict:
@@ -106,11 +128,15 @@ class RunStore:
         return json.loads(path.read_text())
 
     def latest(self, region_id: str, trailhead: str) -> dict | None:
-        """The most recent saved run for this region + trailhead (for the diff)."""
+        """The most recent saved run for this region + trailhead (for the diff); unreadable files are skipped."""
         if not self.runs_dir.exists():
             return None
-        for path in sorted(self.runs_dir.glob("*.json"), reverse=True):
-            run = json.loads(path.read_text())
-            if run["region"] == region_id and run["request"]["trailhead"] == trailhead:
-                return run
+        index = self._index()
+        candidates = sorted((rid for rid, meta in index.items()
+                             if meta.get("region") == region_id and meta.get("trailhead") == trailhead), reverse=True)
+        for rid in candidates:
+            try:
+                return self.load(rid)
+            except (NotFound, json.JSONDecodeError):
+                logging.getLogger("backcountry.api").warning("skipping unreadable run %s", rid)
         return None

@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
+import logging
+
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -28,6 +31,19 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = None) -
     @app.exception_handler(NotFound)
     def not_found(request: Request, exc: NotFound):
         return JSONResponse(status_code=404, content={"error": exc.args[0] if exc.args else "not found"})
+
+    @app.exception_handler(RequestValidationError)
+    def invalid(request: Request, exc: RequestValidationError):
+        # FastAPI's own 422s (non-JSON body, missing query param, non-integer path part), in the API's own shape.
+        first = exc.errors()[0] if exc.errors() else {}
+        loc = [str(x) for x in first.get("loc", []) if x not in ("body", "query", "path")]
+        return JSONResponse(status_code=400, content={"error": f"{'.'.join(loc) or 'request'}: {first.get('msg', 'invalid')}",
+                                                      "field": loc[-1] if loc else "request"})
+
+    @app.exception_handler(Exception)
+    def failed(request: Request, exc: Exception):
+        logging.getLogger("backcountry.api").exception("request failed")  # the traceback stays in the server log
+        return JSONResponse(status_code=500, content={"error": f"{type(exc).__name__}: {exc}"})
 
     web_dist = REPO_ROOT / "web" / "dist" if web_dist is None else web_dist
     if web_dist.exists():

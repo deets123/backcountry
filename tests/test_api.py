@@ -280,3 +280,50 @@ def test_generate_does_not_leak_other_caches_into_a_custom_raw_dir(client, grid)
     run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1"}).json()
     kinds = {f["kind"] for c in run["candidates"] for f in c["features"]}
     assert not any(k.startswith("usfs") for k in kinds)  # the repo's real USFS cache must not be read
+
+
+# --- final review fixes ------------------------------------------------------------------
+
+
+def test_every_error_is_json_with_an_error_key(env, grid):
+    app = create_app(env, web_dist=env.runs_dir / "no-web")
+
+    @app.get("/api/explode")
+    def explode():
+        raise RuntimeError("engine fell over")
+
+    c = TestClient(app, raise_server_exceptions=False)
+    r = c.post("/api/regions/dolly_sods/generate", content="hello", headers={"content-type": "application/json"})
+    assert r.status_code == 400 and "error" in r.json()
+    r = c.post("/api/regions/dolly_sods/generate", json=[1, 2])
+    assert r.status_code == 400 and "error" in r.json()
+    r = c.get("/api/regions/dolly_sods/features")
+    assert r.status_code == 400 and r.json()["field"] == "bbox"
+    r = c.get("/api/runs/x/candidates/abc.gpx")
+    assert r.status_code == 400 and r.json()["field"] == "n"
+    r = c.get("/api/explode")
+    assert r.status_code == 500 and r.headers["content-type"].startswith("application/json")
+    assert "engine fell over" in r.json()["error"]
+
+
+def test_a_corrupt_run_file_does_not_break_generate(client, grid):
+    runs_dir = client.app.state.settings.runs_dir
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    (runs_dir / "20200101T000000Z-dead.json").write_text("{")
+    body = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "type": "loop"}
+    assert client.post("/api/regions/dolly_sods/generate", json=body).status_code == 200
+    run = client.post("/api/regions/dolly_sods/generate", json=body | {"avoid": ["Grid Road"]}).json()
+    assert run["diff"] and "Grid Road" in run["diff"]  # the previous good run was still found
+
+
+def test_run_save_is_atomic_and_indexed(env, tmp_path):
+    from backcountry.api.store import RunStore
+
+    store = RunStore(tmp_path / "runs")
+    run = {"run_id": "20260101T000000Z-aaaa", "region": "r", "request": {"trailhead": "t"}, "candidates": []}
+    store.save(run)
+    assert not list((tmp_path / "runs").glob("*.tmp"))
+    assert store.latest("r", "t")["run_id"] == "20260101T000000Z-aaaa"
+    index = json.loads((tmp_path / "runs" / "index.json").read_text())
+    assert index["20260101T000000Z-aaaa"] == {"region": "r", "trailhead": "t"}
+    assert store.latest("r", "other") is None

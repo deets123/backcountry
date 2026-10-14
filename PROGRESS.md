@@ -485,13 +485,23 @@ Spec: `docs/superpowers/specs/2026-10-13-phase2-api-and-web-app-design.md`; plan
   `in_graph: false` when a node is gone, plus data-derived candidates), `/regions/{id}/trails` (GeoJSON),
   `/regions/{id}/features?bbox=`, `POST /regions/{id}/generate` (returns a saved `Run` with `data_sources`,
   `known_gaps`, and a `diff` against the previous run for the same trailhead), `GET /runs/{id}`,
-  `/runs/{id}/candidates/{n}.gpx[?day=k]`, `/runs/{id}/candidates/{n}.geojson`. Errors are
-  `{"error", "field"}` with 400/404. Graph built once per process. Runs under `data/runs/`.
+  `/runs/{id}/candidates/{n}.gpx[?day=k]`, `/runs/{id}/candidates/{n}.geojson`. Every error is JSON
+  `{"error": ...}`: 400 (with `field`) for bad settings and malformed requests, 404 for unknown regions/runs/
+  candidates, 500 for engine failures (traceback in the server log). Graph built once per process, under a
+  lock. Runs under `data/runs/` (atomic writes, `index.json` for lookups; unreadable files are skipped).
 - `backcountry serve [--host 0.0.0.0] [--port 8000]` (uvicorn); serves `web/dist` at `/` once it exists.
 - Live check: Bear Rocks 2-night request through the API in 13.5 s, three valid plans, GPX download with
   `application/gpx+xml` and a filename.
 
 **Dependencies added:** fastapi, uvicorn (runtime); httpx2 (dev, for Starlette's TestClient).
+
+**Reviews:** a checkpoint review (Tasks 1–3) and a final whole-branch review by fresh reviewer subagents, both
+"approve with fixes"; all six Important findings fixed with tests (NotFound-only 404s, graph build lock, CLI record
+format kept, strict JSON validation, raw_dir isolation, JSON error contract for 400/500, resilient run store).
+Deferred minors: GeoJSON download duplicates export's feature list and has no Content-Disposition; the
+`export`/`serialize` local import; `/trails` recomputed per call and `/features` misses a stream that crosses the
+bbox between vertices; `/trailheads` returns null lat/lon for a verified yaml entry whose snap fails; test
+fixtures use the default `web/dist` path; CLI `--must-visit` error lacks the `--field:` prefix.
 
 **Deviations from the spec/plan (recorded in the ledger)**
 - The API lives in `src/backcountry/api/` (a subpackage) instead of a separate `api/` folder: one install.
