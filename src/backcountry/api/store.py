@@ -1,0 +1,104 @@
+"""Loaded regions (graph built once per process) and saved runs."""
+
+import json
+import random
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+from backcountry import ingest
+from backcountry.graph import build_graph, qa_summary
+from backcountry.region import REGIONS_DIR, REPO_ROOT, load_region
+
+
+@dataclass
+class Settings:
+    raw_dir: Path | None = None
+    runs_dir: Path | None = None
+    regions_dir: Path | None = None
+
+    @classmethod
+    def default(cls) -> "Settings":
+        return cls(raw_dir=ingest.RAW_DIR, runs_dir=REPO_ROOT / "data" / "runs", regions_dir=REGIONS_DIR)
+
+
+@dataclass
+class LoadedRegion:
+    region: object
+    raw: dict
+    tg: object
+    summary: dict
+    dem: object = None
+    builds = 0  # class-level counter, for tests
+
+    @property
+    def node_component(self) -> dict:
+        return self.summary["node_component"]
+
+
+class RegionStore:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self._loaded: dict[str, LoadedRegion] = {}
+
+    def ids(self) -> list[str]:
+        return sorted(p.stem for p in (self.settings.regions_dir or REGIONS_DIR).glob("*.yaml"))
+
+    def summaries(self) -> list[dict]:
+        out = []
+        for rid in self.ids():
+            region = load_region(rid, self.settings.regions_dir)
+            cache = ingest.latest_cache(region, self.settings.raw_dir)
+            out.append({
+                "id": region.id, "name": region.name, "crs": region.crs, "bbox": vars(region.bbox),
+                "osm_retrieved_at": json.loads(cache.read_text())["retrieved_at"] if cache else None,
+                "dem": ingest.latest_cache(region, self.settings.raw_dir, prefix="dem13") is not None,
+                "usfs": ingest.latest_cache(region, self.settings.raw_dir, prefix="usfs") is not None,
+                "trailheads": len(region.trailheads),
+            })
+        return out
+
+    def get(self, region_id: str) -> LoadedRegion:
+        if region_id in self._loaded:
+            return self._loaded[region_id]
+        if region_id not in self.ids():
+            raise KeyError(f"No region {region_id!r}")
+        region = load_region(region_id, self.settings.regions_dir)
+        raw = ingest.load_raw(region, self.settings.raw_dir)  # FileNotFoundError names `backcountry ingest`
+        tg = build_graph(raw, region.crs)
+        loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=qa_summary(tg),
+                              dem=ingest.load_dem(region, raw_dir=self.settings.raw_dir))
+        LoadedRegion.builds += 1
+        self._loaded[region_id] = loaded
+        return loaded
+
+
+class RunStore:
+    def __init__(self, runs_dir: Path):
+        self.runs_dir = runs_dir
+
+    def new_id(self) -> str:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        return f"{stamp}-{random.randrange(16**4):04x}"
+
+    def save(self, run: dict) -> Path:
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        path = self.runs_dir / f"{run['run_id']}.json"
+        path.write_text(json.dumps(run))
+        return path
+
+    def load(self, run_id: str) -> dict:
+        path = self.runs_dir / f"{run_id}.json"
+        if "/" in run_id or ".." in run_id or not path.exists():
+            raise KeyError(f"No run {run_id!r}")
+        return json.loads(path.read_text())
+
+    def latest(self, region_id: str, trailhead: str) -> dict | None:
+        """The most recent saved run for this region + trailhead (for the diff)."""
+        if not self.runs_dir.exists():
+            return None
+        for path in sorted(self.runs_dir.glob("*.json"), reverse=True):
+            run = json.loads(path.read_text())
+            if run["region"] == region_id and run["request"]["trailhead"] == trailhead:
+                return run
+        return None
