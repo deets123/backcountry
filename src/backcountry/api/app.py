@@ -1,14 +1,19 @@
 """FastAPI app factory. `backcountry serve` runs it; tests build it with temp settings."""
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from backcountry.api.endpoints import router
 from backcountry.api.store import RegionStore, RunStore, Settings
 from backcountry.planning import RequestError
+from backcountry.region import REPO_ROOT
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, web_dist: Path | None = None) -> FastAPI:
+    """The API, plus the built web app at / when web/dist exists (so a phone gets both from one address)."""
     settings = settings or Settings.default()
     app = FastAPI(title="Backcountry route engine", version="0.2")
     app.state.settings = settings
@@ -28,4 +33,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def not_cached(request: Request, exc: FileNotFoundError):
         return JSONResponse(status_code=404, content={"error": str(exc)})
 
+    web_dist = REPO_ROOT / "web" / "dist" if web_dist is None else web_dist
+    if web_dist.exists():
+        app.mount("/", StaticFiles(directory=str(web_dist), html=True), name="web")  # after the API routes
+    else:
+        @app.get("/", response_class=HTMLResponse)
+        def root():
+            return ("<html><body><p>Backcountry API is running. The web app isn't built yet "
+                    "(run <code>npm run build</code> in <code>web/</code>). Try <a href='/api/regions'>/api/regions</a>."
+                    "</p></body></html>")
     return app

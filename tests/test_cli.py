@@ -231,3 +231,11 @@ def test_route_avoid_flag(tmp_path, monkeypatch, grid):
                                  "--avoid", "Grid Road"])
     assert result.exit_code == 0, result.output
     assert "Grid Road" not in (tmp_path / "out" / "routes" / f"{grid.ids['g00']}-to-{grid.ids['g21']}" / "summary.md").read_text().split("## Data sources")[0].split("## Segments")[1]
+
+
+def test_serve_command_exists_and_delegates_to_uvicorn(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli, "_run_server", lambda host, port: calls.append((host, port)))
+    result = runner.invoke(app, ["serve", "--host", "0.0.0.0", "--port", "8123"])
+    assert result.exit_code == 0, result.output
+    assert calls == [("0.0.0.0", 8123)]

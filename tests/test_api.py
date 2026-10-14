@@ -206,3 +206,20 @@ def test_download_404s(client, grid, path):
                                                               "nights": 1, "daily": "0.5-4", "type": "loop"}).json()
     r = client.get(path.format(run=run["run_id"]))
     assert r.status_code == 404 and "error" in r.json()
+
+
+# --- static web app ---------------------------------------------------------------------
+
+
+def test_static_web_app_is_served_when_built(env, tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html><body>app</body></html>")
+    c = TestClient(create_app(env, web_dist=dist))
+    assert c.get("/").text.startswith("<html>") and c.get("/api/regions").status_code == 200
+
+
+def test_without_a_built_web_app_root_explains(env, tmp_path):
+    c = TestClient(create_app(env, web_dist=tmp_path / "missing"))
+    r = c.get("/")
+    assert r.status_code == 200 and "web app" in r.text.lower() and "/api/regions" in r.text

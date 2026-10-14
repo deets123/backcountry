@@ -362,3 +362,21 @@ def generate(
     typer.echo(f"summary: {paths['summary']}\nmap:     {paths['map']}")
     if "diff" in paths:
         typer.echo(f"diff:    {paths['diff']} (what changed since the previous run in this folder)")
+
+
+def _run_server(host: str, port: int) -> None:
+    import uvicorn
+
+    from backcountry.api.app import create_app
+
+    uvicorn.run(create_app(), host=host, port=port)
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Use 0.0.0.0 to let your phone connect over Wi-Fi."),
+    port: int = typer.Option(8000),
+):
+    """Run the API (and the web app once it's built) for the browser."""
+    typer.echo(f"Serving on http://{host}:{port} (API at /api). Ctrl-C to stop.")
+    _run_server(host, port)
