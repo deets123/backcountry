@@ -69,3 +69,8 @@ the plan, and `PROGRESS.md` for what's done, what's known to be wrong, and the d
 
 Trail data © OpenStreetMap contributors, ODbL. Elevation: USGS 3D Elevation Program.
 Cross-check data: USDA Forest Service Enterprise Data Warehouse. Base maps: USGS The National Map.
+
+## License
+
+MIT (see `LICENSE`). The trail data the tool downloads is © OpenStreetMap contributors under
+the ODbL, which is separate from this code license; keep the attribution the outputs carry.
