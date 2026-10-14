@@ -319,7 +319,10 @@ def generate(
         raise typer.Exit(code=1)
     report, start = result.report, result.start
     lo_mi, hi_mi = req.total
-    request = req.to_dict()
+    request = {"trailhead": trailhead, "total": total, "type": type_, "nights": nights, "daily": daily,
+               "max_gain_day": max_gain_day, "no_roads": no_roads, "road_weight": road_weight, "camps": camp or [],
+               "camps_at_sites": camps_at_sites, "must_visit": must_visit or [], "avoid": avoid or [],
+               "direction": direction}  # the CLI's own record format, unchanged from before the API
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
     try:
         paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,

@@ -64,7 +64,7 @@ class GenerateRequest:
             raise RequestError("trailhead", "trailhead is required: a trailhead id, an OSM node id, or lat,lon")
         total = parse_range(data.get("total"), "total")
         nights = data.get("nights")
-        if nights is not None and (not isinstance(nights, int) or nights < 1):
+        if nights is not None and (not _is_int(nights) or nights < 1):
             raise RequestError("nights", "nights must be a whole number of at least 1")
         daily = parse_range(data["daily"], "daily") if data.get("daily") is not None else None
         if nights is not None and daily is None:
@@ -76,16 +76,15 @@ class GenerateRequest:
         if direction not in (None, "cw", "ccw"):
             raise RequestError("direction", "direction must be cw or ccw")
         count = data.get("count", 3)
-        if not isinstance(count, int) or count < 1:
+        if not _is_int(count) or count < 1:
             raise RequestError("count", "count must be a whole number of at least 1")
         return cls(
             trailhead=str(data["trailhead"]), total=total, nights=nights, daily=daily,
-            max_gain_day=data.get("max_gain_day"), type=type_, count=count,
-            no_roads=bool(data.get("no_roads", False)), road_weight=float(data.get("road_weight", 1.0)),
-            repeat_weight=float(data.get("repeat_weight", 0.5)), camps=[str(c) for c in data.get("camps") or []],
-            camps_at_sites=bool(data.get("camps_at_sites", False)),
-            must_visit=[str(m) for m in data.get("must_visit") or []], avoid=[str(a) for a in data.get("avoid") or []],
-            direction=direction,
+            max_gain_day=_number(data, "max_gain_day", None), type=type_, count=count,
+            no_roads=_flag(data, "no_roads"), road_weight=_number(data, "road_weight", 1.0),
+            repeat_weight=_number(data, "repeat_weight", 0.5), camps=_strings(data, "camps"),
+            camps_at_sites=_flag(data, "camps_at_sites"), must_visit=_strings(data, "must_visit"),
+            avoid=_strings(data, "avoid"), direction=direction,
         )
 
     def to_dict(self) -> dict:
@@ -110,6 +109,34 @@ class GenerateRequest:
         return (self.daily[0] * M_PER_MI, self.daily[1] * M_PER_MI) if self.daily else None
 
 
+def _is_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _number(data: dict, key: str, default):
+    """A JSON number (or missing -> default). Strings and null are errors, named by field."""
+    if key not in data or (data[key] is None and default is None):
+        return default
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RequestError(key, f"{key} must be a number; got {value!r}")
+    return float(value)
+
+
+def _flag(data: dict, key: str) -> bool:
+    value = data.get(key, False)
+    if not isinstance(value, bool):
+        raise RequestError(key, f"{key} must be true or false; got {value!r}")
+    return value
+
+
+def _strings(data: dict, key: str) -> list[str]:
+    value = data.get(key) or []
+    if not isinstance(value, list):
+        raise RequestError(key, f"{key} must be a list of strings; got {value!r}")
+    return [str(v) for v in value]
+
+
 @dataclass
 class PlanResult:
     report: dict
@@ -127,8 +154,8 @@ def must_spec(tg, region, text: str) -> dict:
         raise RequestError("must_visit", f"must_visit {text!r}: not a trail name here, and {point_err}")
 
 
-def usfs_campgrounds(region) -> list[dict]:
-    usfs = ingest.load_usfs(region) if region.usfs_crosscheck else None
+def usfs_campgrounds(region, raw_dir=None) -> list[dict]:
+    usfs = ingest.load_usfs(region, raw_dir=raw_dir) if region.usfs_crosscheck else None
     feats = (usfs or {"layers": {}})["layers"].get("rec_sites", {}).get("geojson", {}).get("features", [])
     return [{"source": f"usfs:site/{f['properties'].get('site_id')}", "subtype": f["properties"].get("site_subtype"),
              "name": f["properties"].get("public_site_name") or f["properties"].get("site_name"),
@@ -136,8 +163,11 @@ def usfs_campgrounds(region) -> list[dict]:
             for f in feats if f["properties"].get("site_subtype") == "CAMPGROUND"]
 
 
-def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto") -> PlanResult:
-    """Resolve the start, search, and attach elevation/days/features. `dem="auto"` loads the cached DEM."""
+def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -> PlanResult:
+    """Resolve the start, search, and attach elevation/days/features.
+
+    `dem="auto"` loads the cached DEM from `raw_dir` (default: the repo's data/raw); pass a DEM or None to override.
+    """
     try:
         start = resolve_point(tg, region, req.trailhead)
     except ValueError as e:
@@ -149,10 +179,10 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto") -> PlanResult:
         except ValueError as e:
             raise RequestError("avoid", str(e))
     weights = Weights(road=req.road_weight, repeat=req.repeat_weight)
-    dem = ingest.load_dem(region) if isinstance(dem, str) and dem == "auto" else dem
+    dem = ingest.load_dem(region, raw_dir=raw_dir) if isinstance(dem, str) and dem == "auto" else dem
     sites = ingest.camp_sites(raw)
     water = ingest.water_features(raw)
-    campgrounds = usfs_campgrounds(region)
+    campgrounds = usfs_campgrounds(region, raw_dir)
 
     def elevate(c):
         if dem is not None:
@@ -166,8 +196,11 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto") -> PlanResult:
         elevate(c)
         pins, problems = resolve_pins(c.route, req.camps, sites)
         lo, hi = req.daily_m
-        c.plan = split_route(c.route, req.nights, lo, hi, req.max_gain_day, weights, sites, pins_m=pins,
-                             sites_only=req.camps_at_sites)
+        try:
+            c.plan = split_route(c.route, req.nights, lo, hi, req.max_gain_day, weights, sites, pins_m=pins,
+                                 sites_only=req.camps_at_sites)
+        except ValueError as e:  # e.g. more camps pinned than nights
+            raise RequestError("camps", str(e))
         for p in problems:
             c.plan.notes.append(f"Pinned {p}")
             c.plan.ok = False

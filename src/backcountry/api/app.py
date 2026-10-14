@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backcountry.api.endpoints import router
-from backcountry.api.store import RegionStore, RunStore, Settings
+from backcountry.api.store import NotFound, RegionStore, RunStore, Settings
 from backcountry.planning import RequestError
 from backcountry.region import REPO_ROOT
 
@@ -25,13 +25,9 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = None) -
     def bad_request(request: Request, exc: RequestError):
         return JSONResponse(status_code=400, content={"error": str(exc), "field": exc.field})
 
-    @app.exception_handler(KeyError)
-    def not_found(request: Request, exc: KeyError):
+    @app.exception_handler(NotFound)
+    def not_found(request: Request, exc: NotFound):
         return JSONResponse(status_code=404, content={"error": exc.args[0] if exc.args else "not found"})
-
-    @app.exception_handler(FileNotFoundError)
-    def not_cached(request: Request, exc: FileNotFoundError):
-        return JSONResponse(status_code=404, content={"error": str(exc)})
 
     web_dist = REPO_ROOT / "web" / "dist" if web_dist is None else web_dist
     if web_dist.exists():

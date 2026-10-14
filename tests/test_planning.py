@@ -74,3 +74,31 @@ def test_plan_trip_reports_bad_places_by_field(grid, data, field):
     with pytest.raises(RequestError) as e:
         plan_trip(REGION, raw, tg, GenerateRequest.from_dict(data))
     assert e.value.field == field
+
+
+@pytest.mark.parametrize("data, field", [
+    ({"trailhead": "1000", "total": "2-5", "max_gain_day": "500"}, "max_gain_day"),
+    ({"trailhead": "1000", "total": "2-5", "road_weight": None}, "road_weight"),
+    ({"trailhead": "1000", "total": "2-5", "repeat_weight": "x"}, "repeat_weight"),
+    ({"trailhead": "1000", "total": "2-5", "camps": "1.2"}, "camps"),
+    ({"trailhead": "1000", "total": "2-5", "must_visit": "Row 2"}, "must_visit"),
+    ({"trailhead": "1000", "total": "2-5", "avoid": "Grid Road"}, "avoid"),
+    ({"trailhead": "1000", "total": "2-5", "no_roads": "false"}, "no_roads"),
+    ({"trailhead": "1000", "total": "2-5", "camps_at_sites": 1}, "camps_at_sites"),
+    ({"trailhead": "1000", "total": "2-5", "nights": True, "daily": "1-2"}, "nights"),
+    ({"trailhead": "1000", "total": "2-5", "count": 2.5}, "count"),
+])
+def test_from_dict_rejects_json_typed_mistakes_by_field(data, field):
+    with pytest.raises(RequestError) as e:
+        GenerateRequest.from_dict(data)
+    assert e.value.field == field
+
+
+def test_too_many_pinned_camps_is_a_request_error(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "nights": 1,
+                                     "daily": "0.5-4", "camps": ["0.5", "1.0"]})
+    with pytest.raises(RequestError) as e:
+        plan_trip(REGION, raw, tg, req)
+    assert e.value.field == "camps" and "pinned" in str(e.value)

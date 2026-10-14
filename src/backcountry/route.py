@@ -45,6 +45,9 @@ def resolve_point(tg, region, text: str) -> dict:
     G = tg.graph
     for th in region.trailheads:
         if th.get("id") == text:
+            if th.get("node") is None:  # a verified lat/lon entry: snap it like any point
+                snapped = resolve_point(tg, region, f"{th['lat']},{th['lon']}")
+                return snapped | {"how": f"trailhead {text} ({th.get('name')}), {snapped['how']}"}
             if th["node"] not in G:
                 raise ValueError(f"trailhead {text!r} points at node {th['node']}, which is not in the graph")
             return {"node": th["node"], "how": f"trailhead {text} ({th.get('name')})", "snap_m": 0.0}

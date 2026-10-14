@@ -2,6 +2,7 @@
 
 import json
 import random
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +10,10 @@ from pathlib import Path
 from backcountry import ingest
 from backcountry.graph import build_graph, qa_summary
 from backcountry.region import REGIONS_DIR, REPO_ROOT, load_region
+
+
+class NotFound(KeyError):
+    """A region or run that doesn't exist (or isn't cached). Only this becomes a 404."""
 
 
 @dataclass
@@ -40,6 +45,7 @@ class RegionStore:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._loaded: dict[str, LoadedRegion] = {}
+        self._lock = threading.Lock()  # endpoints run in a threadpool; build each region once
 
     def ids(self) -> list[str]:
         return sorted(p.stem for p in (self.settings.regions_dir or REGIONS_DIR).glob("*.yaml"))
@@ -61,16 +67,22 @@ class RegionStore:
     def get(self, region_id: str) -> LoadedRegion:
         if region_id in self._loaded:
             return self._loaded[region_id]
-        if region_id not in self.ids():
-            raise KeyError(f"No region {region_id!r}")
-        region = load_region(region_id, self.settings.regions_dir)
-        raw = ingest.load_raw(region, self.settings.raw_dir)  # FileNotFoundError names `backcountry ingest`
-        tg = build_graph(raw, region.crs)
-        loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=qa_summary(tg),
-                              dem=ingest.load_dem(region, raw_dir=self.settings.raw_dir))
-        LoadedRegion.builds += 1
-        self._loaded[region_id] = loaded
-        return loaded
+        with self._lock:
+            if region_id in self._loaded:
+                return self._loaded[region_id]
+            if region_id not in self.ids():
+                raise NotFound(f"No region {region_id!r}")
+            region = load_region(region_id, self.settings.regions_dir)
+            try:
+                raw = ingest.load_raw(region, self.settings.raw_dir)
+            except FileNotFoundError as e:  # names `backcountry ingest`
+                raise NotFound(str(e)) from e
+            tg = build_graph(raw, region.crs)
+            loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=qa_summary(tg),
+                                  dem=ingest.load_dem(region, raw_dir=self.settings.raw_dir))
+            LoadedRegion.builds += 1
+            self._loaded[region_id] = loaded
+            return loaded
 
 
 class RunStore:
@@ -90,7 +102,7 @@ class RunStore:
     def load(self, run_id: str) -> dict:
         path = self.runs_dir / f"{run_id}.json"
         if "/" in run_id or ".." in run_id or not path.exists():
-            raise KeyError(f"No run {run_id!r}")
+            raise NotFound(f"No run {run_id!r}")
         return json.loads(path.read_text())
 
     def latest(self, region_id: str, trailhead: str) -> dict | None:

@@ -6,9 +6,11 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from backcountry import ingest
+from backcountry.api.store import NotFound
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
 from backcountry.planning import GenerateRequest, RequestError, plan_trip
+from backcountry.route import resolve_point
 from backcountry.serialize import build_gpx, day_gpx, run_payload
 from backcountry.trailheads import find_candidates
 
@@ -30,7 +32,12 @@ def trailheads(region_id: str, request: Request):
     G = loaded.tg.graph
     out = []
     for th in loaded.region.trailheads:
-        node = th["node"]
+        node = th.get("node")
+        if node is None and th.get("lat") is not None:  # verified lat/lon entry: snap to the nearest graph node
+            try:
+                node = resolve_point(loaded.tg, loaded.region, f"{th['lat']},{th['lon']}")["node"]
+            except ValueError:
+                node = None
         in_graph = node in G
         out.append({
             "id": th["id"], "name": th.get("name"), "node": node, "source": "yaml", "verified": bool(th.get("verified")),
@@ -38,7 +45,7 @@ def trailheads(region_id: str, request: Request):
             "lat": G.nodes[node]["lat"] if in_graph else None, "lon": G.nodes[node]["lon"] if in_graph else None,
             "component": loaded.node_component.get(node),
         })
-    known = {th["node"] for th in loaded.region.trailheads}
+    known = {t["node"] for t in out if t["node"] is not None}
     for c in find_candidates(loaded.tg, loaded.raw, loaded.node_component)["candidates"]:
         if c["id"] in known:
             continue
@@ -98,7 +105,8 @@ def _record(run: dict) -> dict:
 def generate(region_id: str, request: Request, body: dict):
     loaded = _regions(request).get(region_id)
     req = GenerateRequest.from_dict(body)
-    result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem)
+    result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem,
+                       raw_dir=request.app.state.settings.raw_dir)
     runs = request.app.state.runs
     previous = runs.latest(region_id, req.trailhead) if runs else None
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -121,7 +129,7 @@ def get_run(run_id: str, request: Request):
 def _candidate(request: Request, run_id: str, n: int) -> tuple[dict, dict]:
     run = request.app.state.runs.load(run_id)
     if not 1 <= n <= len(run["candidates"]):
-        raise KeyError(f"Run {run_id} has {len(run['candidates'])} candidates; there is no candidate {n}")
+        raise NotFound(f"Run {run_id} has {len(run['candidates'])} candidates; there is no candidate {n}")
     return run, run["candidates"][n - 1]
 
 
@@ -134,7 +142,7 @@ def candidate_gpx(run_id: str, n: int, request: Request, day: int | None = None)
     else:
         piece = next((p for p in pieces if p["day"] == day), None)
         if piece is None:
-            raise KeyError(f"Candidate {n} has no day {day}")
+            raise NotFound(f"Candidate {n} has no day {day}")
         text, name = day_gpx(c["title"], c["description"], piece, c["waypoints"]), f"{run_id}_candidate_{n}_day_{day}.gpx"
     return Response(content=text, media_type="application/gpx+xml",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})

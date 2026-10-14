@@ -223,3 +223,60 @@ def test_without_a_built_web_app_root_explains(env, tmp_path):
     c = TestClient(create_app(env, web_dist=tmp_path / "missing"))
     r = c.get("/")
     assert r.status_code == 200 and "web app" in r.text.lower() and "/api/regions" in r.text
+
+
+# --- review fixes -------------------------------------------------------------------------
+
+
+def test_only_store_misses_become_404_other_keyerrors_are_500(env):
+    app = create_app(env)
+
+    @app.get("/api/boom")
+    def boom():
+        return {}["missing"]
+
+    c = TestClient(app, raise_server_exceptions=False)
+    assert c.get("/api/boom").status_code == 500
+    assert c.get("/api/runs/nope").status_code == 404
+
+
+def test_yaml_trailhead_with_verified_latlon_and_no_node_is_listed(tmp_path, grid):
+    import yaml
+
+    from conftest import lonlat
+
+    regions_dir = tmp_path / "regions"
+    regions_dir.mkdir()
+    lon, lat = lonlat(1000, 830)
+    (regions_dir / "synth.yaml").write_text(yaml.safe_dump({
+        "id": "synth", "name": "Synth", "crs": "EPSG:32617",
+        "bbox": {"south": 36.0, "west": -81.1, "north": 36.2, "east": -80.9},
+        "trailheads": [{"id": "near_d", "name": "Near D", "lat": lat, "lon": lon, "verified": True}],
+    }))
+    raw_dir = tmp_path / "raw" / "synth"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "overpass_20260101T000000Z.json").write_text(json.dumps(grid.doc()))
+    c = TestClient(create_app(Settings(raw_dir=tmp_path / "raw", runs_dir=tmp_path / "runs", regions_dir=regions_dir)))
+    r = c.get("/api/regions/synth/trailheads")
+    assert r.status_code == 200, r.text
+    th = next(t for t in r.json()["trailheads"] if t["id"] == "near_d")
+    assert th["in_graph"] is True and th["node"] == grid.ids["g11"]  # snapped to the nearest graph node (170 m)
+
+
+def test_concurrent_first_requests_build_the_graph_once(env):
+    import threading
+
+    LoadedRegion.builds = 0
+    c = TestClient(create_app(env))
+    threads = [threading.Thread(target=lambda: c.get("/api/regions/dolly_sods/trailheads")) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert LoadedRegion.builds == 1
+
+
+def test_generate_does_not_leak_other_caches_into_a_custom_raw_dir(client, grid):
+    run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1"}).json()
+    kinds = {f["kind"] for c in run["candidates"] for f in c["features"]}
+    assert not any(k.startswith("usfs") for k in kinds)  # the repo's real USFS cache must not be read
