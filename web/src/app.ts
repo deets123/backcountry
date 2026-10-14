@@ -1,5 +1,6 @@
 import { ApiError, generate, getRegions, getTrailheads, getTrails } from "./api";
 import { createMap, type TripMap } from "./map";
+import { bindCompare, renderCompare } from "./panels/compare";
 import { bindPlan, renderPlan } from "./panels/plan";
 import { fromRun, toRequest } from "./request";
 import { createStore, loadPersisted, persist, type Basemap, type State, type Store } from "./store";
@@ -58,8 +59,11 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   };
 
   // The view decides the panel; the map layers follow the run and selection. Later tasks add compare/trip here.
-  const renderers: Record<string, (s: State) => string> = { plan: renderPlan };
-  const binders: Record<string, (root: HTMLElement) => void> = { plan: (root) => bindPlan(root, store, actions) };
+  const renderers: Record<string, (s: State) => string> = { plan: renderPlan, compare: renderCompare };
+  const binders: Record<string, (root: HTMLElement) => void> = {
+    plan: (root) => bindPlan(root, store, actions),
+    compare: (root) => bindCompare(root, store, actions),
+  };
   function render() {
     const s = store.get();
     panel.innerHTML = renderers[s.view]?.(s) ?? "";
@@ -70,6 +74,10 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     if (s.view !== prev.view || s.form !== prev.form || s.status !== prev.status || s.error !== prev.error || s.busy !== prev.busy
       || s.run !== prev.run || s.selected !== prev.selected || s.trailheads !== prev.trailheads || s.sheet !== prev.sheet
       || s.regions !== prev.regions) render();
+    if (s.run !== prev.run || s.selected !== prev.selected || s.view !== prev.view) {
+      if (!s.run) { map?.clearCandidates(); map?.setTrip(null); }
+      else if (s.view !== "trip") { map?.setTrip(null); map?.setCandidates(s.run.candidates, s.selected, (i) => actions.select(i)); }
+    }
   });
   handle.addEventListener("click", () => actions.toggleSheet());
 
