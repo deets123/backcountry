@@ -51,3 +51,39 @@ def test_region_graph_is_built_once(env):
     c.get("/api/regions/dolly_sods/trailheads")
     c.get("/api/regions/dolly_sods/trailheads")
     assert LoadedRegion.builds == 1
+
+
+def grid_edge_count(grid):
+    from backcountry.graph import build_graph
+    from conftest import CRS
+
+    return build_graph(grid.doc(), crs=CRS).graph.number_of_edges()
+
+
+def test_trails_geojson_has_provenance(client, grid):
+    fc = client.get("/api/regions/dolly_sods/trails").json()
+    assert fc["type"] == "FeatureCollection" and "OpenStreetMap" in fc["attribution"]
+    f = fc["features"][0]
+    assert f["properties"]["source"].startswith("osm:way/") and "component" in f["properties"]
+    assert "profile" not in f["properties"] and len(fc["features"]) == grid_edge_count(grid)
+
+
+def test_features_in_bbox_with_evidence(client, grid):
+    from conftest import lonlat
+
+    lon, lat = lonlat(1200, 80)
+    grid.poi(9100, 1200, 80, tourism="camp_site", backcountry="yes")
+    grid.elements[-1].update(timestamp="2024-05-02T00:00:00Z", version=3)
+    raw_dir = client.app.state.settings.raw_dir / "dolly_sods"
+    (raw_dir / "overpass_20260101T000000Z.json").write_text(json.dumps(grid.doc()))
+    w, s, e, n = lon - 0.01, lat - 0.01, lon + 0.01, lat + 0.01
+    body = client.get(f"/api/regions/dolly_sods/features?bbox={w},{s},{e},{n}").json()
+    site = next(c for c in body["camp_sites"] if c["source"] == "osm:node/9100")
+    assert site["tags"]["backcountry"] == "yes" and site["meta"]["version"] == 3
+    assert site["url"] == "https://www.openstreetmap.org/node/9100"
+    assert body["water_points"] == [] and body["streams"] == []
+
+
+def test_features_rejects_bad_bbox(client):
+    r = client.get("/api/regions/dolly_sods/features?bbox=1,2,3")
+    assert r.status_code == 400 and r.json()["field"] == "bbox"

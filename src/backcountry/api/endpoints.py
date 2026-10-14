@@ -2,6 +2,10 @@
 
 from fastapi import APIRouter, Request
 
+from backcountry import ingest
+from backcountry.export import edges_features
+from backcountry.ingest import OSM_ATTRIBUTION
+from backcountry.planning import RequestError
 from backcountry.trailheads import find_candidates
 
 router = APIRouter(prefix="/api")
@@ -40,3 +44,39 @@ def trailheads(region_id: str, request: Request):
             "component": c["component"], "snap_m": c["snap_m"],
         })
     return {"region": region_id, "trailheads": out}
+
+
+# --- trails and features ------------------------------------------------------------
+
+
+@router.get("/regions/{region_id}/trails")
+def trails(region_id: str, request: Request):
+    loaded = _regions(request).get(region_id)
+    return {"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
+            "features": edges_features(loaded.tg, loaded.node_component)}
+
+
+def _parse_bbox(text: str) -> tuple[float, float, float, float]:
+    try:
+        w, s, e, n = (float(x) for x in text.split(","))
+        if not (w < e and s < n):
+            raise ValueError
+    except (ValueError, AttributeError):
+        raise RequestError("bbox", "bbox must be west,south,east,north in degrees")
+    return w, s, e, n
+
+
+@router.get("/regions/{region_id}/features")
+def features(region_id: str, request: Request, bbox: str):
+    loaded = _regions(request).get(region_id)
+    w, s, e, n = _parse_bbox(bbox)
+
+    def inside(lat, lon):
+        return s <= lat <= n and w <= lon <= e
+
+    water = ingest.water_features(loaded.raw)
+    return {
+        "camp_sites": [c for c in ingest.camp_sites(loaded.raw) if inside(c["lat"], c["lon"])],
+        "water_points": [p for p in water["points"] if inside(p["lat"], p["lon"])],
+        "streams": [l for l in water["lines"] if any(inside(lat, lon) for lon, lat in l["coords"])],
+    }

@@ -125,18 +125,25 @@ def _loc(lat: float, lon: float) -> str:
 ELEVATION_KEYS = ("gain_ft_fwd", "loss_ft_fwd", "gain_ft_rev", "loss_ft_rev", "elev_min_ft", "elev_max_ft")
 
 
-def write_graph_geojson(tg, node_component: dict, out_dir: Path) -> dict[str, Path]:
-    out_dir.mkdir(parents=True, exist_ok=True)
+def edges_features(tg, node_component: dict) -> list[dict]:
+    """GeoJSON features for every edge, with provenance; no profiles."""
     G = tg.graph
-    edges, profiles = [], {}
+    edges = []
     for u, v, k, d in G.edges(keys=True, data=True):
         props = {key: d[key] for key in ("source", "way_id", "segment", "retrieved_at", "name", "highway", "is_road",
                                           "last_resort", "length_m", "tags")}
         props.update({key: d[key] for key in ELEVATION_KEYS if key in d})
         props.update(key=k, u=u, v=v, from_node=d["osm_nodes"][0], component=node_component[u])
         edges.append({"type": "Feature", "geometry": mapping(d["geom_wgs84"]), "properties": props})
-        if "profile" in d:
-            profiles[k] = {"from_node": d["osm_nodes"][0], "source": d["source"]} | d["profile"]
+    return edges
+
+
+def write_graph_geojson(tg, node_component: dict, out_dir: Path) -> dict[str, Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    G = tg.graph
+    edges = edges_features(tg, node_component)
+    profiles = {k: {"from_node": d["osm_nodes"][0], "source": d["source"]} | d["profile"]
+                for _, _, k, d in G.edges(keys=True, data=True) if "profile" in d}
     nodes = [
         {
             "type": "Feature",
