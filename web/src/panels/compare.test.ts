@@ -34,3 +34,17 @@ describe("compare", () => {
     expect(renderCompare({ ...INITIAL, run })).toContain("No loop or lollipop fits");
   });
 });
+
+describe("compare heading", () => {
+  const base = { candidates: [], search: { notes: [], must_visit_notes: [], widened: false, truncated: false, scored: 0, via_pairs_tried: 0, seconds: 0 }, diff: null, known_gaps: [] };
+  const th = { id: "402290253", name: "Wilderness Way Trailhead", node: 402290253, source: "data" as const, verified: false, in_graph: true, lat: 39, lon: -79, component: "C0" };
+  it("names the start instead of showing a bare node id", () => {
+    const run = { ...base, request: { trailhead: "402290253", total: [18, 26] } } as unknown as Run;
+    const html = renderCompare({ ...INITIAL, run, trailheads: [th] });
+    expect(html).toContain("Wilderness Way Trailhead, 18–26 mi"); expect(html).not.toContain("<h1>402290253");
+  });
+  it("calls a lat,lon start a map point", () => {
+    const run = { ...base, request: { trailhead: "39.04000,-79.38000", total: [18, 26] } } as unknown as Run;
+    expect(renderCompare({ ...INITIAL, run, trailheads: [th] })).toContain("Map point 39.04000,-79.38000, 18–26 mi");
+  });
+});

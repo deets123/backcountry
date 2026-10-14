@@ -9,12 +9,15 @@ html, body { margin: 0; height: 100%; font: 15px/1.4 -apple-system, BlinkMacSyst
 .sheet-handle { width: 48px; height: 6px; border-radius: 3px; background: #bbb; border: 0; margin: 10px auto 6px; padding: 0; cursor: pointer; touch-action: none; }
 .panel { overflow: auto; padding: 0 16px 16px; flex: 1; }
 @media (min-width: 900px) {
+  #map { left: var(--sheet-w); }  /* the map and its controls sit beside the docked panel, never under it */
   .sheet, .sheet-collapsed, .sheet-half, .sheet-full { top: 0; bottom: 0; left: 0; right: auto; width: var(--sheet-w); height: auto; border-radius: 0; }
   .sheet-handle { display: none; }
 }
+.basemap-ctrl select { width: auto; padding: 6px; background: #fff; border: 0; border-radius: 4px; box-shadow: 0 0 0 2px rgba(0,0,0,.1); }
 h1 { font-size: 18px; margin: 4px 0 8px; } h2 { font-size: 15px; margin: 14px 0 6px; }
 label { display: block; font-size: 13px; color: var(--muted); margin-top: 8px; }
-input, select, button, textarea { font: inherit; } input, select, textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+input, select, button, textarea { font: inherit; }
+input, select, textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 16px; } /* 16px: iOS Safari zooms into smaller fields */
 input[type="checkbox"] { width: auto; margin: 0 8px 0 0; vertical-align: middle; } label:has(> input[type="checkbox"]) { color: var(--ink); }
 .row { display: flex; gap: 8px; } .row > * { flex: 1; }
 button.primary { background: var(--green); color: #fff; border: 0; border-radius: 8px; padding: 12px; width: 100%; margin-top: 12px; font-weight: 600; }

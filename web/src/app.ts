@@ -4,7 +4,7 @@ import { createMap, type TripMap } from "./map";
 import { evidenceHtml } from "./evidence";
 import { bindCompare, renderCompare } from "./panels/compare";
 import { bindTrip, renderTrip } from "./panels/trip";
-import { bindPlan, renderPlan } from "./panels/plan";
+import { bindPlan, renderPlan, tapMessage } from "./panels/plan";
 import { fromRun, toRequest, type FormState } from "./request";
 import { nextSheet } from "./sheet";
 import { createStore, loadPersisted, persist, type Basemap, type State, type Store } from "./store";
@@ -32,13 +32,13 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       } catch (e) { store.set({ status: "", error: (e as Error).message }); }
     },
     pickTrailhead(th: Trailhead) { store.set((s) => ({ form: { ...s.form, trailhead: th.id }, error: null, view: "plan" })); },
-    tapPoint(lon: number, lat: number) {
+    tapPoint(lon: number, lat: number, trailName: string | null) {
       if (store.get().view !== "plan") return;
-      store.set((s) => ({ form: { ...s.form, trailhead: `${lat.toFixed(5)},${lon.toFixed(5)}` }, error: null }));
+      store.set((s) => ({ form: { ...s.form, trailhead: `${lat.toFixed(5)},${lon.toFixed(5)}` }, error: null, status: tapMessage(trailName) }));
     },
     async generate() {
       const s = store.get();
-      const built = toRequest(s.form);
+      const built = toRequest(s.form, s.trailheads);
       if ("error" in built) return store.set({ error: built.error });
       if (!s.region) return store.set({ error: "Pick a region first." });
       abort?.abort();
@@ -74,11 +74,14 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     compare: (root) => bindCompare(root, store, actions),
     trip: (root) => bindTrip(root, store, actions),
   };
+  let shownView: string | null = null;
   function render() {
     const s = store.get();
     panel.innerHTML = renderers[s.view]?.(s) ?? "";
     binders[s.view]?.(panel);
     handle.parentElement!.className = `sheet sheet-${s.sheet}`;
+    if (s.view !== shownView) panel.scrollTop = 0;  // a new view starts at its heading, not where the last one was scrolled
+    shownView = s.view;
   }
   store.subscribe((s, prev) => {
     if (s.view !== prev.view || (s.form !== prev.form && !editingInPanel) || s.status !== prev.status || s.error !== prev.error || s.busy !== prev.busy
@@ -101,15 +104,13 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     actions.sheet(dy < -30 ? "up" : dy > 30 ? "down" : "tap");
   });
 
-  map = createMap(mapEl, store.get().basemap, [-79.35, 39.02], 11);
   const basemapEl = doc.createElement("select");
   basemapEl.id = "basemap";
   basemapEl.setAttribute("aria-label", "Base map");
-  basemapEl.style.cssText = "position:fixed;top:10px;left:10px;z-index:5;width:auto;padding:6px;background:#fff";
   basemapEl.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}"${k === store.get().basemap ? " selected" : ""}>${b.name}</option>`).join("");
   basemapEl.addEventListener("change", () => actions.setBasemap(basemapEl.value as Basemap));
-  mapEl.parentElement!.appendChild(basemapEl);
-  map.onMapTap((lon, lat) => actions.tapPoint(lon, lat));
+  map = createMap(mapEl, store.get().basemap, [-79.35, 39.02], 11, basemapEl);
+  map.onMapTap((lon, lat, name) => actions.tapPoint(lon, lat, name));
   render();
   getRegions().then((regions) => {
     store.set({ regions });

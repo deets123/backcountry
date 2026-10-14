@@ -32,3 +32,13 @@ describe("fromRun", () => {
       type: "loop", campsAtSites: true, mustVisit: ["A"], avoid: ["B"], direction: "" });
   });
 });
+
+describe("toRequest with the trailhead list", () => {
+  const th = { id: "old_th", name: "Old", node: 1, source: "yaml" as const, verified: true, in_graph: false, lat: 39, lon: -79, component: null };
+  it("refuses a saved trailhead that is no longer on the trail network", () => {
+    expect(toRequest({ ...DEFAULT_FORM, trailhead: "old_th" }, [th])).toEqual({ error: expect.stringContaining("not on the trail network"), field: "trailhead" });
+  });
+  it("still accepts ids the list doesn't know (map points, typed ids)", () => {
+    expect(toRequest({ ...DEFAULT_FORM, trailhead: "39.04,-79.38" }, [th])).toHaveProperty("request");
+  });
+});

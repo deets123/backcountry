@@ -1,4 +1,4 @@
-import type { GenerateRequest, Run } from "./types";
+import type { GenerateRequest, Run, Trailhead } from "./types";
 
 export interface FormState {
   trailhead: string; total: string; nights: string; daily: string; maxGainDay: string;
@@ -29,8 +29,12 @@ function whole(text: string, field: keyof FormState, min: number): number | Fail
   return n;
 }
 
-export function toRequest(form: FormState): Result {
+export function toRequest(form: FormState, trailheads: Trailhead[] = []): Result {
   if (!form.trailhead.trim()) return { error: "Pick a trailhead first.", field: "trailhead" };
+  const known = trailheads.find((t) => t.id === form.trailhead);
+  if (known && !(known.in_graph && known.lat != null && known.lon != null)) {
+    return { error: `${known.name ?? known.id} is not on the trail network; pick another start.`, field: "trailhead" };
+  }
   const total = range(form.total, "total");
   if (!Array.isArray(total)) return total;
   let nights: number | null = null;

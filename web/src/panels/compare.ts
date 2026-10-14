@@ -1,7 +1,7 @@
 import { candidateColor } from "../basemaps";
 import { miles, signedFeet } from "../format";
 import type { State, Store } from "../store";
-import type { Candidate } from "../types";
+import type { Candidate, Trailhead } from "../types";
 import { esc, notesHtml } from "./common";
 
 export function segmentNames(c: Candidate): string[] {
@@ -20,16 +20,24 @@ export function cardHtml(c: Candidate, selected: boolean): string {
 </div>`;
 }
 
+/** The start as the user knows it: a trailhead's name, "Map point lat,lon", or whatever they typed. */
+export function startLabel(trailhead: string, trailheads: Trailhead[]): string {
+  const th = trailheads.find((t) => t.id === trailhead);
+  if (th) return th.name ?? th.id;
+  return /^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(trailhead) ? `Map point ${trailhead}` : trailhead;
+}
+
 export function renderCompare(s: State): string {
   const run = s.run;
   if (!run) return `<h1>Results</h1><p class="note">Nothing generated yet.</p><button class="link" id="replan">Back to the plan</button>`;
   const r = run.request;
   const total = Array.isArray(r.total) ? `${r.total[0]}–${r.total[1]}` : r.total;
+  const start = startLabel(r.trailhead, s.trailheads);
   const lines = [...run.search.notes, ...run.search.must_visit_notes];
   if (run.search.widened) lines.push("Nothing fit the requested range, so the search looked 25% wider; the distance deviation is included in each penalty.");
   if (run.search.truncated) lines.push("The search hit its time budget, so some loops were never examined.");
   return `
-<h1>${esc(r.trailhead)}, ${esc(total)} mi</h1>
+<h1>${esc(start)}, ${esc(total)} mi</h1>
 <p class="note">${run.search.scored} loops scored from ${run.search.via_pairs_tried.toLocaleString("en-US")} waypoint pairs in ${run.search.seconds.toFixed(1)} s. Tap a card or a line on the map to focus it.</p>
 ${notesHtml(lines)}
 ${run.candidates.length ? `<div class="cards">${run.candidates.map((c) => cardHtml(c, c.index === s.selected)).join("")}</div>` : `<p class="note">No candidates. Change the settings and try again.</p>`}

@@ -37,3 +37,58 @@ test("a bad range is refused with the field named, and the map stays", async ({ 
   await expect(page.locator("#status")).toContainText("total must look like 18-26");
   await expect(page.locator("#map canvas")).toBeVisible();
 });
+
+async function pickDataStart(page: import("@playwright/test").Page) {
+  const options = page.locator("select[name='trailhead'] optgroup[label='Other start points from the data'] option");
+  await expect(options).not.toHaveCount(0);
+  await page.selectOption('select[name="trailhead"]', (await options.first().getAttribute("value"))!);
+}
+
+test("every view opens scrolled to its top", async ({ page }) => {
+  await page.goto("/");
+  await pickDataStart(page);
+  await page.fill('input[name="total"]', "2.4-5.1");
+  await page.fill('input[name="nights"]', "1");
+  await page.fill('input[name="daily"]', "0.5-4");
+  await page.fill('input[name="maxGainDay"]', "");
+  await page.click("#generate");
+  await expect(page.locator(".card")).toHaveCount(3, { timeout: 30_000 });
+  await page.click("#open-trip");
+  await expect(page.locator("h1")).toContainText("Candidate 1");
+  await page.locator("#panel").evaluate((el) => { el.scrollTop = el.scrollHeight; });  // thumb scrolled to the bottom buttons
+  expect(await page.locator("#panel").evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await page.click("#replan");
+  await expect(page.locator("#generate")).toBeVisible();
+  expect(await page.locator("#panel").evaluate((el) => el.scrollTop)).toBe(0);
+});
+
+test("attribution and the base-map switcher are reachable on a phone", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#map canvas")).toBeVisible();
+  for (const sel of [".maplibregl-ctrl-attrib", "#basemap"]) {
+    const box = (await page.locator(sel).boundingBox())!;
+    const hit = await page.evaluate(([x, y, s]) => document.elementFromPoint(x as number, y as number)?.closest(s as string) != null,
+      [box.x + box.width / 2, box.y + box.height / 2, sel]);
+    expect(hit, `${sel} is covered`).toBe(true);
+  }
+});
+
+test("attribution and the base-map switcher are reachable beside the docked panel", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto("/");
+  await expect(page.locator("#map canvas")).toBeVisible();
+  for (const sel of [".maplibregl-ctrl-attrib", "#basemap"]) {
+    const box = (await page.locator(sel).boundingBox())!;
+    const hit = await page.evaluate(([x, y, s]) => document.elementFromPoint(x as number, y as number)?.closest(s as string) != null,
+      [box.x + box.width / 2, box.y + box.height / 2, sel]);
+    expect(hit, `${sel} is covered`).toBe(true);
+  }
+});
+
+test("data-derived start points are drawn as a map layer, not one DOM marker each", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("select[name='trailhead'] optgroup[label='Other start points from the data'] option")).not.toHaveCount(0);
+  await expect(page.locator("#map canvas")).toBeVisible();
+  await page.waitForTimeout(1500);  // markers are added once the map has loaded
+  await expect(page.locator(".marker")).toHaveCount(0);  // the grid's yaml trailheads are off the network, so no badges at all
+});

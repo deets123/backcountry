@@ -28,7 +28,7 @@ ${regions}
   ${yaml.length ? `<optgroup label="Trailheads">${yaml.map((t) => option(t, f.trailhead)).join("")}</optgroup>` : ""}
   ${data.length ? `<optgroup label="Other start points from the data">${data.map((t) => option(t, f.trailhead)).join("")}</optgroup>` : ""}
 </select></label>
-<p class="note">Tap a TH badge on the map, pick from the list, or tap anywhere on a trail to start there (snapped within 650 ft).</p>
+<p class="note">Tap a TH badge or a grey start dot on the map, pick from the list, or tap anywhere on a trail to start there (snapped within 650 ft).</p>
 <div class="row">
   <label>Nights<input name="nights" inputmode="numeric" value="${esc(f.nights)}" placeholder="2"></label>
   <label>Total miles<input name="total" value="${esc(f.total)}" placeholder="18-26"></label>
@@ -49,6 +49,12 @@ ${regions}
 <button class="primary" id="generate"${s.busy ? " disabled" : ""}>${s.busy ? "Searching…" : "Generate loops"}</button>
 <div class="status${s.error ? " error" : ""}" id="status">${esc([s.status, s.error].filter(Boolean).join(" "))}</div>
 ${s.run ? `<button class="link" id="back-to-compare">Back to the last results</button>` : ""}`;
+}
+
+/** Status line after a map tap: names the trail so the user can type it under must-visit or avoid. */
+export function tapMessage(trailName: string | null): string {
+  const on = trailName ? `on ${trailName}` : "on an unnamed trail or road";
+  return `Start set to the tapped point ${on}. Type a trail name under "must visit" or "avoid" to use it.`;
 }
 
 export interface PlanActions { generate(): void; pickRegion(id: string): void; backToCompare(): void; editForm(form: FormState): void }

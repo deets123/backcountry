@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FormState } from "../request";
 import { createStore, INITIAL } from "../store";
 import type { Trailhead } from "../types";
-import { bindPlan, renderPlan } from "./plan";
+import { bindPlan, renderPlan, tapMessage } from "./plan";
 
 const th = (over: Partial<Trailhead>): Trailhead => ({ id: "x", name: "X", node: 1, source: "yaml", verified: false, in_graph: true,
   lat: 39, lon: -79, component: "C0", ...over });
@@ -43,5 +43,12 @@ describe("bindPlan", () => {
     total.dispatchEvent(new Event("change"));
     expect(edits.map((f) => f.total)).toEqual(["26-18"]);
     expect(store.get().form.total).toBe(INITIAL.form.total);
+  });
+});
+
+describe("tapMessage", () => {
+  it("tells the user which trail the tapped start is on so they can type its name", () => {
+    expect(tapMessage("Bear Rocks Trail")).toContain("Bear Rocks Trail");
+    expect(tapMessage(null)).toContain("unnamed");
   });
 });

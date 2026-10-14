@@ -5,18 +5,19 @@ import { BASEMAPS, baseStyle, candidateColor, dayColor } from "./basemaps";
 import type { Basemap } from "./store";
 import type { Candidate, RouteFeature, TrailFeatureCollection, Trailhead } from "./types";
 
-const TRAILS = "trails", CANDS = "candidates", TRIP = "trip", FEATS = "features", JCTS = "junctions";
+const TRAILS = "trails", STARTS = "starts", CANDS = "candidates", TRIP = "trip", FEATS = "features", JCTS = "junctions";
 
 export interface TripMap {
   setBasemap(b: Basemap): void;
   fitBounds(bbox: [number, number, number, number]): void;
   setTrails(fc: TrailFeatureCollection | null): void;
   setTrailheads(ths: Trailhead[], onPick: (th: Trailhead) => void): void;
-  onMapTap(fn: (lon: number, lat: number) => void): void;
+  onMapTap(fn: (lon: number, lat: number, trailName: string | null) => void): void;
   setCandidates(cands: Candidate[], selected: number, onSelect: (i: number) => void): void;
   clearCandidates(): void;
   setTrip(c: Candidate | null, popupHtml?: (f: RouteFeature) => string): void;
   setJunctions(c: Candidate | null, show: boolean): void;
+  project(lon: number, lat: number): [number, number];
   destroy(): void;
 }
 
@@ -25,19 +26,52 @@ function removeAll(map: MLMap, prefix: string) {
   for (const id of Object.keys(map.getStyle().sources ?? {})) if (id.startsWith(prefix)) map.removeSource(id);
 }
 
-export function createMap(container: HTMLElement, basemap: Basemap, center: [number, number], zoom: number): TripMap {
-  const map = new maplibregl.Map({ container, style: baseStyle(basemap), center, zoom, attributionControl: { compact: false } });
+export function createMap(container: HTMLElement, basemap: Basemap, center: [number, number], zoom: number, basemapSelect?: HTMLElement): TripMap {
+  const map = new maplibregl.Map({ container, style: baseStyle(basemap), center, zoom, attributionControl: false });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  if (basemapSelect) {  // the app's base-map <select>, as a map control so it sits with the map's other controls
+    const wrap = document.createElement("div");
+    wrap.className = "maplibregl-ctrl basemap-ctrl";
+    wrap.appendChild(basemapSelect);
+    map.addControl({ onAdd: () => wrap, onRemove: () => wrap.remove() }, "top-left");
+  }
+  map.addControl(new maplibregl.AttributionControl(), "top-left");  // top-left: never under the bottom sheet
   const ready = new Promise<void>((resolve) => map.once("load", () => resolve()));
   const thMarkers: maplibregl.Marker[] = [];
   const tripMarkers: maplibregl.Marker[] = [];
   const popups: maplibregl.Popup[] = [];
-  let tapHandler: ((lon: number, lat: number) => void) | null = null;
+  // What the delegated click handlers act on. They are registered once, below: MapLibre keeps a delegate
+  // keyed by layer id even after removeLayer, so registering per setTrip/setCandidates would fire every
+  // earlier handler again once a layer with the same id is re-added.
+  let tapHandler: ((lon: number, lat: number, trailName: string | null) => void) | null = null;
+  let onPickStart: ((th: Trailhead) => void) | null = null;
+  let onSelectCandidate: ((i: number) => void) | null = null;
+  let trip: { c: Candidate; popupHtml?: (f: RouteFeature) => string } | null = null;
+  let starts: Trailhead[] = [];
+  const DELEGATED = [`${STARTS}-dots`, `${CANDS}-dim`, `${FEATS}-dots`];
   map.on("click", (e) => {
     if ((e.originalEvent.target as HTMLElement)?.closest(".marker")) return;
-    if (map.queryRenderedFeatures(e.point, { layers: [`${CANDS}-dim`, `${FEATS}-dots`].filter((l) => map.getLayer(l)) }).length) return;
-    tapHandler?.(e.lngLat.lng, e.lngLat.lat);
+    if (map.queryRenderedFeatures(e.point, { layers: DELEGATED.filter((l) => map.getLayer(l)) }).length) return;
+    const pad = 6;  // a thumb-sized box around the tap, to name the trail it landed on
+    const box: [maplibregl.PointLike, maplibregl.PointLike] = [[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]];
+    const hit = map.getLayer(`${TRAILS}-trail`) ? map.queryRenderedFeatures(box, { layers: [`${TRAILS}-trail`, `${TRAILS}-road`] }) : [];
+    const name = hit.find((f) => f.properties?.name)?.properties?.name;
+    tapHandler?.(e.lngLat.lng, e.lngLat.lat, typeof name === "string" ? name : null);
   });
+  map.on("click", `${STARTS}-dots`, (e) => {
+    const i = e.features?.[0]?.properties?.i; const th = typeof i === "number" ? starts[i] : undefined;
+    if (th) onPickStart?.(th);
+  });
+  map.on("click", `${CANDS}-dim`, (e) => { const i = e.features?.[0]?.properties?.index; if (typeof i === "number") onSelectCandidate?.(i); });
+  map.on("click", `${FEATS}-dots`, (e) => {
+    const i = e.features?.[0]?.properties?.i; const f = typeof i === "number" ? trip?.c.features[i] : undefined;
+    if (!f || !trip?.popupHtml) return;
+    popups.push(new maplibregl.Popup({ maxWidth: "340px" }).setLngLat([f.lon, f.lat]).setHTML(trip.popupHtml(f)).addTo(map));
+  });
+  for (const id of DELEGATED) {
+    map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
+  }
 
   function badge(text: string, color: string, title: string, onClick?: () => void): HTMLElement {
     const el = document.createElement("div");
@@ -69,13 +103,19 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
     },
     setTrailheads(ths, onPick) {
       ready.then(() => {
-        clear(thMarkers);
-        for (const th of ths) {
-          if (th.lat == null || th.lon == null || !th.in_graph) continue;
-          const el = badge(th.source === "yaml" ? "TH" : "th", th.source === "yaml" ? "#1b5e20" : "#78909c",
-            `${th.name ?? th.id}${th.verified ? "" : " (unverified)"}`, () => onPick(th));
-          thMarkers.push(new maplibregl.Marker({ element: el }).setLngLat([th.lon, th.lat]).addTo(map));
+        clear(thMarkers); removeAll(map, STARTS);
+        onPickStart = onPick;
+        const usable = ths.filter((th) => th.lat != null && th.lon != null && th.in_graph);
+        for (const th of usable.filter((t) => t.source === "yaml")) {
+          const el = badge("TH", "#1b5e20", `${th.name ?? th.id}${th.verified ? "" : " (unverified)"}`, () => onPick(th));
+          thMarkers.push(new maplibregl.Marker({ element: el }).setLngLat([th.lon!, th.lat!]).addTo(map));
         }
+        starts = usable.filter((t) => t.source !== "yaml");
+        if (!starts.length) return;
+        map.addSource(STARTS, { type: "geojson", data: { type: "FeatureCollection", features: starts.map((th, i) => ({
+          type: "Feature", geometry: { type: "Point", coordinates: [th.lon!, th.lat!] }, properties: { i, name: th.name ?? th.id } })) } });
+        map.addLayer({ id: `${STARTS}-dots`, type: "circle", source: STARTS, paint: {
+          "circle-radius": 5, "circle-color": "#78909c", "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
       });
     },
     onMapTap(fn) { tapHandler = fn; },
@@ -89,7 +129,7 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
           paint: { "line-color": ["get", "color"], "line-width": 4, "line-opacity": 0.35 } });
         map.addLayer({ id: `${CANDS}-sel`, type: "line", source: CANDS, filter: ["==", ["get", "index"], selected],
           paint: { "line-color": ["get", "color"], "line-width": 6, "line-opacity": 0.95 } });
-        map.on("click", `${CANDS}-dim`, (e) => { const i = e.features?.[0]?.properties?.index; if (typeof i === "number") onSelect(i); });
+        onSelectCandidate = onSelect;
       });
     },
     clearCandidates() { ready.then(() => removeAll(map, CANDS)); },
@@ -97,6 +137,7 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
       ready.then(() => {
         removeAll(map, TRIP); removeAll(map, FEATS); removeAll(map, JCTS);
         clear(tripMarkers); popups.splice(0).forEach((p) => p.remove());
+        trip = c ? { c, popupHtml } : null;
         if (!c) return;
         map.addSource(TRIP, { type: "geojson", data: { type: "FeatureCollection", features: c.pieces.map((p, i) => ({
           type: "Feature", geometry: { type: "LineString", coordinates: p.points.map(([lon, lat]) => [lon, lat]) },
@@ -115,11 +156,6 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
             properties: { i, camp: f.kind === "camp_site" || f.kind === "camp_pitch" || f.kind.startsWith("usfs") } })) } });
           map.addLayer({ id: `${FEATS}-dots`, type: "circle", source: FEATS, paint: {
             "circle-radius": 5, "circle-color": ["case", ["get", "camp"], "#8d5524", "#1565c0"], "circle-stroke-color": "#fff", "circle-stroke-width": 1 } });
-          map.on("click", `${FEATS}-dots`, (e) => {
-            const i = e.features?.[0]?.properties?.i; const f = typeof i === "number" ? c.features[i] : undefined;
-            if (!f || !popupHtml) return;
-            popups.push(new maplibregl.Popup({ maxWidth: "340px" }).setLngLat([f.lon, f.lat]).setHTML(popupHtml(f)).addTo(map));
-          });
         }
       });
     },
@@ -136,6 +172,7 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
           paint: { "text-color": "#333", "text-halo-color": "#fff", "text-halo-width": 1 } });
       });
     },
+    project(lon, lat) { const p = map.project([lon, lat]); return [p.x, p.y]; },
     destroy() { clear(thMarkers); clear(tripMarkers); popups.splice(0).forEach((p) => p.remove()); map.remove(); },
   };
   return api;
