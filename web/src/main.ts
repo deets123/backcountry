@@ -1,3 +1,4 @@
 import "./styles.css";
+import { startApp } from "./app";
 
-document.getElementById("panel")!.innerHTML = "<h1>Backcountry</h1><p class=\"note\">Loading…</p>";
+startApp(document, document.getElementById("map")!, document.getElementById("panel")!, document.getElementById("sheet-handle")!);
