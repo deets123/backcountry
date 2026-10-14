@@ -1,6 +1,8 @@
 import { ApiError, generate, getRegions, getTrailheads, getTrails } from "./api";
 import { createMap, type TripMap } from "./map";
+import { evidenceHtml } from "./evidence";
 import { bindCompare, renderCompare } from "./panels/compare";
+import { bindTrip, renderTrip } from "./panels/trip";
 import { bindPlan, renderPlan } from "./panels/plan";
 import { fromRun, toRequest } from "./request";
 import { createStore, loadPersisted, persist, type Basemap, type State, type Store } from "./store";
@@ -55,14 +57,16 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     backToCompare() { store.set({ view: "compare" }); },
     replan() { const run = store.get().run; store.set({ view: "plan", form: run ? fromRun(run) : store.get().form }); },
     setBasemap(b: Basemap) { store.set({ basemap: b }); map?.setBasemap(b); },
+    showJunctions(show: boolean) { const s = store.get(); map?.setJunctions(s.run?.candidates[s.selected - 1] ?? null, show); },
     toggleSheet() { store.set((s) => ({ sheet: s.sheet === "collapsed" ? "half" : s.sheet === "half" ? "full" : "collapsed" })); },
   };
 
   // The view decides the panel; the map layers follow the run and selection. Later tasks add compare/trip here.
-  const renderers: Record<string, (s: State) => string> = { plan: renderPlan, compare: renderCompare };
+  const renderers: Record<string, (s: State) => string> = { plan: renderPlan, compare: renderCompare, trip: renderTrip };
   const binders: Record<string, (root: HTMLElement) => void> = {
     plan: (root) => bindPlan(root, store, actions),
     compare: (root) => bindCompare(root, store, actions),
+    trip: (root) => bindTrip(root, store, actions),
   };
   function render() {
     const s = store.get();
@@ -75,8 +79,11 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       || s.run !== prev.run || s.selected !== prev.selected || s.trailheads !== prev.trailheads || s.sheet !== prev.sheet
       || s.regions !== prev.regions) render();
     if (s.run !== prev.run || s.selected !== prev.selected || s.view !== prev.view) {
-      if (!s.run) { map?.clearCandidates(); map?.setTrip(null); }
-      else if (s.view !== "trip") { map?.setTrip(null); map?.setCandidates(s.run.candidates, s.selected, (i) => actions.select(i)); }
+      if (!s.run) { map?.clearCandidates(); map?.setTrip(null); map?.setJunctions(null, false); }
+      else if (s.view === "trip") {
+        map?.clearCandidates(); map?.setJunctions(null, false);
+        map?.setTrip(s.run.candidates[s.selected - 1] ?? null, evidenceHtml);
+      } else { map?.setTrip(null); map?.setJunctions(null, false); map?.setCandidates(s.run.candidates, s.selected, (i) => actions.select(i)); }
     }
   });
   handle.addEventListener("click", () => actions.toggleSheet());
