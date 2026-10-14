@@ -24,7 +24,7 @@ describe("api client", () => {
 
   it("explains an unreachable server", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
-    const err = await getRegions().catch((e) => e as ApiError);
+    const err = (await getRegions().catch((e: unknown) => e)) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(0);
     expect(err.message).toMatch(/server/i);
@@ -32,7 +32,7 @@ describe("api client", () => {
 
   it("explains a non-JSON error body", async () => {
     vi.stubGlobal("fetch", respond(502, "Bad Gateway", false));
-    const err = await getRegions().catch((e) => e as ApiError);
+    const err = (await getRegions().catch((e: unknown) => e)) as ApiError;
     expect(err.status).toBe(502);
     expect(err.message).toMatch(/502/);
   });
