@@ -59,6 +59,17 @@ in Phase 2 piece 2 uses it). Endpoints under `/api`: `regions`, `regions/{id}/tr
 (same settings as the command, as JSON), `runs/{id}`, `runs/{id}/candidates/{n}.gpx[?day=k]`,
 `runs/{id}/candidates/{n}.geojson`. Runs are saved under `data/runs/`.
 
+### Web app (phone or laptop)
+
+One-time: `cd web && npm install && npm run build`. Then `uv run backcountry serve --host 0.0.0.0`
+and open `http://<your-laptop-ip>:8000` on your phone (same Wi-Fi) or `http://localhost:8000` on the
+laptop. Pick a trailhead on the map, set the limits, Generate, compare the candidates, open one,
+download its GPX. Add it to your home screen for an app-style window.
+
+Development: `uv run backcountry serve` in one terminal, `cd web && npm run dev` in another, open
+http://localhost:5173. Tests: `npm test` (unit), `npm run test:e2e` (one end-to-end run against the API
+on synthetic data; needs `npx playwright install chromium` once).
+
 Other commands: `route --from A --to B` (shortest point-to-point), `trailheads` (candidate
 trailheads from the data), `qa` (data quality report and map), `reference` (export a trail
 for a CalTopo comparison). `uv run backcountry --help` lists them all.

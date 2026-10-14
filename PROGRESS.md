@@ -506,3 +506,61 @@ fixtures use the default `web/dist` path; CLI `--must-visit` error lacks the `--
 **Deviations from the spec/plan (recorded in the ledger)**
 - The API lives in `src/backcountry/api/` (a subpackage) instead of a separate `api/` folder: one install.
 - `plan_trip(..., dem=)` lets the API pass the store's DEM.
+
+## Phase 2 piece 2 — Web app (built 2026-10-14; awaiting your phone check)
+
+Spec: `docs/superpowers/specs/2026-10-13-phase2-api-and-web-app-design.md`; plan:
+`docs/superpowers/plans/2026-10-14-phase2-web-app.md`. Built on branch `phase2-web`. Lives in `web/`
+(Vite + TypeScript + MapLibre, no framework); `backcountry serve` serves the built `web/dist`.
+
+**Done**
+- One page, three states in a bottom sheet (side panel on wide screens): **Plan** (region, trailhead
+  list from `/trailheads` with data-derived entries marked "(from the data, unverified)" and unreachable ones
+  disabled, the same settings as the CLI, Generate), **Compare** (one card per candidate with miles, gain,
+  road and repeated miles, the trail names, search notes, "widened"/"truncated" sentences, the diff
+  against the previous run), **Trip** (days table, camps with "pinned by you / at a known campsite /
+  placed for mileage" and "Location unverified", nearest water "(presence unknown)", elevation profile
+  SVG with camp lines and mile/feet axes or "Elevation unknown" when there is no DEM, campsites and water
+  table with the water warning, GPX whole-trip and per-day plus GeoJSON downloads, Re-plan, a disabled
+  "Save for offline (coming)" button, data sources, Known gaps last).
+- Map: USGS Topo / Imagery+Topo / Imagery base maps (switcher top-left, attribution under it), trail lines,
+  yaml trailheads as TH badges and data-derived starts as grey dots (tap either to pick; tap anywhere on a
+  trail picks that point and the status line names the trail so it can be typed under must-visit/avoid), candidate lines in
+  distinct colors (tap to select), the opened trip colored by day with S/E and C1.. badges, feature dots
+  whose popups show the OSM tags, last edit date, satellite view and OpenStreetMap links, and the
+  "existence/presence unknown" line; a "Show trail junctions" toggle (off by default). No raw OSM ids in
+  any text.
+- Errors are shown verbatim with the field named; a failed or timed-out (2 min) search keeps the previous
+  run on screen. Region, form and base map persist in localStorage. The sheet taps through
+  collapsed/half/full and follows a vertical drag.
+- Tests: Vitest 33 (11 files), Playwright 2 (builds the app, runs the API on the synthetic grid via
+  `scripts/test_api_server.py`, plans a 1-night loop, opens candidate 2, downloads its GPX and checks it
+  holds a track; refuses a bad range with the field named), pytest 286 passed / 1 skipped.
+- Found by the end-to-end test and fixed: typing into a field and then tapping Generate lost the tap,
+  because the panel re-rendered on blur. Form edits now go through an `editForm` action that records the
+  form without re-rendering.
+- Final review (fresh reviewer subagent): "with fixes". Fixed: MapLibre layer click handlers were registered
+  on every `setTrip`/`setCandidates` and MapLibre keeps them keyed by layer id, so compare → open → back →
+  open another candidate → tap a dot opened two popups, one for the wrong candidate's feature (reproduced on
+  real data: 2 popups → 1); attribution was under the bottom sheet on phones and the base-map switcher under
+  the docked panel on laptops (both now map controls at top-left; the map sits beside the panel on wide
+  screens); Pemigewasset's 522 data-derived starts were one DOM marker each (now a circle layer); fields
+  under 16px made iOS Safari zoom; a saved trailhead that has since left the network was sent to the API
+  (now refused with the reason); the compare heading showed a bare node id for a data-derived start (now
+  its name, or "Map point lat,lon"); a new view opened scrolled wherever the previous one was. Vitest 38,
+  Playwright 6.
+
+**Not done / deferred**
+- Reviewer minors left as they are: a wrong-shaped (not just invalid) persisted form blanks the panel;
+  the junction checkbox unticks on a sheet tap while the dots stay; a region switch during a search can
+  land the old region's run; a 2xx non-JSON reply shows "Nothing generated yet" with no error; regions with
+  no cached data are selectable (the API's 404 text shows); fitBounds ignores the phone sheet and the map
+  isn't re-fitted to the results; mouse drags that end off the 6 px handle do nothing; "version null" in a
+  popup when OSM has no version; the pre-fit map centre is Dolly Sods even when the saved region is Pemi;
+  `app.test.ts` tests `sheet.ts`. Spec item not built: tapping a trail doesn't add it to must-visit (the
+  status line names it instead).
+- Your phone check over Wi-Fi (`npm run build`, `uv run backcountry serve --host 0.0.0.0`) is the manual
+  acceptance; I only checked a phone-sized headless browser.
+- "Save for offline" is a disabled button (piece 3). No accounts, no hosting (piece 5).
+- Piece 1's deferred minors still stand (see above).
+
