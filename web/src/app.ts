@@ -42,12 +42,22 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     try { store.set({ saved: await listTrips() }); } catch { /* no IndexedDB here: no saved trips */ }
   }
 
+  // Saved trips store the change first and show it after, so what's on screen is what's on the phone
+  // (closing the app right after a move can't lose it).
   async function setCamps(campsM: number[] | null) {
     const id = store.get().savedId;
+    if (id) {
+      try {
+        const rec = await getTrip(id);
+        if (rec) await putTrip({ ...rec, campsM });
+      } catch (e) {
+        store.set({ error: `Couldn't store the camp change on this phone: ${(e as Error).message}` });
+        syncMap(store.get()); // markers go back to the stored camps
+        return;
+      }
+    }
     store.set({ campsM, error: null });
-    if (!id) return;
-    const rec = await getTrip(id);
-    if (rec) { await putTrip({ ...rec, campsM }); await refreshSaved(); }
+    if (id) await refreshSaved();
   }
 
   function onFix(p: GeolocationPosition) {
