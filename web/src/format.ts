@@ -22,3 +22,9 @@ export function signedFeet(gain: number | null | undefined, loss: number | null 
     ? `+${Math.round(gain).toLocaleString("en-US")} / −${Math.round(loss).toLocaleString("en-US")} ft`
     : "unknown";
 }
+
+export function shortDate(iso: string | null | undefined): string {
+  if (!iso) return "unknown";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "unknown" : d.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
+}
