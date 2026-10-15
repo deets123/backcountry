@@ -10,7 +10,7 @@ export function profilePath(d_m: number[], z_m: number[], W: number, H: number, 
   return d_m.map((d, i) => `${i ? "L" : "M"}${x(d).toFixed(1)},${y(z_m[i]!).toFixed(1)}`).join(" ");
 }
 
-export function profileSvg(profile: { d_m: number[]; z_m: (number | null)[] } | null, days: Day[] | null, W = 600, H = 140): string {
+export function profileSvg(profile: { d_m: number[]; z_m: (number | null)[] } | null, days: Day[] | null, W = 600, H = 140, markerM: number | null = null): string {
   if (!profile || profile.z_m.some((z) => z == null) || profile.d_m.length < 2) return `<p class="note">Elevation unknown for this route.</p>`;
   const z = profile.z_m as number[];
   const pad = 22;
@@ -28,5 +28,6 @@ export function profileSvg(profile: { d_m: number[]; z_m: (number | null)[] } | 
   }).join("");
   const fmt = (m: number) => Math.round(m * FT_PER_M).toLocaleString("en-US");
   const yl = `<text x="2" y="${pad + 4}" font-size="10" fill="#666">${fmt(zMax)} ft</text><text x="2" y="${H - pad}" font-size="10" fill="#666">${fmt(zMin)} ft</text>`;
-  return `<svg class="profile" viewBox="0 0 ${W} ${H}" role="img" aria-label="Elevation profile"><path d="${area}" fill="#c8e6c9"/><path d="${path}" fill="none" stroke="#2e7d32" stroke-width="1.5"/>${camps}${ticks}${yl}</svg>`;
+  const you = markerM === null ? "" : `<g class="you"><line x1="${x(markerM).toFixed(1)}" y1="${pad}" x2="${x(markerM).toFixed(1)}" y2="${H - pad}" stroke="#1565c0" stroke-width="2"/><text x="${(x(markerM) + 3).toFixed(1)}" y="${H - pad - 4}" font-size="10" fill="#1565c0">you</text></g>`;
+  return `<svg class="profile" viewBox="0 0 ${W} ${H}" role="img" aria-label="Elevation profile"><path d="${area}" fill="#c8e6c9"/><path d="${path}" fill="none" stroke="#2e7d32" stroke-width="1.5"/>${camps}${you}${ticks}${yl}</svg>`;
 }

@@ -1,3 +1,4 @@
+import type { SavedTrip } from "../offline/db";
 import { describe, expect, it } from "vitest";
 import { INITIAL } from "../store";
 import type { Candidate, Run } from "../types";
@@ -33,5 +34,43 @@ describe("renderTrip", () => {
     expect(html).toContain("Camp 1"); expect(html).toContain("pinned by you"); expect(html).toContain("Red Creek Trail"); expect(html).toContain("Location unverified");
     expect(html).toContain("200 ft"); expect(html).toContain("presence unknown"); expect(html).toContain('href="/api/runs/r1/candidates/1.gpx?day=2"');
     expect(html).not.toContain("osm:way/");
+  });
+});
+
+function saved(over: Partial<SavedTrip> = {}): SavedTrip {
+  const r = run({ geometry: { type: "LineString", coordinates: [[-79.4, 39], [-79.4, 39.01]] } });
+  return { id: "r1-1", savedAt: "2026-10-14T12:00:00Z", startName: "Bear Rocks Trailhead", run: r, index: 1, campsM: null,
+    gpx: { whole: "<gpx/>", days: [] }, trails: { type: "FeatureCollection", attribution: "", features: [] }, box: [-79.41, 38.99, -79.39, 39.02],
+    tiles: { cache: "trip-r1-1", total: 760, saved: 760, missingByZoom: {} }, bytes: 16_000_000, persisted: true, complete: true, problems: [], ...over };
+}
+
+describe("renderTrip, offline parts", () => {
+  it("offers to save with an estimate, and shows progress while saving", () => {
+    const r = run({ geometry: { type: "LineString", coordinates: [[-79.4, 39], [-79.4, 39.01]] } });
+    const html = renderTrip({ ...INITIAL, run: r, view: "trip" });
+    expect(html).toMatch(/id="save-offline">Save for offline \(about \d+ map tiles, \d+ MB\)/);
+    const busy = renderTrip({ ...INITIAL, run: r, view: "trip", saving: { done: 312, total: 760, failed: 2 } });
+    expect(busy).toContain("Saving map tiles: 312 / 760 · 2 failed"); expect(busy).toContain('id="save-cancel"');
+  });
+  it("shows a saved trip's dates, saved GPX links and no save button", () => {
+    const t = saved();
+    const html = renderTrip({ ...INITIAL, run: t.run, view: "trip", saved: [t], savedId: t.id });
+    expect(html).toContain("Saved for offline Oct 14, 2026"); expect(html).toContain("trail data retrieved Oct 13, 2026");
+    expect(html).toContain('data-gpx="whole"'); expect(html).not.toContain('id="save-offline"');
+    expect(html).not.toContain("/api/runs/r1/candidates/1.gpx"); expect(html).toContain('id="known-gaps"');
+  });
+  it("labels an incomplete save and one the browser may clear", () => {
+    const t = saved({ complete: false, persisted: false, problems: ["Map tiles not saved: z16: 38 missing."] });
+    const html = renderTrip({ ...INITIAL, run: t.run, view: "trip", saved: [t], savedId: t.id });
+    expect(html).toContain("Incomplete:"); expect(html).toContain("z16: 38 missing");
+    expect(html).toContain("the browser may clear it if the phone runs low on storage");
+  });
+  it("shows the GPS line, its errors, and the profile marker", () => {
+    const t = saved();
+    const where = { onRoute: true as const, alongM: 500, offM: 10, day: null, next: { label: "End", distM: 612, gainFt: 50 }, ambiguous: false, accuracyM: 5 };
+    const on = renderTrip({ ...INITIAL, run: t.run, view: "trip", gps: { mode: "on", fix: { lon: -79.4, lat: 39.0045, accuracyM: 5 }, where } });
+    expect(on).toContain("mile 0.3 of 18.6"); expect(on).toContain("Stop showing my location"); expect(on).toContain('class="you"');
+    const err = renderTrip({ ...INITIAL, run: t.run, view: "trip", gps: { mode: "error", message: "User denied Geolocation" } });
+    expect(err).toContain("Location unavailable: User denied Geolocation");
   });
 });

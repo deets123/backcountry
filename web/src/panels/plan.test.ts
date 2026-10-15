@@ -37,7 +37,7 @@ describe("bindPlan", () => {
     root.innerHTML = renderPlan({ ...INITIAL, region: "dolly_sods" });
     const edits: FormState[] = [];
     const store = createStore(INITIAL);
-    bindPlan(root, store, { generate() {}, pickRegion() {}, backToCompare() {}, editForm: (f) => edits.push(f) });
+    bindPlan(root, store, { generate() {}, pickRegion() {}, backToCompare() {}, showSaved() {}, editForm: (f) => edits.push(f) });
     const total = root.querySelector<HTMLInputElement>('input[name="total"]')!;
     total.value = "26-18";
     total.dispatchEvent(new Event("change"));
