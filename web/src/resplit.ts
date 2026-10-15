@@ -54,6 +54,8 @@ export function withCamps(c: Candidate, campsM: number[], line: RouteLine = Rout
   const sites = c.features.filter((f) => CAMP_KINDS.has(f.kind));
   const water = c.features.filter((f) => !CAMP_KINDS.has(f.kind) && !f.kind.startsWith("usfs"));
   const camps: Camp[] = campsM.map((m, i) => {
+    const before = p.camps[i]!;
+    if (m === before.dist_m) return before; // not moved: keep the engine's camp and what it says about it
     const [lon, lat] = line.pointAt(m);
     const seg = segmentAt(c, m);
     const nearby: NearbySite[] = sites
@@ -73,9 +75,10 @@ export function withCamps(c: Candidate, campsM: number[], line: RouteLine = Rout
     points: line.slice(d.start_m, d.end_m).map(([lon, lat, m]) => [lon, lat, ele(m)] as [number, number, number | null]),
     start_m: d.start_m, end_m: d.end_m, length_m: d.length_m, gain_ft: d.gain_ft, loss_ft: d.loss_ft, day: d.index,
   }));
-  const campWps: Waypoint[] = camps.map((cp) => ({
+  const oldWps = c.waypoints.filter((w) => w.kind === "camp");
+  const campWps: Waypoint[] = camps.map((cp, i) => (!cp.moved && oldWps[i] ? oldWps[i]! : {
     name: `Camp ${cp.index}`, kind: "camp", lat: cp.lat, lon: cp.lon, dist_m: cp.dist_m, ele: ele(cp.dist_m),
-    desc: `Camp ${cp.index}, mile ${(cp.dist_m / M_PER_MI).toFixed(1)}, on ${cp.on_name ?? "an unnamed trail"}, moved by you. Location unverified.`,
+    desc: `Camp ${cp.index}, mile ${(cp.dist_m / M_PER_MI).toFixed(1)}, on ${cp.on_name ?? "an unnamed trail"}${cp.moved ? ", moved by you" : ""}. Location unverified.`,
   }));
   const others = c.waypoints.filter((w) => w.kind !== "camp");
   const waypoints = [...others.filter((w) => w.kind !== "junction"), ...campWps, ...others.filter((w) => w.kind === "junction")];

@@ -25,10 +25,14 @@ describe("tiles", () => {
     expect(e - w).toBeCloseTo((2 * 805) / (111195.08 * Math.cos((39.005 * Math.PI) / 180)), 6);
     expect(tripBox({ geometry: { type: "LineString", coordinates: [] } } as unknown as Candidate)).toBeNull();
   });
-  it("says when the view leaves what was saved", () => {
+  it("judges coverage from the saved tiles, using MapLibre's tile zoom (round(zoom + 1))", () => {
     const box: Box = [-79.4, 39.0, -79.3, 39.1];
-    expect(coverageNote(box, [-79.38, 39.02, -79.32, 39.08], 13)).toBeNull();
-    expect(coverageNote(box, [-79.38, 39.02, -79.32, 39.08], 11)).toBe("Map not saved at this zoom: zoom in to see the saved map.");
-    expect(coverageNote(box, [-79.5, 39.02, -79.32, 39.08], 13)).toBe("Part of this view is outside the saved map area; it shows blank offline.");
+    expect(coverageNote(box, [-79.38, 39.02, -79.32, 39.08], 13, "topo")).toBeNull();
+    // a view a little larger than the box is still inside the box's whole tiles
+    expect(coverageNote(box, [-79.402, 38.998, -79.2995, 39.102], 13, "topo")).toBeNull();
+    expect(coverageNote(box, [-79.38, 39.02, -79.32, 39.08], 11.2, "hybrid")).toBeNull(); // tile zoom 12
+    expect(coverageNote(box, [-79.6, 38.8, -79.1, 39.3], 10.4, "topo")).toBe("Map not saved at this zoom: zoom in to see the saved map.");
+    expect(coverageNote(box, [-79.6, 39.02, -79.32, 39.08], 13, "topo")).toBe("Part of this view is outside the saved map area; it shows blank offline.");
+    expect(coverageNote(box, [-79.38, 39.02, -79.32, 39.08], 13, "satellite")).toBe("Satellite imagery isn't saved for offline use: switch the base map to USGS Topo or Imagery + Topo.");
   });
 });

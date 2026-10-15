@@ -25,8 +25,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export async function getRegions(): Promise<Region[]> {
-  return (await request<{ regions: Region[] }>("/api/regions")).regions;
+/** With `timeoutMs`, a server that doesn't answer in time counts as unreachable (status 0). */
+export async function getRegions(timeoutMs?: number): Promise<Region[]> {
+  if (timeoutMs === undefined) return (await request<{ regions: Region[] }>("/api/regions")).regions;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    return (await request<{ regions: Region[] }>("/api/regions", { signal: ctl.signal })).regions;
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw new ApiError(`The Backcountry server didn't answer within ${Math.round(timeoutMs / 1000)} s.`, 0);
+    throw e;
+  } finally { clearTimeout(timer); }
 }
 
 export async function getTrailheads(region: string): Promise<Trailhead[]> {

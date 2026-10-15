@@ -39,7 +39,7 @@ export function trailsInBox(fc: TrailFeatureCollection, box: Box): TrailFeatureC
 const cancelled = () => new DOMException("The save was cancelled.", "AbortError");
 
 export async function saveTrip(run: Run, n: number, startName: string, onProgress: (p: SaveProgress) => void,
-  signal: AbortSignal, deps: SaveDeps = defaultDeps()): Promise<SavedTrip> {
+  signal: AbortSignal, deps: SaveDeps = defaultDeps(), campsM: number[] | null = null): Promise<SavedTrip> {
   const c = run.candidates[n - 1];
   if (!c) throw new Error(`This run has no candidate ${n}.`);
   const box = tripBox(c);
@@ -59,7 +59,7 @@ export async function saveTrip(run: Run, n: number, startName: string, onProgres
       for (let attempt = 0; attempt < 2 && !full; attempt++) {
         if (signal.aborted) throw cancelled();
         try {
-          const res = await deps.fetch(t.url, { signal });
+          const res = await deps.fetch(t.url, { signal, cache: "reload" }); // "reload": past any saved copy (see sw.js)
           if (!res.ok) continue;
           const buf = await res.arrayBuffer();
           await cache.put(t.url, new Response(buf, { headers: { "content-type": res.headers.get("content-type") ?? "image/jpeg" } }));
@@ -104,7 +104,7 @@ export async function saveTrip(run: Run, n: number, startName: string, onProgres
 
     const persisted = await deps.persist().catch(() => false);
     const rec: SavedTrip = {
-      id: tripId(run, n), savedAt: deps.now().toISOString(), startName, run, index: n, campsM: null,
+      id: tripId(run, n), savedAt: deps.now().toISOString(), startName, run, index: n, campsM,
       gpx: { whole, days }, trails, box, tiles: { cache: cacheName, total: tiles.length, saved, missingByZoom: missing },
       bytes, persisted, complete: problems.length === 0, problems,
     };

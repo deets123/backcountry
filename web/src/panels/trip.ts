@@ -61,10 +61,19 @@ function savedLineHtml(t: SavedTrip, run: Run): string {
     + (t.complete ? "" : `<div class="warn" id="incomplete"><b>Incomplete:</b> ${t.problems.map(esc).join(" ")}</div>`);
 }
 
+function gpsLine(s: State, c: Candidate): string {
+  const g = s.gps;
+  return g.mode === "waiting" ? "Finding your location…" : g.mode === "error" ? `Location unavailable: ${g.message}`
+    : g.mode === "on" && g.where ? whereText(g.where, c.length_m) : "";
+}
+
+function progressText(p: NonNullable<State["saving"]>): string {
+  return `Saving map tiles: ${p.done} / ${p.total}${p.failed ? ` · ${p.failed} failed` : ""}`;
+}
+
 function gpsHtml(s: State, c: Candidate, saved: SavedTrip | null): string {
   const g = s.gps;
-  const line = g.mode === "waiting" ? "Finding your location…" : g.mode === "error" ? `Location unavailable: ${g.message}`
-    : g.mode === "on" && g.where ? whereText(g.where, c.length_m) : "";
+  const line = gpsLine(s, c);
   const canCamp = g.mode === "on" && g.where?.onRoute === true;
   const campBtn = saved && c.plan?.camps.length ? `<button class="primary" id="camp-here"${canCamp ? "" : " disabled"}>Camp here</button>` : "";
   return `<div class="row"><button class="primary" id="locate">${g.mode === "off" ? "Show my location" : "Stop showing my location"}</button>${campBtn}</div>
@@ -72,14 +81,17 @@ function gpsHtml(s: State, c: Candidate, saved: SavedTrip | null): string {
 }
 
 function saveHtml(s: State, c: Candidate, saved: SavedTrip | null): string {
-  if (saved) return "";
   if (s.saving) {
-    return `<p class="status" id="save-progress">Saving map tiles: ${s.saving.done} / ${s.saving.total}${s.saving.failed ? ` · ${s.saving.failed} failed` : ""} <button class="link" id="save-cancel">Cancel</button></p>`;
+    if (s.run && s.saving.id === `${s.run.run_id}-${c.index}`) {
+      return `<p class="status"><span id="save-progress">${progressText(s.saving)}</span> <button class="link" id="save-cancel">Cancel</button></p>`;
+    }
+    return `<p class="note">Another trip is being saved (${s.saving.done} / ${s.saving.total}); save this one when it's done.</p>`;
   }
+  const again = saved !== null && (!saved.complete || s.tilesMissing);
   const box = tripBox(c);
-  if (s.offline || !box) return "";
+  if ((saved && !again) || s.offline || !box) return "";
   const est = estimate(tileList(box));
-  return `<button class="primary" id="save-offline">Save for offline (about ${est.count} map tiles, ${megabytes(est.bytes)})</button>`;
+  return `<button class="primary" id="save-offline">${again ? "Save again" : "Save for offline"} (about ${est.count} map tiles, ${megabytes(est.bytes)})</button>`;
 }
 
 export function renderTrip(s: State): string {
@@ -100,7 +112,7 @@ ${notesHtml(c.notes)}
 ${gpsHtml(s, c, saved)}
 ${status ? `<p class="status${s.error ? " error" : ""}" id="status">${esc(status)}</p>` : ""}
 ${s.mapNote ? `<p class="note" id="map-note">${esc(s.mapNote)}</p>` : ""}
-${hasJunctions ? `<label><input type="checkbox" id="junctions"> Show trail junctions on the map</label>` : ""}
+${hasJunctions ? `<label><input type="checkbox" id="junctions"${s.junctions ? " checked" : ""}> Show trail junctions on the map</label>` : ""}
 <h2>Days</h2>${daysHtml(c, saved !== null)}
 <h2>Elevation</h2>${profileSvg(c.profile, c.plan?.days ?? null, 600, 140, where && where.onRoute ? where.alongM : null)}
 <h2>Campsites and water along the route</h2>${featuresHtml(c)}
@@ -111,6 +123,31 @@ ${s.offline ? "" : `<button class="link" id="back-compare">Back to all candidate
 ${s.saved.length ? `<button class="link" id="back-saved">Saved trips</button>` : ""}
 <p class="note">Data: ${sources}.</p>
 ${knownGapsHtml(run.known_gaps)}`;
+}
+
+/** Updates the GPS line, Camp here, the profile marker and save progress in place, so a GPS fix or a saved
+ * tile doesn't rebuild the panel under the user's finger. Returns false when a full render is needed. */
+export function patchTrip(root: HTMLElement, prev: State, s: State): boolean {
+  const c = currentCandidate(s);
+  if (!c || s.gps.mode !== prev.gps.mode || (s.saving === null) !== (prev.saving === null) || s.saving?.id !== prev.saving?.id) return false;
+  if (s.saving) {
+    const el = root.querySelector("#save-progress");
+    if (!el) return false;
+    el.textContent = progressText(s.saving);
+  }
+  if (s.gps !== prev.gps) {
+    const line = root.querySelector("#gps-line");
+    const profile = root.querySelector("svg.profile");
+    if (!line) return false;
+    line.textContent = gpsLine(s, c);
+    const camp = root.querySelector<HTMLButtonElement>("#camp-here");
+    if (camp) camp.disabled = !(s.gps.mode === "on" && s.gps.where?.onRoute === true);
+    if (profile) {
+      const where = s.gps.mode === "on" ? s.gps.where : null;
+      profile.outerHTML = profileSvg(c.profile, c.plan?.days ?? null, 600, 140, where && where.onRoute ? where.alongM : null);
+    }
+  }
+  return true;
 }
 
 export interface TripActions {

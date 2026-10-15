@@ -95,3 +95,21 @@ describe("moveCamp and campHereIndex", () => {
   });
   it("reads the current camps", () => { expect(campsOf(candidate())).toEqual([1500]); });
 });
+
+describe("withCamps keeps camps the user didn't move", () => {
+  it("only the moved camp is relabelled", () => {
+    const c = candidate();
+    const two = { ...c, plan: { ...c.plan!, nights: 2,
+      days: [{ index: 1, start_m: 0, end_m: 1000, length_m: 1000, gain_ft: 1, loss_ft: 0, start_label: "Start", end_label: "Camp 1" },
+             { index: 2, start_m: 1000, end_m: 2000, length_m: 1000, gain_ft: 1, loss_ft: 0, start_label: "Camp 1", end_label: "Camp 2" },
+             { index: 3, start_m: 2000, end_m: 3000, length_m: 1000, gain_ft: 1, loss_ft: 0, start_label: "Camp 2", end_label: "End" }],
+      camps: [{ ...c.plan!.camps[0]!, dist_m: 1000 },
+              { ...c.plan!.camps[0]!, index: 2, dist_m: 2000, pinned: true, site: "osm:node/9", nearby: [{ source: "osm:node/9", kind: "camp_site", name: "Knob Camp", distance_m: 3 }] }] } };
+    const out = withCamps(two, [1200, 2000]);
+    expect(out.plan!.camps[0]!.moved).toBe(true);
+    const kept = out.plan!.camps[1]!;
+    expect(kept.moved).toBeFalsy(); expect(kept.pinned).toBe(true); expect(kept.site).toBe("osm:node/9"); expect(kept.nearby[0]!.distance_m).toBe(3);
+    expect(out.waypoints.filter((w) => w.kind === "camp").map((w) => w.desc.includes("moved by you"))).toEqual([true, false]);
+  });
+});
+

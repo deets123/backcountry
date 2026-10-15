@@ -2,7 +2,7 @@ import type { SavedTrip } from "../offline/db";
 import { describe, expect, it } from "vitest";
 import { INITIAL } from "../store";
 import type { Candidate, Run } from "../types";
-import { renderTrip } from "./trip";
+import { patchTrip, renderTrip } from "./trip";
 
 function run(c: Partial<Candidate>): Run {
   const cand: Candidate = { index: 1, kind: "loop", length_m: 30000, gain_ft: 2023, loss_ft: 2023, road_m: 0, last_resort_m: 0, repeated_m: 0,
@@ -49,7 +49,7 @@ describe("renderTrip, offline parts", () => {
     const r = run({ geometry: { type: "LineString", coordinates: [[-79.4, 39], [-79.4, 39.01]] } });
     const html = renderTrip({ ...INITIAL, run: r, view: "trip" });
     expect(html).toMatch(/id="save-offline">Save for offline \(about \d+ map tiles, \d+ MB\)/);
-    const busy = renderTrip({ ...INITIAL, run: r, view: "trip", saving: { done: 312, total: 760, failed: 2 } });
+    const busy = renderTrip({ ...INITIAL, run: r, view: "trip", saving: { id: "r1-1", done: 312, total: 760, failed: 2 } });
     expect(busy).toContain("Saving map tiles: 312 / 760 · 2 failed"); expect(busy).toContain('id="save-cancel"');
   });
   it("shows a saved trip's dates, saved GPX links and no save button", () => {
@@ -72,5 +72,42 @@ describe("renderTrip, offline parts", () => {
     expect(on).toContain("mile 0.3 of 18.6"); expect(on).toContain("Stop showing my location"); expect(on).toContain('class="you"');
     const err = renderTrip({ ...INITIAL, run: t.run, view: "trip", gps: { mode: "error", message: "User denied Geolocation" } });
     expect(err).toContain("Location unavailable: User denied Geolocation");
+  });
+});
+
+describe("renderTrip, review fixes", () => {
+  const geo = { geometry: { type: "LineString" as const, coordinates: [[-79.4, 39], [-79.4, 39.01]] as [number, number][] } };
+  it("shows save progress and Cancel only on the trip being saved", () => {
+    const r = run(geo);
+    const mine = renderTrip({ ...INITIAL, run: r, view: "trip", saving: { id: "r1-1", done: 3, total: 10, failed: 0 } });
+    expect(mine).toContain('id="save-cancel"');
+    const other = renderTrip({ ...INITIAL, run: r, view: "trip", saving: { id: "r9-2", done: 3, total: 10, failed: 0 } });
+    expect(other).not.toContain('id="save-cancel"'); expect(other).toContain("Another trip is being saved (3 / 10)");
+  });
+  it("offers Save again for an incomplete saved trip or one whose map was cleared", () => {
+    const t = saved({ complete: false });
+    expect(renderTrip({ ...INITIAL, run: t.run, view: "trip", saved: [t], savedId: t.id })).toContain('id="save-offline">Save again');
+    const ok = saved();
+    expect(renderTrip({ ...INITIAL, run: ok.run, view: "trip", saved: [ok], savedId: ok.id })).not.toContain('id="save-offline"');
+    expect(renderTrip({ ...INITIAL, run: ok.run, view: "trip", saved: [ok], savedId: ok.id, tilesMissing: true })).toContain("Save again");
+    expect(renderTrip({ ...INITIAL, run: t.run, view: "trip", saved: [t], savedId: t.id, offline: true })).not.toContain('id="save-offline"');
+  });
+  it("keeps the junction checkbox's state", () => {
+    const r = run({ ...geo, waypoints: [{ name: "J", desc: "j", lat: 39, lon: -79.4, dist_m: 1, ele: null, kind: "junction" }] });
+    expect(renderTrip({ ...INITIAL, run: r, view: "trip", junctions: true })).toContain('id="junctions" checked');
+  });
+  it("updates the GPS line and save progress in place, without rebuilding the panel", () => {
+    const r = run(geo);
+    const root = document.createElement("div");
+    const where = (alongM: number) => ({ onRoute: true as const, alongM, offM: 3, day: null, next: { label: "End", distM: 100, gainFt: 1 }, ambiguous: false, accuracyM: 5 });
+    const s1 = { ...INITIAL, run: r, view: "trip" as const, gps: { mode: "on" as const, fix: { lon: 0, lat: 0, accuracyM: 5 }, where: where(500) }, saving: { id: "r1-1", done: 1, total: 10, failed: 0 } };
+    root.innerHTML = renderTrip(s1);
+    const cancel = root.querySelector("#save-cancel");
+    const s2 = { ...s1, gps: { ...s1.gps, where: where(1609.344) }, saving: { ...s1.saving, done: 2 } };
+    expect(patchTrip(root, s1, s2)).toBe(true);
+    expect(root.querySelector("#gps-line")!.textContent).toContain("mile 1.0 of 18.6");
+    expect(root.querySelector("#save-progress")!.textContent).toContain("2 / 10");
+    expect(root.querySelector("#save-cancel")).toBe(cancel);
+    expect(patchTrip(root, s1, { ...s2, gps: { mode: "off" as const } })).toBe(false); // a mode change needs a full render
   });
 });

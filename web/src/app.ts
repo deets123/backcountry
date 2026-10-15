@@ -10,20 +10,23 @@ import { bindCompare, renderCompare, startLabel } from "./panels/compare";
 import { esc } from "./panels/common";
 import { bindPlan, renderPlan, tapMessage } from "./panels/plan";
 import { bindSaved, renderSaved } from "./panels/saved";
-import { bindTrip, renderTrip } from "./panels/trip";
+import { bindTrip, patchTrip, renderTrip } from "./panels/trip";
 import { fromRun, toRequest, type FormState } from "./request";
 import { campHereIndex, campsOf, moveCamp } from "./resplit";
 import { RouteLine } from "./routeline";
-import { currentCandidate } from "./selectors";
+import { currentCandidate, openTripId } from "./selectors";
 import { nextSheet } from "./sheet";
 import { createStore, loadPersisted, persist, type Basemap, type State, type Store } from "./store";
+import type { Box } from "./offline/tiles";
 import type { Trailhead } from "./types";
 
 const DRAG_SNAP_M = 150; // a dropped camp must land this close to the route line
 
 // Changes to these re-render the panel. (Form edits typed in the panel don't; see editForm.)
 const RENDER_KEYS: (keyof State)[] = ["view", "status", "error", "busy", "run", "selected", "trailheads", "sheet", "regions",
-  "saved", "savedId", "campsM", "gps", "saving", "offline", "updateReady", "mapNote"];
+  "saved", "savedId", "campsM", "gps", "saving", "offline", "updateReady", "mapNote", "tilesMissing", "junctions"];
+const LIVE_KEYS = new Set<keyof State>(["gps", "saving"]); // updated in place in the trip view (patchTrip)
+const BOOT_TIMEOUT_MS = 5000; // with saved trips on the phone, don't wait longer than this for the server
 
 export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, handle: HTMLElement, storage: Storage = localStorage) {
   const store: Store = createStore(loadPersisted(storage));
@@ -37,6 +40,15 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   let watchId: number | null = null;
   let lastAlongM: number | null = null;
   let pendingUpdate: (() => void) | null = null;
+  let lastView: { view: Box; zoom: number } | null = null;
+
+  function updateMapNote() {
+    const s = store.get();
+    const rec = s.savedId ? s.saved.find((t) => t.id === s.savedId) : undefined;
+    const offline = s.offline || win?.navigator.onLine === false;
+    const note = rec && lastView && s.view === "trip" && offline ? coverageNote(rec.box, lastView.view, lastView.zoom, s.basemap) : null;
+    if (note !== s.mapNote) store.set({ mapNote: note });
+  }
 
   async function refreshSaved() {
     try { store.set({ saved: await listTrips() }); } catch { /* no IndexedDB here: no saved trips */ }
@@ -112,12 +124,13 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       const s = store.get();
       const rec = s.run ? s.saved.find((t) => t.id === tripId(s.run!, i)) : undefined;
       lastAlongM = null;
-      store.set({ selected: i, view: "trip", sheet: "half", savedId: rec?.id ?? null, campsM: rec?.campsM ?? null, status: "", error: null });
+      store.set({ selected: i, view: "trip", sheet: "half", savedId: rec?.id ?? null, campsM: rec?.campsM ?? null, tilesMissing: false, status: "", error: null });
+      if (rec) void tilesPresent(rec).then((ok) => { if (!ok && openTripId(store.get()) === rec.id) store.set({ tilesMissing: true }); });
     },
     backToCompare() { store.set({ view: "compare", status: "", error: null }); },
     replan() { const run = store.get().run; store.set({ view: "plan", form: run ? fromRun(run) : store.get().form }); },
-    setBasemap(b: Basemap) { store.set({ basemap: b }); map?.setBasemap(b); },
-    showJunctions(show: boolean) { map?.setJunctions(currentCandidate(store.get()), show); },
+    setBasemap(b: Basemap) { store.set({ basemap: b }); map?.setBasemap(b); updateMapNote(); },
+    showJunctions(show: boolean) { store.set({ junctions: show }); map?.setJunctions(currentCandidate(store.get()), show); },
     sheet(gesture: "tap" | "up" | "down") { store.set((s) => ({ sheet: nextSheet(s.sheet, gesture) })); },
     // Edits typed into the plan panel: record them without re-rendering the panel (a re-render on blur
     // would replace the Generate button under the user's finger and lose the tap).
@@ -127,11 +140,17 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       const s = store.get();
       if (!s.run || s.saving) return;
       saveAbort = new AbortController();
-      store.set({ saving: { done: 0, total: 0, failed: 0 }, error: null, status: "" });
+      const id = tripId(s.run, s.selected);
+      const before = s.saved.find((t) => t.id === id); // a re-save keeps the camps the user moved
+      const name = before?.startName ?? startLabel(s.run.request.trailhead, s.trailheads);
+      store.set({ saving: { id, done: 0, total: 0, failed: 0 }, error: null, status: "" });
       try {
-        const rec = await saveTrip(s.run, s.selected, startLabel(s.run.request.trailhead, s.trailheads), (p) => store.set({ saving: p }), saveAbort.signal);
+        const rec = await saveTrip(s.run, s.selected, name, (p) => store.set({ saving: { id, ...p } }), saveAbort.signal, undefined, before?.campsM ?? null);
         await refreshSaved();
-        store.set({ saving: null, savedId: rec.id, campsM: null, status: rec.complete ? "Saved for offline." : "" });
+        // The save took a while: only mark the trip on screen as saved if it is still this one.
+        const open = openTripId(store.get()) === rec.id;
+        store.set(open ? { saving: null, savedId: rec.id, campsM: rec.campsM, tilesMissing: false, status: rec.complete ? "Saved for offline." : "" }
+          : { saving: null, status: rec.complete ? `Saved ${rec.startName} for offline.` : "" });
       } catch (e) {
         store.set((e as Error).name === "AbortError"
           ? { saving: null, status: "Save cancelled; nothing was kept." }
@@ -140,14 +159,18 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     },
     cancelSave() { saveAbort?.abort(); },
     async showSaved() { await refreshSaved(); store.set({ view: "saved", status: "", error: null }); },
-    toPlan() { store.set({ view: "plan", status: "", error: null }); },
+    toPlan() {
+      const s = store.get();
+      if (!s.trailheads.length && s.regions.length) { void actions.pickRegion(s.regions.some((r) => r.id === s.region) ? s.region! : s.regions[0]!.id); return; }
+      store.set({ view: "plan", status: "", error: null });
+    },
     async openSaved(id: string) {
       const rec = await getTrip(id);
       if (!rec) return store.set({ error: "That saved trip is gone." });
       lastAlongM = null;
       const tilesGone = !(await tilesPresent(rec));
-      store.set({ run: rec.run, selected: rec.index, savedId: rec.id, campsM: rec.campsM, view: "trip", sheet: "half", status: "",
-        error: tilesGone ? "This trip's offline map was cleared by the browser. Save the trip again while online to get the map back." : null });
+      store.set({ run: rec.run, selected: rec.index, savedId: rec.id, campsM: rec.campsM, view: "trip", sheet: "half", status: "", tilesMissing: tilesGone,
+        error: tilesGone ? "This trip's offline map was cleared by the browser. Tap Save again while online to get the map back." : null });
       map?.setTrails(rec.trails);
       map?.fitBounds(rec.box);
     },
@@ -234,7 +257,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     if (!s.run || s.view === "saved") { map?.clearCandidates(); map?.setTrip(null); map?.setJunctions(null, false); return; }
     if (s.view === "trip") {
       const c = currentCandidate(s);
-      map?.clearCandidates(); map?.setJunctions(null, false);
+      map?.clearCandidates(); map?.setJunctions(c, s.junctions);
       map?.setCampDrag(s.savedId && c?.plan ? (i, lon, lat) => void actions.moveCampTo(i, lon, lat) : null);
       map?.setTrip(c, evidenceHtml);
     } else {
@@ -243,7 +266,13 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     }
   }
   store.subscribe((s, prev) => {
-    if (RENDER_KEYS.some((k) => s[k] !== prev[k]) || (s.form !== prev.form && !editingInPanel)) render();
+    const changed = RENDER_KEYS.filter((k) => s[k] !== prev[k]);
+    const formChanged = s.form !== prev.form && !editingInPanel;
+    const live = changed.length > 0 && !formChanged && changed.every((k) => LIVE_KEYS.has(k));
+    // GPS fixes and save progress arrive several times a second: patch them in place in the trip view and
+    // don't touch other views, so buttons and form fields aren't replaced under the user's finger.
+    if (live && (s.view !== "trip" || patchTrip(panel, prev, s))) { /* nothing else to redraw */ }
+    else if (changed.length || formChanged) render();
     if (s.run !== prev.run || s.selected !== prev.selected || s.view !== prev.view || s.campsM !== prev.campsM || s.savedId !== prev.savedId) syncMap(s);
   });
   // Tap cycles the sheet; a vertical drag of more than 30px on the handle moves it one step up or down.
@@ -262,19 +291,14 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   basemapEl.addEventListener("change", () => actions.setBasemap(basemapEl.value as Basemap));
   map = createMap(mapEl, store.get().basemap, [-79.35, 39.02], 11, basemapEl);
   map.onMapTap((lon, lat, name) => actions.tapPoint(lon, lat, name));
-  map.onMove((view, zoom) => {
-    const s = store.get();
-    const rec = s.savedId ? s.saved.find((t) => t.id === s.savedId) : undefined;
-    const offline = s.offline || win?.navigator.onLine === false;
-    const note = rec && s.view === "trip" && offline ? coverageNote(rec.box, view, zoom) : null;
-    if (note !== s.mapNote) store.set({ mapNote: note });
-  });
+  map.onMove((view, zoom) => { lastView = { view, zoom }; updateMapNote(); });
   render();
   void (async () => {
     await cleanOrphans().catch(() => []);
     await refreshSaved();
+    const hasSaved = store.get().saved.length > 0;
     try {
-      const regions = await getRegions();
+      const regions = await getRegions(hasSaved ? BOOT_TIMEOUT_MS : undefined);
       store.set({ regions, offline: false });
       const saved = store.get().region;
       const id = saved && regions.some((r) => r.id === saved) ? saved : regions[0]?.id;
@@ -282,7 +306,11 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       else store.set({ error: "No region has cached data yet. Run `backcountry ingest` and `backcountry dem` first." });
     } catch (e) {
       const unreachable = e instanceof ApiError && e.status === 0;
-      if (unreachable && store.get().saved.length) store.set({ offline: true, view: "saved", status: "", error: null });
+      if (unreachable && hasSaved) {
+        store.set({ offline: true, view: "saved", status: "", error: null });
+        // If the server answers later (slow signal), planning comes back without leaving the saved trips.
+        getRegions().then((regions) => store.set({ regions, offline: false })).catch(() => { /* still offline */ });
+      }
       else store.set({ offline: unreachable, error: (e as Error).message });
     }
   })();

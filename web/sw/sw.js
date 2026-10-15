@@ -28,7 +28,11 @@ self.addEventListener("message", (event) => { if (event.data === "skipWaiting") 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
-  if (TILE.test(req.url)) { event.respondWith(fromTrips(req)); return; }
+  if (TILE.test(req.url)) {
+    if (req.cache === "reload") return; // the app is (re)saving tiles: fetch fresh ones, not the saved copies
+    event.respondWith(fromTrips(req));
+    return;
+  }
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
   if (req.mode === "navigate") {

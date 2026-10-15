@@ -52,8 +52,15 @@ export function megabytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1e6))} MB`;
 }
 
-export function coverageNote(box: Box, view: Box, zoom: number): string | null {
-  if (zoom < ZOOMS[0]!) return "Map not saved at this zoom: zoom in to see the saved map.";
-  const inside = view[0] >= box[0] && view[1] >= box[1] && view[2] <= box[2] && view[3] <= box[3];
+/** What a saved trip's map can't show in this view, judged from the tiles that were saved. MapLibre draws
+ * 256 px raster tiles at tile zoom round(zoom + 1), and above the highest saved zoom it stretches those. */
+export function coverageNote(box: Box, view: Box, zoom: number, basemap: Basemap): string | null {
+  if (!SAVED_BASEMAPS.includes(basemap)) return "Satellite imagery isn't saved for offline use: switch the base map to USGS Topo or Imagery + Topo.";
+  const tz = Math.round(zoom + 1);
+  if (tz < ZOOMS[0]!) return "Map not saved at this zoom: zoom in to see the saved map.";
+  const z = Math.min(tz, ZOOMS[ZOOMS.length - 1]!);
+  const [bx0, by1] = tileXY(box[0], box[1], z), [bx1, by0] = tileXY(box[2], box[3], z);
+  const [vx0, vy1] = tileXY(view[0], view[1], z), [vx1, vy0] = tileXY(view[2], view[3], z);
+  const inside = vx0 >= bx0 && vx1 <= bx1 && vy0 >= by0 && vy1 <= by1;
   return inside ? null : "Part of this view is outside the saved map area; it shows blank offline.";
 }

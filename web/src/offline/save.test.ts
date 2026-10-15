@@ -79,3 +79,15 @@ describe("saveTrip", () => {
     expect(trailsInBox(trails, [-79.5, 38.9, -79.3, 39.1]).features).toHaveLength(1);
   });
 });
+
+describe("saveTrip, re-saving", () => {
+  it("bypasses saved copies when downloading and keeps the camps the user moved", async () => {
+    const { d } = deps();
+    const inits: (RequestInit | undefined)[] = [];
+    const fetch0 = d.fetch;
+    d.fetch = async (url, init) => { if (url.includes("/tile/")) inits.push(init); return fetch0(url, init); };
+    const rec = await saveTrip(run, 1, "x", () => {}, new AbortController().signal, d, [400]);
+    expect(inits.every((i) => i?.cache === "reload")).toBe(true);
+    expect(rec.campsM).toEqual([400]);
+  });
+});
