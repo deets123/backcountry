@@ -45,6 +45,7 @@ export interface Camp {
   index: number; dist_m: number; lat: number; lon: number; on_source: string; on_name: string | null; nearby: NearbySite[];
   note: string; pinned: boolean; site: string | null;
   nearest_water: { source: string; kind: string; name: string | null; distance_m: number } | null;
+  moved?: boolean;
 }
 export interface Plan {
   nights: number; daily_min_m: number; daily_max_m: number; max_gain_ft: number | null; days: Day[]; camps: Camp[];

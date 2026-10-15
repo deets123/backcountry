@@ -3,11 +3,21 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["vite/client"],
-    "skipLibCheck": true
+    "types": [
+      "vite/client"
+    ],
+    "skipLibCheck": true,
+    "resolveJsonModule": true
   },
-  "include": ["src", "e2e"]
+  "include": [
+    "src",
+    "e2e"
+  ]
 }
