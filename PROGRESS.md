@@ -607,7 +607,22 @@ Spec: `docs/superpowers/specs/2026-10-14-phase2-offline-design.md`; plan:
 - A camp move could be lost if the app closed right after it (the screen updated before the phone stored it); it is
   now stored first (found by the end-to-end test failing 2 runs in 6).
 
+**Final review** (fresh reviewer subagent): "with fixes", 0 Critical, 7 Important — all fixed with tests: a save
+finishing after you opened another trip no longer marks that trip saved (it could write the wrong camps into the
+record); incomplete or cleared trips offer **Save again** (keeps moved camps, fetches fresh tiles); the "map not saved
+here" note is judged from the saved tiles and says when satellite (never saved) is selected; camps you didn't move
+keep the engine's record instead of all saying "moved by you"; GPS fixes and save progress update in place (Cancel and
+Back taps no longer get swallowed mid-save); with saved trips on the phone, the app waits at most 5 s for the server
+at start. Tests after: Vitest 98, Playwright 8, pytest 287 passed / 1 skipped.
+Deferred minors: tile lookups open every trip cache per request; no backoff on 429/5xx; the worker's version ignores
+index.html/manifest-only changes; the saved list loads whole records; no GeoJSON for saved trips; camp labels in the
+profile aren't escaped (engine strings); losing signal mid-session doesn't flip to offline; opening a saved trip
+replaces region trails until reload; "0 / 0" first progress line and no thousands separator in the estimate; a tiny
+accidental drag moves a camp; tsconfig reformatting.
+
 **Known limits**
+- On a tall phone screen the first view of a saved trip shows land above and below the saved area, so the app
+  notes "Part of this view is outside the saved map area" until you zoom in. That note is true.
 - iOS can still clear saved trips when the browser doesn't grant persistent storage; the card says when that's the
   case. Installing to the home screen makes a grant more likely.
 - For a moved camp, "known campsites nearby" only counts sites already listed along the route (within ~490 ft of
