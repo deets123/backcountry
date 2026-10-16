@@ -52,7 +52,9 @@ def test_gpx_survives_json_round_trip(planned):
     raw, tg, result = planned
     p = json.loads(json.dumps(candidate_payload(1, result.report["candidates"][0], "osm:node/1000", tg.retrieved_at)))
     gpx = gpxpy.parse(build_gpx(p["title"], p["description"], p["pieces"], p["waypoints"]))
-    assert len(gpx.tracks) == 2 and gpx.waypoints[0].name == "Start"
+    assert len(gpx.tracks) == 1 and gpx.waypoints[0].name == "Start"  # one track: Garmin imports only the first
+    n_points = sum(len(piece["points"]) for piece in p["pieces"]) - (len(p["pieces"]) - 1)  # day pieces share boundaries
+    assert len(gpx.tracks[0].segments[0].points) == n_points
 
 
 def test_run_payload_has_provenance_and_gaps(planned):

@@ -632,3 +632,13 @@ accidental drag moves a camp; tsconfig reformatting.
 **Not done (later pieces)**: background track recording, re-planning offline, saving whole regions, rebuilding GPX
 on the phone, the native app (piece 5).
 
+### Your phone check, round 1 (2026-10-15)
+
+- **Fixed: the whole-trip GPX showed only day 1 in Garmin Connect.** The file had one track per day, and Garmin
+  Connect imports only a file's first track (CalTopo shows all tracks, so the earlier CalTopo check didn't catch it).
+  The whole-trip GPX is now one continuous track (Bear Rocks: 1 track, 1,225 points, 19.05 mi), with camps and
+  junctions as waypoints; the per-day files are unchanged. The CLI's `route.gpx` uses the same builder, so it changed
+  too. Trips already saved on the phone keep the old file: delete and save them again.
+- **Your frontend feedback, for the UI pass after the backend pieces:** the campsites-and-water table is a long,
+  report-style list that feels odd in an app; the app overall looks primitive.
+

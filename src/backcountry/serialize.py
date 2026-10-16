@@ -57,8 +57,14 @@ def _waypoint(w: dict):
 
 
 def build_gpx(title: str, description: str, pieces: list[dict], waypoints: list[dict]) -> str:
+    """The whole trip as ONE track: Garmin Connect imports only a file's first track. Day pieces share
+    their boundary point, so each later piece drops its first point. Days live in the per-day files
+    (day_gpx) and as camp waypoints."""
     g = _gpx_doc(title, description)
-    g.tracks += [_track(p) for p in pieces]
+    points = []
+    for p in pieces:
+        points += p["points"] if not points else p["points"][1:]
+    g.tracks.append(_track({"name": title, "points": points}))
     g.waypoints += [_waypoint(w) for w in waypoints]
     return g.to_xml()
 

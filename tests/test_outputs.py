@@ -31,17 +31,20 @@ def outputs(network, tmp_path):
     return route, plan, paths, tmp_path / "r"
 
 
-def test_gpx_has_one_track_per_day_covering_the_whole_route(outputs):
+def test_gpx_is_one_continuous_track_covering_the_whole_route(outputs):
+    # Garmin Connect imports only a file's first track, so the whole-trip GPX is one track and one segment;
+    # days are in the per-day files and as camp waypoints.
     route, plan, paths, _ = outputs
     gpx = gpxpy.parse(paths["gpx"].read_text())
-    assert [t.name for t in gpx.tracks] == [f"Day {d.index}: {d.start_label} to {d.end_label}" for d in plan.days]
-    joined = []
-    for t in gpx.tracks:
-        pts = [(p.longitude, p.latitude) for s in t.segments for p in s.points]
-        joined += pts if not joined else pts[1:]  # day tracks share their boundary point
-    assert joined[0] == pytest.approx(route.line_wgs84.coords[0]) and joined[-1] == pytest.approx(route.line_wgs84.coords[-1])
+    assert len(gpx.tracks) == 1 and len(gpx.tracks[0].segments) == 1
+    assert gpx.tracks[0].name == gpx.name
+    pts = [(p.longitude, p.latitude) for p in gpx.tracks[0].segments[0].points]
+    assert all(a != b for a, b in zip(pts, pts[1:]))  # day boundaries aren't doubled
+    assert pts[0] == pytest.approx(route.line_wgs84.coords[0]) and pts[-1] == pytest.approx(route.line_wgs84.coords[-1])
     for lon, lat in route.line_wgs84.coords:  # every source vertex is still there
-        assert any(abs(lon - x) < 1e-7 and abs(lat - y) < 1e-7 for x, y in joined)
+        assert any(abs(lon - x) < 1e-7 and abs(lat - y) < 1e-7 for x, y in pts)
+    assert gpx.tracks[0].length_2d() == pytest.approx(route.length_m, rel=0.01)
+    assert {w.name for w in gpx.waypoints} >= {f"Camp {c.index}" for c in plan.camps}
 
 
 def test_gpx_points_carry_dem_elevation_in_meters(outputs):
