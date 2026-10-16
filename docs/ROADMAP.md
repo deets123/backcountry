@@ -131,7 +131,7 @@ Destination: web and phones, later the app stores, with offline use of saved tri
 
 1. **API**: the engine as a FastAPI service. 2. **Web app**: MapLibre progressive web app,
    phone-first (pieces 1–2 designed together: `docs/superpowers/specs/2026-10-13-phase2-api-and-web-app-design.md`).
-3. **Offline**: saved trips with map tiles, elevation, camps, GPS position.
+3. **Offline** (built 2026-10-15; `docs/superpowers/specs/2026-10-14-phase2-offline-design.md`): saved trips with map tiles, elevation, camps, GPS position.
 4. **LLM layer**: turns "make day 2 shorter" into constraint changes, never into geometry.
 5. **App-store packaging** (Capacitor), hosting, accounts.
 6. **Alerts and permit metadata** with provenance.

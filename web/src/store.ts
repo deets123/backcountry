@@ -1,17 +1,25 @@
 import { DEFAULT_FORM, type FormState } from "./request";
 import type { Region, Run, Trailhead } from "./types";
+import type { Fix, Where } from "./gps";
+import type { SavedTrip } from "./offline/db";
+import type { SaveProgress } from "./offline/save";
 
-export type View = "plan" | "compare" | "trip";
+export type View = "plan" | "compare" | "trip" | "saved";
 export type Basemap = "topo" | "hybrid" | "satellite";
+export type Gps = { mode: "off" } | { mode: "waiting" } | { mode: "on"; fix: Fix; where: Where | null } | { mode: "error"; message: string };
 
 export interface State {
   regions: Region[]; region: string | null; trailheads: Trailhead[]; form: FormState; run: Run | null; selected: number;
   view: View; status: string; error: string | null; busy: boolean; basemap: Basemap; sheet: "collapsed" | "half" | "full";
+  saved: SavedTrip[]; savedId: string | null; campsM: number[] | null; gps: Gps; saving: (SaveProgress & { id: string }) | null;
+  tilesMissing: boolean; junctions: boolean;
+  offline: boolean; updateReady: boolean; mapNote: string | null;
 }
 
 export const INITIAL: State = {
   regions: [], region: null, trailheads: [], form: DEFAULT_FORM, run: null, selected: 1, view: "plan", status: "",
   error: null, busy: false, basemap: "topo", sheet: "half",
+  saved: [], savedId: null, campsM: null, gps: { mode: "off" }, saving: null, tilesMissing: false, junctions: false, offline: false, updateReady: false, mapNote: null,
 };
 
 type Listener = (next: State, prev: State) => void;

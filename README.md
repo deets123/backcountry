@@ -70,6 +70,23 @@ Development: `uv run backcountry serve` in one terminal, `cd web && npm run dev`
 http://localhost:5173. Tests: `npm test` (unit), `npm run test:e2e` (one end-to-end run against the API
 on synthetic data; needs `npx playwright install chromium` once).
 
+### Offline trips (phone)
+
+Saving trips and showing your position need a secure (https) address. Plain `http://<laptop-ip>:8000`
+works for planning only. The simplest secure address is Tailscale (free):
+
+1. Install Tailscale on the laptop and the phone; sign in to the same account on both.
+2. In the Tailscale admin console, turn on HTTPS certificates (DNS → HTTPS Certificates). Once.
+3. On the laptop: `uv run backcountry serve`, then `tailscale serve --bg 8000`.
+4. On the phone, with Tailscale on, open `https://<laptop-name>.<tailnet>.ts.net` (the address
+   `tailscale serve` prints). Add it to your home screen.
+
+Then: open a trip and tap **Save for offline** (on Wi-Fi; the 19 mi Bear Rocks loop is about 1,400 map tiles, 30 MB, and took 1.5 minutes).
+With no signal, the app opens on **Saved trips**. In a saved trip, **Show my location** gives your mile,
+day, and distance and climb to the next camp; drag a camp marker along the route (or tap **Camp here**)
+to move a camp, and the days are recomputed on the phone. Saved trips can be deleted from the list.
+Map tiles: USGS The National Map (public domain).
+
 Other commands: `route --from A --to B` (shortest point-to-point), `trailheads` (candidate
 trailheads from the data), `qa` (data quality report and map), `reference` (export a trail
 for a CalTopo comparison). `uv run backcountry --help` lists them all.

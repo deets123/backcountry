@@ -1,11 +1,13 @@
 // Owns the MapLibre instance. Draws only what the API sends.
-import maplibregl, { type LngLatBoundsLike, type Map as MLMap } from "maplibre-gl";
+import maplibregl, { type GeoJSONSource, type GeoJSONSourceSpecification, type LngLatBoundsLike, type Map as MLMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { BASEMAPS, baseStyle, candidateColor, dayColor } from "./basemaps";
+import type { Fix } from "./gps";
+import type { Box } from "./offline/tiles";
 import type { Basemap } from "./store";
 import type { Candidate, RouteFeature, TrailFeatureCollection, Trailhead } from "./types";
 
-const TRAILS = "trails", STARTS = "starts", CANDS = "candidates", TRIP = "trip", FEATS = "features", JCTS = "junctions";
+const TRAILS = "trails", STARTS = "starts", CANDS = "candidates", TRIP = "trip", FEATS = "features", JCTS = "junctions", POS = "position";
 
 export interface TripMap {
   setBasemap(b: Basemap): void;
@@ -17,6 +19,9 @@ export interface TripMap {
   clearCandidates(): void;
   setTrip(c: Candidate | null, popupHtml?: (f: RouteFeature) => string): void;
   setJunctions(c: Candidate | null, show: boolean): void;
+  setPosition(fix: Fix | null): void;
+  setCampDrag(onDrop: ((index: number, lon: number, lat: number) => void) | null): void;
+  onMove(fn: (view: Box, zoom: number) => void): void;
   project(lon: number, lat: number): [number, number];
   destroy(): void;
 }
@@ -24,6 +29,15 @@ export interface TripMap {
 function removeAll(map: MLMap, prefix: string) {
   for (const l of map.getStyle().layers ?? []) if (l.id.startsWith(prefix)) map.removeLayer(l.id);
   for (const id of Object.keys(map.getStyle().sources ?? {})) if (id.startsWith(prefix)) map.removeSource(id);
+}
+
+// The accuracy circle around a GPS fix, as a polygon (48 points, local flat approximation).
+function circle(lon: number, lat: number, radiusM: number): [number, number][] {
+  const dLat = radiusM / 111195.08, dLon = dLat / Math.cos((lat * Math.PI) / 180);
+  return Array.from({ length: 49 }, (_, i) => {
+    const a = (i / 48) * 2 * Math.PI;
+    return [lon + dLon * Math.cos(a), lat + dLat * Math.sin(a)] as [number, number];
+  });
 }
 
 export function createMap(container: HTMLElement, basemap: Basemap, center: [number, number], zoom: number, basemapSelect?: HTMLElement): TripMap {
@@ -47,6 +61,12 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
   let onPickStart: ((th: Trailhead) => void) | null = null;
   let onSelectCandidate: ((i: number) => void) | null = null;
   let trip: { c: Candidate; popupHtml?: (f: RouteFeature) => string } | null = null;
+  let campDrop: ((index: number, lon: number, lat: number) => void) | null = null;
+  let moveHandler: ((view: Box, zoom: number) => void) | null = null;
+  map.on("moveend", () => {
+    const b = map.getBounds();
+    moveHandler?.([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], map.getZoom());
+  });
   let starts: Trailhead[] = [];
   const DELEGATED = [`${STARTS}-dots`, `${CANDS}-dim`, `${FEATS}-dots`];
   map.on("click", (e) => {
@@ -148,7 +168,13 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
         for (const w of c.waypoints) {
           if (w.kind === "junction" || (isLoop && w.kind === "end")) continue;
           const text = w.kind === "start" ? (isLoop ? "S/E" : "S") : w.kind === "end" ? "E" : `C${w.name.split(" ")[1]}`;
-          tripMarkers.push(new maplibregl.Marker({ element: badge(text, "#1b5e20", `${w.name}: ${w.desc}`) }).setLngLat([w.lon, w.lat]).addTo(map));
+          const draggable = w.kind === "camp" && campDrop !== null;
+          const m = new maplibregl.Marker({ element: badge(text, "#1b5e20", `${w.name}: ${w.desc}`), draggable }).setLngLat([w.lon, w.lat]).addTo(map);
+          if (draggable) {
+            const index = Number(w.name.split(" ")[1]);
+            m.on("dragend", () => { const p = m.getLngLat(); campDrop?.(index, p.lng, p.lat); });
+          }
+          tripMarkers.push(m);
         }
         if (c.features.length) {
           map.addSource(FEATS, { type: "geojson", data: { type: "FeatureCollection", features: c.features.map((f, i) => ({
@@ -172,6 +198,22 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
           paint: { "text-color": "#333", "text-halo-color": "#fff", "text-halo-width": 1 } });
       });
     },
+    setPosition(fix) {
+      ready.then(() => {
+        if (!fix) { removeAll(map, POS); return; }
+        const data: Extract<GeoJSONSourceSpecification["data"], { type: "FeatureCollection" }> = { type: "FeatureCollection", features: [
+          { type: "Feature", geometry: { type: "Polygon", coordinates: [circle(fix.lon, fix.lat, fix.accuracyM)] }, properties: {} },
+          { type: "Feature", geometry: { type: "Point", coordinates: [fix.lon, fix.lat] }, properties: {} }] };
+        const src = map.getSource(POS) as GeoJSONSource | undefined;
+        if (src) { src.setData(data); return; }
+        map.addSource(POS, { type: "geojson", data });
+        map.addLayer({ id: `${POS}-accuracy`, type: "fill", source: POS, filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": "#1565c0", "fill-opacity": 0.15 } });
+        map.addLayer({ id: `${POS}-dot`, type: "circle", source: POS, filter: ["==", ["geometry-type"], "Point"],
+          paint: { "circle-radius": 7, "circle-color": "#1565c0", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+      });
+    },
+    setCampDrag(onDrop) { campDrop = onDrop; },
+    onMove(fn) { moveHandler = fn; },
     project(lon, lat) { const p = map.project([lon, lat]); return [p.x, p.y]; },
     destroy() { clear(thMarkers); clear(tripMarkers); popups.splice(0).forEach((p) => p.remove()); map.remove(); },
   };

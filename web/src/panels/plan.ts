@@ -21,6 +21,7 @@ export function renderPlan(s: State): string {
   const types = ["any", "loop", "lollipop"].map((t) => `<option value="${t}"${f.type === t ? " selected" : ""}>${t}</option>`).join("");
   return `
 <h1>Plan a trip</h1>
+${s.saved.length ? `<button class="link" id="to-saved">Saved trips (${s.saved.length})</button>` : ""}
 ${regions}
 <label>Trailhead<select name="trailhead">
   <option value=""${f.trailhead ? "" : " selected"}>Pick one, or tap the map</option>
@@ -57,7 +58,7 @@ export function tapMessage(trailName: string | null): string {
   return `Start set to the tapped point ${on}. Type a trail name under "must visit" or "avoid" to use it.`;
 }
 
-export interface PlanActions { generate(): void; pickRegion(id: string): void; backToCompare(): void; editForm(form: FormState): void }
+export interface PlanActions { generate(): void; pickRegion(id: string): void; backToCompare(): void; editForm(form: FormState): void; showSaved(): void }
 
 export function bindPlan(root: HTMLElement, store: Store, actions: PlanActions): void {
   const lines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
@@ -72,6 +73,7 @@ export function bindPlan(root: HTMLElement, store: Store, actions: PlanActions):
       actions.editForm(f as unknown as FormState);  // the app records it without re-rendering, so focus and the next tap survive
     });
   });
+  root.querySelector("#to-saved")?.addEventListener("click", () => actions.showSaved());
   root.querySelector("#generate")?.addEventListener("click", () => actions.generate());
   root.querySelector("#back-to-compare")?.addEventListener("click", () => actions.backToCompare());
 }

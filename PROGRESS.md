@@ -564,3 +564,81 @@ Spec: `docs/superpowers/specs/2026-10-13-phase2-api-and-web-app-design.md`; plan
 - "Save for offline" is a disabled button (piece 3). No accounts, no hosting (piece 5).
 - Piece 1's deferred minors still stand (see above).
 
+## Phase 2 piece 3 — Offline trips (built 2026-10-15; awaiting your phone check)
+
+Spec: `docs/superpowers/specs/2026-10-14-phase2-offline-design.md`; plan:
+`docs/superpowers/plans/2026-10-14-phase2-offline.md`. Built on branch `phase2-offline`. The server and CLI are unchanged.
+
+**Done**
+- Service worker (`web/sw/sw.js`, built into `dist/sw.js` with the app's file list): the app opens with no signal;
+  USGS tiles come from saved-trip caches first; `/api` is never cached. A new version shows "A new version of the
+  app is ready. Reload" and never reloads on its own.
+- **Save for offline** on a trip: shows the estimate first ("about 1376 map tiles, 28 MB" for the 19 mi Bear Rocks
+  loop), then downloads the trip box plus 0.5 mi at zoom 12–16 for USGS Topo and Imagery+Topo (4 at a time, one
+  retry), the GPX files exactly as the server built them, and trail lines near the route. Progress and Cancel while
+  saving. A save that loses tiles or hits the storage limit is kept and marked **incomplete** with the reason
+  ("Storage full: saved 410 of 760 tiles…", "Map tiles not saved: z16: 38 missing."). The app asks the browser to
+  keep the data and says on the card when it didn't agree.
+- **Saved trips** view (from the plan panel, or automatically when the server can't be reached): size, date,
+  complete/incomplete, open, delete (record and tiles). Interrupted saves are cleaned up at the next start; a trip
+  whose map the browser cleared says so when opened.
+- **Show my location**: blue dot with an accuracy circle and a line like "mile 7.2 of 19.0 · Day 2 · 2.1 mi and
+  +540 ft to Camp 2 · 110 ft off route · ±15 ft", a "you" marker on the elevation profile; "Off route: 0.4 mi from
+  the nearest point on the route" past ~0.25 mi; "(the route passes here twice)" on a loop's start/end or a stem,
+  using your last position to choose; "position rough" past 300 ft accuracy. Needs https (see README: Tailscale).
+- **Moving camps** on a saved trip: drag a camp marker along the route, or **Camp here** at your GPS position. Days,
+  gain/loss, violations ("Constraint not met: …"), the day colors and the profile are recomputed on the phone with
+  the engine's rules; a camp dropped off the route or past its neighbour is refused with the reason. Moves are stored
+  with the trip (Reset camps restores the engine's plan). Saved GPX files keep the original camps, and say so.
+- Engine parity: `tests/resplit_fixture.py` writes `web/src/fixtures/resplit-parity.json` from the real
+  `split_route`; Vitest checks the phone reproduces it, and `tests/test_resplit_fixture.py` fails if the file goes
+  stale (regenerate with `uv run python tests/resplit_fixture.py`).
+- Real-data check (headless phone-sized browser, production build, real USGS tiles): Bear Rocks 19 mi loop saved
+  complete in 84 s, 30 MB; reopened in airplane mode with the topo map, route, days and camps. The spec's ~15–20 MB
+  guess was measured on a tighter box; the agreed 0.5 mi margin roughly doubles it.
+- Tests: Vitest 89 (20 files), Playwright 7 (new: save → offline reload → saved tiles served from the cache → GPS
+  line → Camp here → move survives a reload → delete), pytest 287 passed / 1 skipped.
+
+**Found while building and fixed**
+- The service worker filled its placeholders in a comment instead of the code (my plan's template); caught by a new
+  test against the real template.
+- The app couldn't start offline: servers send `Vary: Origin`, so cached scripts never matched; lookups now ignore
+  Vary (found by the offline end-to-end test).
+- A camp move could be lost if the app closed right after it (the screen updated before the phone stored it); it is
+  now stored first (found by the end-to-end test failing 2 runs in 6).
+
+**Final review** (fresh reviewer subagent): "with fixes", 0 Critical, 7 Important — all fixed with tests: a save
+finishing after you opened another trip no longer marks that trip saved (it could write the wrong camps into the
+record); incomplete or cleared trips offer **Save again** (keeps moved camps, fetches fresh tiles); the "map not saved
+here" note is judged from the saved tiles and says when satellite (never saved) is selected; camps you didn't move
+keep the engine's record instead of all saying "moved by you"; GPS fixes and save progress update in place (Cancel and
+Back taps no longer get swallowed mid-save); with saved trips on the phone, the app waits at most 5 s for the server
+at start. Tests after: Vitest 98, Playwright 8, pytest 287 passed / 1 skipped.
+Deferred minors: tile lookups open every trip cache per request; no backoff on 429/5xx; the worker's version ignores
+index.html/manifest-only changes; the saved list loads whole records; no GeoJSON for saved trips; camp labels in the
+profile aren't escaped (engine strings); losing signal mid-session doesn't flip to offline; opening a saved trip
+replaces region trails until reload; "0 / 0" first progress line and no thousands separator in the estimate; a tiny
+accidental drag moves a camp; tsconfig reformatting.
+
+**Known limits**
+- On a tall phone screen the first view of a saved trip shows land above and below the saved area, so the app
+  notes "Part of this view is outside the saved map area" until you zoom in. That note is true.
+- iOS can still clear saved trips when the browser doesn't grant persistent storage; the card says when that's the
+  case. Installing to the home screen makes a grant more likely.
+- For a moved camp, "known campsites nearby" only counts sites already listed along the route (within ~490 ft of
+  it); the phone doesn't store the region's full campsite list. The trip view says "listed along the route".
+- Position updates only while the app is open and the screen is on (browser limit).
+
+**Not done (later pieces)**: background track recording, re-planning offline, saving whole regions, rebuilding GPX
+on the phone, the native app (piece 5).
+
+### Your phone check, round 1 (2026-10-15)
+
+- **Fixed: the whole-trip GPX showed only day 1 in Garmin Connect.** The file had one track per day, and Garmin
+  Connect imports only a file's first track (CalTopo shows all tracks, so the earlier CalTopo check didn't catch it).
+  The whole-trip GPX is now one continuous track (Bear Rocks: 1 track, 1,225 points, 19.05 mi), with camps and
+  junctions as waypoints; the per-day files are unchanged. The CLI's `route.gpx` uses the same builder, so it changed
+  too. Trips already saved on the phone keep the old file: delete and save them again.
+- **Your frontend feedback, for the UI pass after the backend pieces:** the campsites-and-water table is a long,
+  report-style list that feels odd in an app; the app overall looks primitive.
+

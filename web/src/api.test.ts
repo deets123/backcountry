@@ -42,3 +42,12 @@ describe("api client", () => {
     expect(gpxUrl("r1", 2, 3)).toBe("/api/runs/r1/candidates/2.gpx?day=3");
   });
 });
+
+describe("getRegions with a time limit", () => {
+  it("gives up as unreachable when the server doesn't answer in time", async () => {
+    vi.stubGlobal("fetch", vi.fn((_u: string, init?: RequestInit) => new Promise((_r, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    })));
+    await expect(getRegions(20)).rejects.toMatchObject({ name: "Error", status: 0, message: expect.stringContaining("didn't answer within") });
+  });
+});

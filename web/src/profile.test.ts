@@ -20,4 +20,9 @@ describe("profile", () => {
     expect(profileSvg(null, null)).toContain("unknown");
     expect(profileSvg({ d_m: [0, 10], z_m: [1, null] }, null)).toContain("unknown");
   });
+  it("marks the user's position when given", () => {
+    const svg = profileSvg({ d_m: [0, 1000, 2000], z_m: [1000, 1100, 1000] }, null, 600, 140, 500);
+    expect(svg).toContain('class="you"'); expect(svg).toContain(">you<");
+    expect(profileSvg({ d_m: [0, 1000], z_m: [1, 2] }, null)).not.toContain('class="you"');
+  });
 });
