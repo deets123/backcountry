@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Runs scripts/heavy-tests before every push. Turn on once per clone with: git config core.hooksPath .githooks
+# Skip once with: git push --no-verify
+exec scripts/heavy-tests
