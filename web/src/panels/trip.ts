@@ -9,6 +9,7 @@ import { profileSvg } from "../profile";
 import { currentCandidate } from "../selectors";
 import type { State, Store } from "../store";
 import type { Candidate, Run } from "../types";
+import { renderChat } from "./chat";
 import { esc, knownGapsHtml, notesHtml } from "./common";
 import { segmentNames } from "./compare";
 
@@ -121,6 +122,7 @@ ${saveHtml(s, c, saved)}
 <div class="row"><button class="primary" id="replan"${s.offline ? " disabled" : ""}>Re-plan with these settings</button></div>
 ${s.offline ? "" : `<button class="link" id="back-compare">Back to all candidates</button>`}
 ${s.saved.length ? `<button class="link" id="back-saved">Saved trips</button>` : ""}
+${renderChat(s)}
 <p class="note">Data: ${sources}.</p>
 ${knownGapsHtml(run.known_gaps)}`;
 }

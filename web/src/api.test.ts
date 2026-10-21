@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, generate, getRegions, gpxUrl } from "./api";
+import { ApiError, chat, generate, getRegions, gpxUrl } from "./api";
 
 function respond(status: number, body: unknown, json = true) {
   return vi.fn(async () => new Response(json ? JSON.stringify(body) : String(body), {
@@ -49,5 +49,16 @@ describe("getRegions with a time limit", () => {
       init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
     })));
     await expect(getRegions(20)).rejects.toMatchObject({ name: "Error", status: 0, message: expect.stringContaining("didn't answer within") });
+  });
+});
+
+describe("chat", () => {
+  it("posts the message with its run, candidate and history", async () => {
+    const f = respond(200, { reply: "ok", kind: "explain", proposal: null, note: null, withheld: null, model: "fake" });
+    vi.stubGlobal("fetch", f);
+    const a = await chat({ run_id: "r1", candidate: 2, message: "hi", history: [{ role: "user", text: "a" }] });
+    expect(a.reply).toBe("ok");
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/chat"); expect(JSON.parse(init.body as string)).toEqual({ run_id: "r1", candidate: 2, message: "hi", history: [{ role: "user", text: "a" }] });
   });
 });
