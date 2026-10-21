@@ -667,31 +667,43 @@ Spec: `docs/superpowers/specs/2026-10-20-phase2-chat-design.md`; plan:
   against a Bear Rocks 2-night run planned from the cached data; results in `evals/results/` (git-ignored).
 - Settings: `.env.example` (committed, no values); `.env` is git-ignored.
 
-**Local model comparison** (2026-10-21, M1 Pro 16 GB, Ollama 0.23.2, final instructions):
+**Local model comparison** (2026-10-21, M1 Pro 16 GB, final instructions and honesty check):
 
 | model | passed | errors | withheld | mean s |
 |---|---|---|---|---|
-| **qwen3:14b** (default) | **29/32** | 0 | 1 | 5.1 |
-| qwen3.5:9b | 22/32 | 2 | 4 | 4.3 |
-| qwen2.5:7b-instruct | 20/32 | 0 | 2 | 4.4 |
-| llama3.2 | 17/32 | 0 | 2 | 2.2 |
-| llama3 | 14/32 | 0 | 0 | 2.6 |
+| **qwen3:14b** (default) | **28/32** | 0 | 0 | 5.4 |
+| gemma4:12b | 25/32 | 0 | 1 | 4.0 |
+| qwen3.5:9b | 22/32 | 2 | 2 | 4.0 |
+| qwen2.5:7b-instruct | 18/32 | 0 | 1 | 3.4 |
+| llama3.2 | 16/32 | 0 | 2 | 2.0 |
+| llama3 | 14/32 | 0 | 0 | 2.8 |
 | gpt-oss:20b | 5/32 | 27 timeouts | 0 | 57.8 |
-| gemma4:12b | 0/32 | 32 | 0 | — |
 
-- gemma4:12b doesn't load in this Ollama ("unsupported architecture"); not a judgment of the model. gpt-oss:20b is
-  too big for 16 GB alongside everything else and times out at 60 s.
-- Chosen default: **qwen3:14b**, most cases passed by a wide margin, ~5 s per answer once loaded (the first message
-  after a while loads the model, ~10–15 s).
-- The first qwen3:14b run scored 23/32. Its failures were mostly the instructions (it asked "would you like me to…?"
-  instead of proposing; it couldn't build camp lists; it used camps for a per-day mileage limit) and two cases that
-  didn't fit the eval route (Red Creek Trail is already on it; all three days tie at 6.34 mi). Both fixed.
-- The eval also found a false withhold: "whether water is present … is not confirmed" was held back as a water
-  claim. "Not confirmed" and "whether" now count as saying it's unknown.
-- Remaining qwen3:14b misses: "shorten day 3" moved the wrong camp (the card shows the change before you run it);
-  "I want to hike the Breathed Mountain Trail" got "not listed" although it is in the names it was given.
+- qwen3:14b and gemma4:12b were scored on Ollama 0.40.7; the others on 0.23.2 (upgraded during this piece).
+  gemma4:12b didn't load at all on 0.23.2. gpt-oss:20b is too big for 16 GB alongside everything else.
+- Chosen default: **qwen3:14b**, most cases passed and nothing withheld, ~5 s per answer once loaded (the first
+  message after a while loads the model, ~10–15 s). gemma4:12b is a close, slightly faster second.
+- How the numbers moved: the first qwen3:14b run scored 23/32, mostly from the instructions (it asked "would you like
+  me to…?" instead of proposing; it built camp lists wrong) and two cases that didn't fit the eval route; fixed, it
+  scored 29. The final review found that the instructions' camp example used the eval route's own miles (the
+  expected answers), so the example was rewritten with made-up miles; the honest score is 28.
+- Remaining qwen3:14b misses: shortening day 2 or day 3 sometimes gives no proposal; "I want to hike the Breathed
+  Mountain Trail" (and its misspelling) gets "not listed" although the name is in its facts.
 
-**Tests**: pytest 324 passed / 1 skipped, Vitest 105, Playwright 9 (new: a chat proposal shows what changes and runs
+**Final review** (fresh reviewer subagent): "with fixes". Fixed with tests: the honesty check let unit conversions
+("19 km") and positive permit/water/"allowed" claims through, and one "unknown" in a sentence excused the whole
+sentence (now per clause); the camp example leaked the eval's answers; chat proposals from an earlier result stayed
+runnable after a new run (now marked "From an earlier result; not runnable here", and history is the current
+result's only); pins at the current camps showed as a change; a change with no fields said nothing; point
+must-visits showed raw ids on the card; the trip view now says chat uses the engine's camps when you moved one. The
+eval then found two false withholds from the stricter check ("roads are allowed", "determine if a permit is
+required"), also fixed.
+Deferred minors: "Which Trail…" at a sentence start is withheld as an unknown name; Run posts to the selected region,
+not the run's (same as Re-plan); no client-side timeout on the chat request; history texts aren't length-capped on
+the server; `.env` doesn't accept `export KEY=` or inline comments; the 300-name cap is alphabetical; "11.0" vs "11"
+camps show a spurious change line.
+
+**Tests**: pytest 332 passed / 1 skipped, Vitest 107, Playwright 9 (new: a chat proposal shows what changes and runs
 only when tapped, with a fake model, so no Ollama is needed).
 
 **Not done (later)**: Claude models (one new dependency, `anthropic`, and your key, behind the same `ChatModel`
