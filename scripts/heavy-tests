@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# The tests GitHub can't run: the whole pytest suite against the cached OSM/elevation data (real-data tests skip
+# on GitHub), and, when the chat changed or --eval is given, the chat model eval against Ollama.
+# Usage: scripts/heavy-tests [--eval] [--base <git ref>]   (the pre-push hook calls it)
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+eval_mode=auto
+base=origin/main
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --eval) eval_mode=yes ;;
+    --no-eval) eval_mode=no ;;
+    --base) base="$2"; shift ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+raw="${BACKCOUNTRY_RAW_DIR:-data/raw}"
+if [ ! -d "$raw/dolly_sods" ]; then  # a git worktree: use the main checkout's cache
+  main="$(git worktree list --porcelain | awk 'NR==1 {print $2}')"
+  [ -d "$main/data/raw/dolly_sods" ] && raw="$main/data/raw"
+fi
+export BACKCOUNTRY_RAW_DIR="$(cd "$raw" 2>/dev/null && pwd || echo "$raw")"
+if [ ! -d "$BACKCOUNTRY_RAW_DIR/dolly_sods" ]; then
+  echo "heavy-tests: no cached data in $BACKCOUNTRY_RAW_DIR/dolly_sods; run \`uv run backcountry ingest --region dolly_sods\` first." >&2
+  exit 1
+fi
+
+echo "== pytest with the real cached data"
+uv run pytest -q
+
+if [ "$eval_mode" = auto ]; then
+  if git diff --quiet "$base"...HEAD -- src/backcountry/chat evals 2>/dev/null; then eval_mode=no; else eval_mode=yes; fi
+fi
+if [ "$eval_mode" = yes ]; then
+  if ! curl -s -m 3 http://127.0.0.1:11434/api/version >/dev/null; then
+    echo "heavy-tests: the chat changed but Ollama isn't running; start it, or push with --no-verify to skip." >&2
+    exit 1
+  fi
+  echo "== chat-eval (the chat changed since $base)"
+  uv run backcountry chat-eval --model "${BACKCOUNTRY_EVAL_MODEL:-ollama:qwen3:14b}"
+  echo "(chat-eval is a score, not pass/fail: compare it with the table in PROGRESS.md)"
+fi
