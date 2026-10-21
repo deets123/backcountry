@@ -383,3 +383,36 @@ def serve(
     """Run the API (and the web app once it's built) for the browser."""
     typer.echo(f"Serving on http://{host}:{port} (API at /api). Ctrl-C to stop.")
     _run_server(host, port)
+
+
+@app.command(name="chat-eval")
+def chat_eval(
+    model: list[str] = typer.Option(..., "--model", help="ollama:<model>; repeat to compare several"),
+    run: str = typer.Option(None, "--run", help="A saved run id under data/runs (default: plan the Bear Rocks eval run)"),
+    cases: Path = typer.Option(REPO_ROOT / "evals" / "chat_cases.yaml", help="Test cases"),
+):
+    """Score chat models on the test set (local models are free; nothing is sent anywhere else)."""
+    from backcountry.api.store import RegionStore, RunStore, Settings
+    from backcountry.chat.eval import default_run, load_cases, run_eval, save_result, summary_table
+    from backcountry.chat.models import model_from_spec, read_env
+    from backcountry.chat.service import start_names, trail_names
+
+    test_cases = load_cases(cases)
+    if run:
+        settings = Settings.default()
+        the_run = RunStore(settings.runs_dir).load(run)
+        loaded = RegionStore(settings).get(the_run["region"])
+        trails, starts = trail_names(loaded.tg), start_names(loaded.region)
+    else:
+        the_run, trails, starts = default_run()
+    env, results = read_env(), []
+    for spec in model:
+        m = model_from_spec(spec, env)
+        typer.echo(f"{m.name}: {len(test_cases)} cases…")
+        out = run_eval(m, the_run, test_cases, trails, starts)
+        for row in out["cases"]:
+            if not row["ok"]:
+                typer.echo(f"  ✗ {row['id']}: {'; '.join(row['problems'])}")
+        typer.echo(f"  saved {save_result(out, REPO_ROOT / 'evals' / 'results')}")
+        results.append(out)
+    typer.echo(summary_table(results))
