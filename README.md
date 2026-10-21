@@ -100,7 +100,9 @@ nothing region-specific lives in the code. To add one, copy a yaml, adjust it, a
 
 ## Development
 
-`uv run pytest` runs the tests. See `CLAUDE.md` for the project rules, `docs/ROADMAP.md` for
+`uv run pytest` runs the tests; `npm test` and `npm run test:e2e` in `web/` run the web app's unit and browser
+tests. GitHub Actions (`.github/workflows/tests.yml`) runs all three on every pull request and push to `main`;
+tests that need the cached OSM/elevation data skip there, so run `uv run pytest` locally too before merging. See `CLAUDE.md` for the project rules, `docs/ROADMAP.md` for
 the plan, and `PROGRESS.md` for what's done, what's known to be wrong, and the decisions made.
 
 Trail data © OpenStreetMap contributors, ODbL. Elevation: USGS 3D Elevation Program.
