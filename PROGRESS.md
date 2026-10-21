@@ -691,7 +691,7 @@ Spec: `docs/superpowers/specs/2026-10-20-phase2-chat-design.md`; plan:
 - Remaining qwen3:14b misses: "shorten day 3" moved the wrong camp (the card shows the change before you run it);
   "I want to hike the Breathed Mountain Trail" got "not listed" although it is in the names it was given.
 
-**Tests**: pytest 325 passed / 1 skipped, Vitest 105, Playwright 9 (new: a chat proposal shows what changes and runs
+**Tests**: pytest 324 passed / 1 skipped, Vitest 105, Playwright 9 (new: a chat proposal shows what changes and runs
 only when tapped, with a fake model, so no Ollama is needed).
 
 **Not done (later)**: Claude models (one new dependency, `anthropic`, and your key, behind the same `ChatModel`
