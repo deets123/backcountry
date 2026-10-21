@@ -709,3 +709,17 @@ only when tapped, with a fake model, so no Ollama is needed).
 **Not done (later)**: Claude models (one new dependency, `anthropic`, and your key, behind the same `ChatModel`
 interface; the fact sheet and messages would then go to Anthropic); planning from scratch by talking; moving camps
 from chat; chat offline; history across sessions.
+
+### Your phone check, round 1 (2026-10-21)
+
+- **Fixed: "make the loop 2 days shorter" was refused** with "total must look like 18-26 … got [22.97, 22.97]", and
+  "ignore miles per day" with "… got [0, 0]". The chat couldn't express a one-day hike (no nights, no per-day
+  range), so the model squeezed it into ranges the engine rejects. Now nights and miles per day can be cleared
+  (0 nights also means a day hike, and clears the camps); the instructions explain that a trip lasts nights + 1 days, that total
+  should fit the new number of days, that "ignore miles per day" widens the range (there's no "no limit" while a
+  trip has nights), and to keep the other end of a range when changing one. A backwards or zero range now says
+  "Total miles need a low below the high, both above 0 (e.g. 20-26); got 22.97-22.97." Three new eval cases
+  (day hike, 2 days shorter, ignore miles per day): qwen3:14b 28/35 (it still reads "one-night trip" as a day hike
+  sometimes; the card shows "Nights: 2 → none" before you run it).
+- **Your next idea, not built yet: a different difficulty per day** ("day 1 short for a late start, days 2–3 hard,
+  day 4 light"). Today only camp pins can shape single days. Needs its own small design (see the chat).

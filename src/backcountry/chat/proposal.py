@@ -11,7 +11,8 @@ from backcountry.planning import GenerateRequest, RequestError
 
 SYSTEM_PROMPT = """You help plan a backpacking trip in a trip-planning app. You can do two things:
 1. Change the trip's settings when the user asks (kind "change"). Put only the settings that should change in
-   "changes", using these fields: nights; total [low, high] miles; daily [low, high] miles per day; max_gain_day
+   "changes", using these fields: nights (or null for a one-day hike); total [low, high] miles; daily [low,
+   high] miles per day (null only for a one-day hike); max_gain_day
    (feet per day, or null for no cap); type (loop, lollipop or any); no_roads (true or false); direction (cw, ccw
    or null); must_visit_add, must_visit_remove, avoid_add, avoid_remove (trail names exactly as listed in the
    FACTS); camps (the mile along the route where each night's camp should be, one per night, in order, or [] to
@@ -19,6 +20,12 @@ SYSTEM_PROMPT = """You help plan a backpacking trip in a trip-planning app. You 
    The app shows the change to the user, who decides whether to run it. You never run anything, and you never
    draw or describe new routes. When the user asks for a change, propose it now with kind "change"; don't ask
    whether to do it, because tapping Run is the user's yes.
+   Every range needs a low below the high, both above 0, e.g. total [20, 26]; never [x, x] or [0, 0].
+   A trip lasts nights + 1 days. When the number of days changes, also change total so it fits: about
+   (nights + 1) x daily low to (nights + 1) x daily high miles. "2 days shorter" means 2 fewer nights. A day
+   hike (one day, no camping) is nights null and daily null; a one-night trip is nights 1 (two days).
+   To change only one end of a range ("at most 9 miles a day"), keep the other end as it is now. To loosen the per-day limit ("ignore miles per day"), widen daily, e.g. from
+   1 up to the total's high; there is no "no limit" while the trip has nights.
    To make one day shorter or longer, move the camps. "camps" lists every camp, one mile per night, in order;
    the current camps are the "Camp N: mile X" lines in the FACTS. Keep the camps you don't need to move. Day N
    ends at camp N: to shorten day N, move camp N to an earlier mile (for the last day, move the last camp to a
@@ -39,9 +46,9 @@ Answer with JSON only: {"reply": "...", "kind": "change" | "explain" | "unclear"
 _RANGE = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
 _NAMES = {"type": "array", "items": {"type": "string"}}
 CHANGE_FIELDS = {
-    "nights": {"type": "integer"},
+    "nights": {"type": ["integer", "null"]},
     "total": _RANGE,
-    "daily": _RANGE,
+    "daily": {**_RANGE, "type": ["array", "null"]},
     "max_gain_day": {"type": ["number", "null"]},
     "type": {"type": "string", "enum": ["loop", "lollipop", "any"]},
     "no_roads": {"type": "boolean"},
@@ -96,6 +103,15 @@ def apply_changes(request: dict, changes: dict, trails: list[str], starts: list[
     for key in ("nights", "total", "daily", "max_gain_day", "type", "no_roads", "direction", "camps_at_sites"):
         if key in changes:
             new[key] = changes[key]
+    if new.get("nights") == 0:
+        new["nights"] = None  # "0 nights" is a one-day hike
+    if new.get("nights") is None:
+        new["daily"], new["camps"] = None, []  # a one-day hike has no per-day range and no camps
+    for key, label, example in (("total", "Total miles need a low below the high, both above 0", "20-26"),
+                                ("daily", "Miles per day need a low below the high, both above 0", "6-11")):
+        r = new.get(key)
+        if isinstance(r, list) and len(r) == 2 and all(isinstance(x, (int, float)) for x in r) and not 0 < r[0] < r[1]:
+            raise ProposalError(f"That change doesn't work: {label} (e.g. {example}); got {r[0]:g}-{r[1]:g}.")
     if new.get("max_gain_day") is not None and new["max_gain_day"] <= 0:
         raise ProposalError("That change doesn't work: the gain cap must be more than 0 ft (or none).")
     for field in ("must_visit", "avoid"):

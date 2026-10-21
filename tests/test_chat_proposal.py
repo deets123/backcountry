@@ -46,8 +46,8 @@ def test_unknown_names_are_refused_with_a_suggestion():
 
 def test_impossible_values_are_refused_with_the_engines_reason():
     with pytest.raises(ProposalError, match="nights must be a whole number of at least 1"):
-        apply_changes(REQ, {"nights": 0}, TRAILS, STARTS)
-    with pytest.raises(ProposalError, match="daily must look like 18-26"):
+        apply_changes(REQ, {"nights": -1}, TRAILS, STARTS)  # 0 nights is a day hike, not an error
+    with pytest.raises(ProposalError, match=r"Miles per day need a low below the high, both above 0 \(e.g. 6-11\); got 11-6"):
         apply_changes(REQ, {"daily": [11, 6]}, TRAILS, STARTS)
     with pytest.raises(ProposalError, match="gain cap must be more than 0"):
         apply_changes(REQ, {"max_gain_day": -100}, TRAILS, STARTS)
@@ -84,3 +84,22 @@ def test_pins_at_the_current_camps_change_nothing():
 def test_point_must_visits_never_show_raw_ids_in_the_card():
     _, lines = apply_changes({**REQ, "must_visit": ["155984740"]}, {"must_visit_add": ["Red Creek Trail"]}, TRAILS, STARTS)
     assert lines == ["Must visit: a point from the trail data → a point from the trail data, Red Creek Trail"]
+
+
+def test_a_one_day_trip_clears_nights_daily_and_camps():
+    assert shape_problem({"reply": "", "kind": "change", "changes": {"nights": None, "daily": None}}, RESPONSE_SCHEMA) is None
+    new, lines = apply_changes({**REQ, "camps": ["6.3", "12.6"]}, {"nights": None}, TRAILS, STARTS)
+    assert (new["nights"], new["daily"], new["camps"]) == (None, None, [])
+    assert "Nights: 2 → none" in lines and "Miles per day: 6-11 mi → not set" in lines
+
+
+def test_a_range_without_a_low_below_the_high_says_so_plainly():
+    with pytest.raises(ProposalError, match=r"Total miles need a low below the high, both above 0 \(e.g. 20-26\); got 22.97-22.97"):
+        apply_changes(REQ, {"total": [22.97, 22.97]}, TRAILS, STARTS)
+    with pytest.raises(ProposalError, match=r"Miles per day need a low below the high, both above 0 \(e.g. 6-11\); got 0-0"):
+        apply_changes(REQ, {"daily": [0, 0]}, TRAILS, STARTS)
+
+
+def test_zero_nights_means_a_one_day_hike():
+    new, lines = apply_changes(REQ, {"nights": 0, "total": [8, 12]}, TRAILS, STARTS)
+    assert (new["nights"], new["daily"]) == (None, None) and "Nights: 2 → none" in lines

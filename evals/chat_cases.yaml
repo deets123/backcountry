@@ -19,6 +19,15 @@
 - id: one-night
   message: make it a one-night trip
   expect: {kind: change, request: {nights: 1}}
+- id: day-hike
+  message: make it a day hike
+  expect: {kind: change, request: {nights: null, daily: null}}
+- id: two-days-shorter
+  message: make the trip 2 days shorter
+  expect: {kind: change, request: {nights: null, daily: null}}
+- id: ignore-daily
+  message: ignore the miles per day setting
+  expect: {kind: change}
 - id: no-roads
   message: avoid roads completely
   expect: {kind: change, request: {no_roads: true}}
