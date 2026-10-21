@@ -1,0 +1,111 @@
+# Chat test set for `backcountry chat-eval`. Every case runs against the same Bear Rocks run:
+# 2 nights, 18-26 mi, 6-11 mi/day, 2,500 ft/day cap, any shape (planned from cached Dolly Sods data).
+# Expectations (all optional): kind; request {field: value}; request_contains {field: item}; lower: field;
+# day_shorter/day_longer: day; no_proposal; grounded; reply_includes_any [words]; proposal_or_note_includes: text;
+# mentions_hardest_day / mentions_longest_day; mentions_number: candidate field (road_m, gain_ft, length_m).
+
+- id: shorter-day-2
+  message: make day 2 shorter
+  expect: {kind: change, day_shorter: 2}
+- id: longer-day-1
+  message: I'd rather do more miles on day 1
+  expect: {kind: change, day_longer: 1}
+- id: shorter-day-3
+  message: day 3 is too long, shorten it
+  expect: {kind: change, day_shorter: 3}
+- id: three-nights
+  message: I'd like 3 nights instead
+  expect: {kind: change, request: {nights: 3}}
+- id: one-night
+  message: make it a one-night trip
+  expect: {kind: change, request: {nights: 1}}
+- id: day-hike
+  message: make it a day hike
+  expect: {kind: change, request: {nights: null, daily: null}}
+- id: two-days-shorter
+  message: make the trip 2 days shorter
+  expect: {kind: change, request: {nights: null, daily: null}}
+- id: ignore-daily
+  message: ignore the miles per day setting
+  expect: {kind: change}
+- id: no-roads
+  message: avoid roads completely
+  expect: {kind: change, request: {no_roads: true}}
+- id: skip-road
+  message: skip Dolly Sods Road
+  expect: {kind: change, request_contains: {avoid: Dolly Sods Road}}
+- id: must-breathed-mountain
+  message: I want to hike the Breathed Mountain Trail
+  expect: {kind: change, request_contains: {must_visit: Breathed Mountain Trail}}
+- id: misspelled-trail
+  message: include the Breathed Mountin Trail
+  expect: {kind: change, proposal_or_note_includes: Breathed Mountain Trail}
+- id: less-climbing
+  message: less climbing per day please
+  expect: {kind: change, lower: max_gain_day}
+- id: gain-cap-2000
+  message: keep daily gain under 2,000 feet
+  expect: {kind: change, request: {max_gain_day: 2000.0}}
+- id: max-9-miles
+  message: shorter days, at most 9 miles a day
+  expect: {kind: change, request: {daily: [6.0, 9.0]}}
+- id: longer-loop
+  message: make the whole loop 22 to 30 miles
+  expect: {kind: change, request: {total: [22.0, 30.0]}}
+- id: clockwise
+  message: go clockwise
+  expect: {kind: change, request: {direction: cw}}
+- id: loops-only
+  message: only true loops, no lollipops
+  expect: {kind: change, request: {type: loop}}
+- id: sites-only
+  message: only camp at known campsites
+  expect: {kind: change, request: {camps_at_sites: true}}
+- id: pin-camps
+  message: camp at mile 7 and mile 14
+  expect: {kind: change, request: {camps: ["7", "14"]}}
+- id: other-trailhead
+  message: start from the Red Creek Trailhead instead
+  expect: {kind: change, request: {trailhead: red_creek}}
+- id: unclear-easier
+  message: make it easier
+  expect: {kind: unclear, no_proposal: true}
+- id: unclear-better
+  message: can you make it better
+  expect: {no_proposal: true}
+- id: keep-same
+  message: keep everything the same
+  expect: {no_proposal: true}
+- id: hardest-day
+  message: which day is hardest?
+  expect: {kind: explain, grounded: true, mentions_hardest_day: true, no_proposal: true}
+- id: longest-day
+  message: which day is the longest?
+  expect: {kind: explain, grounded: true, mentions_longest_day: true, no_proposal: true}
+- id: road-miles
+  message: how many miles are on roads?
+  expect: {kind: explain, grounded: true, mentions_number: road_m, no_proposal: true}
+- id: total-gain
+  message: how much total climbing is there?
+  expect: {kind: explain, grounded: true, mentions_number: gain_ft, no_proposal: true}
+- id: total-miles
+  message: how long is the whole trip?
+  expect: {kind: explain, grounded: true, mentions_number: length_m, no_proposal: true}
+- id: water-camp-2
+  message: how far is camp 2 from water?
+  expect: {kind: explain, grounded: true, reply_includes_any: [unknown, not checked, "can't confirm"], no_proposal: true}
+- id: water-reliable
+  message: is the water reliable on this route?
+  expect: {kind: explain, grounded: true, reply_includes_any: [unknown, not checked, "can't"], no_proposal: true}
+- id: is-it-safe
+  message: is this route safe?
+  expect: {kind: explain, grounded: true, reply_includes_any: [not checked, unknown, "can't", cannot], no_proposal: true}
+- id: permits
+  message: do I need a permit?
+  expect: {kind: explain, grounded: true, reply_includes_any: [not checked, unknown], no_proposal: true}
+- id: weather
+  message: what's the weather going to be like?
+  expect: {kind: explain, grounded: true, reply_includes_any: [not checked, unknown, "can't", "don't"], no_proposal: true}
+- id: why-this-one
+  message: why is this the top candidate?
+  expect: {kind: explain, grounded: true, no_proposal: true}

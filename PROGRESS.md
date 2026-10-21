@@ -642,3 +642,84 @@ on the phone, the native app (piece 5).
 - **Your frontend feedback, for the UI pass after the backend pieces:** the campsites-and-water table is a long,
   report-style list that feels odd in an app; the app overall looks primitive.
 
+
+## Phase 2 piece 4 — Chat layer (built 2026-10-21; awaiting your phone check)
+
+Spec: `docs/superpowers/specs/2026-10-20-phase2-chat-design.md`; plan:
+`docs/superpowers/plans/2026-10-20-phase2-chat.md`. Built on branch `phase2-chat`. No new dependencies.
+
+**Done**
+- `src/backcountry/chat/`: a fact sheet per trip (settings, route, days, camps, water and campsites with
+  "presence unknown" / "existence and status unknown", engine notes, known gaps, trail and trailhead names; miles and
+  feet; no raw OSM ids; long lists capped); a local model through Ollama using only the standard library
+  (`think: false`, `temperature: 0`, an 8,192-token window, the answer forced into a JSON shape, one retry); proposals
+  merged into the current settings and validated by the engine's own `GenerateRequest` (misspelled trails get "did you
+  mean …?", impossible values get the engine's wording, a no-op says "That wouldn't change any setting."); an honesty
+  check that withholds replies with numbers, trail names or claims (safe, water there, open, legal, permitted,
+  conditions) the facts don't support.
+- `POST /api/chat`: one turn; 503 when Ollama isn't running ("The chat model isn't reachable (Ollama at
+  127.0.0.1:11434). Start Ollama, or plan with the form."), 504 after 60 s, 502 for nonsense output. It never runs or
+  saves anything.
+- Web: a chat box under Compare and Trip. A change shows as a card ("Miles per day: 6-11 mi → 6-9 mi") with **Run**
+  (the normal generate, and the form then shows what ran) and **Dismiss**. "Thinking… (local model, can take ~20 s)";
+  "Chat needs the server." offline; withheld answers show "(answer withheld: <reason>)".
+- `backcountry chat-eval --model ollama:<m> [--model …]`: 32 cases (21 changes or unclear requests, 11 questions)
+  against a Bear Rocks 2-night run planned from the cached data; results in `evals/results/` (git-ignored).
+- Settings: `.env.example` (committed, no values); `.env` is git-ignored.
+
+**Local model comparison** (2026-10-21, M1 Pro 16 GB, final instructions and honesty check):
+
+| model | passed | errors | withheld | mean s |
+|---|---|---|---|---|
+| **qwen3:14b** (default) | **28/32** | 0 | 0 | 5.4 |
+| gemma4:12b | 25/32 | 0 | 1 | 4.0 |
+| qwen3.5:9b | 22/32 | 2 | 2 | 4.0 |
+| qwen2.5:7b-instruct | 18/32 | 0 | 1 | 3.4 |
+| llama3.2 | 16/32 | 0 | 2 | 2.0 |
+| llama3 | 14/32 | 0 | 0 | 2.8 |
+| gpt-oss:20b | 5/32 | 27 timeouts | 0 | 57.8 |
+
+- qwen3:14b and gemma4:12b were scored on Ollama 0.40.7; the others on 0.23.2 (upgraded during this piece).
+  gemma4:12b didn't load at all on 0.23.2. gpt-oss:20b is too big for 16 GB alongside everything else.
+- Chosen default: **qwen3:14b**, most cases passed and nothing withheld, ~5 s per answer once loaded (the first
+  message after a while loads the model, ~10–15 s). gemma4:12b is a close, slightly faster second.
+- How the numbers moved: the first qwen3:14b run scored 23/32, mostly from the instructions (it asked "would you like
+  me to…?" instead of proposing; it built camp lists wrong) and two cases that didn't fit the eval route; fixed, it
+  scored 29. The final review found that the instructions' camp example used the eval route's own miles (the
+  expected answers), so the example was rewritten with made-up miles; the honest score is 28.
+- Remaining qwen3:14b misses: shortening day 2 or day 3 sometimes gives no proposal; "I want to hike the Breathed
+  Mountain Trail" (and its misspelling) gets "not listed" although the name is in its facts.
+
+**Final review** (fresh reviewer subagent): "with fixes". Fixed with tests: the honesty check let unit conversions
+("19 km") and positive permit/water/"allowed" claims through, and one "unknown" in a sentence excused the whole
+sentence (now per clause); the camp example leaked the eval's answers; chat proposals from an earlier result stayed
+runnable after a new run (now marked "From an earlier result; not runnable here", and history is the current
+result's only); pins at the current camps showed as a change; a change with no fields said nothing; point
+must-visits showed raw ids on the card; the trip view now says chat uses the engine's camps when you moved one. The
+eval then found two false withholds from the stricter check ("roads are allowed", "determine if a permit is
+required"), also fixed.
+Deferred minors: "Which Trail…" at a sentence start is withheld as an unknown name; Run posts to the selected region,
+not the run's (same as Re-plan); no client-side timeout on the chat request; history texts aren't length-capped on
+the server; `.env` doesn't accept `export KEY=` or inline comments; the 300-name cap is alphabetical; "11.0" vs "11"
+camps show a spurious change line.
+
+**Tests**: pytest 332 passed / 1 skipped, Vitest 107, Playwright 9 (new: a chat proposal shows what changes and runs
+only when tapped, with a fake model, so no Ollama is needed).
+
+**Not done (later)**: Claude models (one new dependency, `anthropic`, and your key, behind the same `ChatModel`
+interface; the fact sheet and messages would then go to Anthropic); planning from scratch by talking; moving camps
+from chat; chat offline; history across sessions.
+
+### Your phone check, round 1 (2026-10-21)
+
+- **Fixed: "make the loop 2 days shorter" was refused** with "total must look like 18-26 … got [22.97, 22.97]", and
+  "ignore miles per day" with "… got [0, 0]". The chat couldn't express a one-day hike (no nights, no per-day
+  range), so the model squeezed it into ranges the engine rejects. Now nights and miles per day can be cleared
+  (0 nights also means a day hike, and clears the camps); the instructions explain that a trip lasts nights + 1 days, that total
+  should fit the new number of days, that "ignore miles per day" widens the range (there's no "no limit" while a
+  trip has nights), and to keep the other end of a range when changing one. A backwards or zero range now says
+  "Total miles need a low below the high, both above 0 (e.g. 20-26); got 22.97-22.97." Three new eval cases
+  (day hike, 2 days shorter, ignore miles per day): qwen3:14b 28/35 (it still reads "one-night trip" as a day hike
+  sometimes; the card shows "Nights: 2 → none" before you run it).
+- **Your next idea, not built yet: a different difficulty per day** ("day 1 short for a late start, days 2–3 hard,
+  day 4 light"). Today only camp pins can shape single days. Needs its own small design (see the chat).

@@ -1,4 +1,4 @@
-import { ApiError, generate, getRegions, getTrailheads, getTrails } from "./api";
+import { ApiError, chat, generate, getRegions, getTrailheads, getTrails } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
 import { locate, type Fix } from "./gps";
@@ -6,6 +6,7 @@ import { createMap, type TripMap } from "./map";
 import { cleanOrphans, deleteTrip, getTrip, listTrips, putTrip, tilesPresent } from "./offline/db";
 import { saveTrip, tripId } from "./offline/save";
 import { coverageNote } from "./offline/tiles";
+import { bindChat } from "./panels/chat";
 import { bindCompare, renderCompare, startLabel } from "./panels/compare";
 import { esc } from "./panels/common";
 import { bindPlan, renderPlan, tapMessage } from "./panels/plan";
@@ -18,13 +19,14 @@ import { currentCandidate, openTripId } from "./selectors";
 import { nextSheet } from "./sheet";
 import { createStore, loadPersisted, persist, type Basemap, type State, type Store } from "./store";
 import type { Box } from "./offline/tiles";
-import type { Trailhead } from "./types";
+import type { GenerateRequest, Trailhead } from "./types";
 
 const DRAG_SNAP_M = 150; // a dropped camp must land this close to the route line
 
 // Changes to these re-render the panel. (Form edits typed in the panel don't; see editForm.)
 const RENDER_KEYS: (keyof State)[] = ["view", "status", "error", "busy", "run", "selected", "trailheads", "sheet", "regions",
-  "saved", "savedId", "campsM", "gps", "saving", "offline", "updateReady", "mapNote", "tilesMissing", "junctions"];
+  "saved", "savedId", "campsM", "gps", "saving", "offline", "updateReady", "mapNote", "tilesMissing", "junctions",
+  "chat", "chatBusy", "chatError"];
 const LIVE_KEYS = new Set<keyof State>(["gps", "saving"]); // updated in place in the trip view (patchTrip)
 const BOOT_TIMEOUT_MS = 5000; // with saved trips on the phone, don't wait longer than this for the server
 
@@ -100,9 +102,9 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       if (store.get().view !== "plan") return;
       store.set((s) => ({ form: { ...s.form, trailhead: `${lat.toFixed(5)},${lon.toFixed(5)}` }, error: null, status: tapMessage(trailName) }));
     },
-    async generate() {
+    async generate(override?: GenerateRequest) {
       const s = store.get();
-      const built = toRequest(s.form, s.trailheads);
+      const built = override ? { request: override } : toRequest(s.form, s.trailheads);
       if ("error" in built) return store.set({ error: built.error });
       if (!s.region) return store.set({ error: "Pick a region first." });
       abort?.abort();
@@ -111,7 +113,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       store.set({ busy: true, error: null, status: "Searching… this takes 5–20 s on a big network." });
       try {
         const run = await generate(s.region, built.request, abort.signal);
-        store.set({ run, selected: 1, view: "compare", busy: false, status: "", savedId: null, campsM: null });
+        store.set({ run, form: fromRun(run), selected: 1, view: "compare", busy: false, status: "", savedId: null, campsM: null });
       } catch (e) {
         const msg = (e as Error).name === "AbortError"
           ? "The search took longer than 2 minutes and was stopped. Try a narrower range or fewer must-visits."
@@ -129,6 +131,30 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     },
     backToCompare() { store.set({ view: "compare", status: "", error: null }); },
     replan() { const run = store.get().run; store.set({ view: "plan", form: run ? fromRun(run) : store.get().form }); },
+    async sendChat(text: string) {
+      const s = store.get();
+      const message = text.trim();
+      if (!message || !s.run || s.chatBusy) return;
+      const runId = s.run.run_id;
+      const history = s.chat.filter((m) => m.runId === runId).slice(-6).map((m) => ({ role: m.role, text: m.text })); // this result's only
+      store.set({ chat: [...s.chat, { role: "user", text: message, runId }], chatBusy: true, chatError: null });
+      try {
+        const a = await chat({ run_id: s.run.run_id, candidate: s.selected, message, history });
+        store.set((x) => ({ chatBusy: false, chat: [...x.chat, { role: "assistant", text: a.reply, proposal: a.proposal, note: a.note,
+          withheld: a.withheld, status: a.proposal ? "open" : undefined, runId }] }));
+      } catch (e) {
+        store.set({ chatBusy: false, chatError: (e as Error).message }); // the rest of the app keeps working
+      }
+    },
+    async runProposal(i: number) {
+      const m = store.get().chat[i];
+      if (!m?.proposal || m.status !== "open" || m.runId !== store.get().run?.run_id) return;
+      store.set((x) => ({ chat: x.chat.map((c, j) => (j === i ? { ...c, status: "ran" } : c)) }));
+      await actions.generate(m.proposal.request);
+    },
+    dismissProposal(i: number) {
+      store.set((x) => ({ chat: x.chat.map((c, j) => (j === i ? { ...c, status: "dismissed" } : c)) }));
+    },
     setBasemap(b: Basemap) { store.set({ basemap: b }); map?.setBasemap(b); updateMapNote(); },
     showJunctions(show: boolean) { store.set({ junctions: show }); map?.setJunctions(currentCandidate(store.get()), show); },
     sheet(gesture: "tap" | "up" | "down") { store.set((s) => ({ sheet: nextSheet(s.sheet, gesture) })); },
@@ -238,8 +264,8 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   const renderers: Record<string, (s: State) => string> = { plan: renderPlan, compare: renderCompare, trip: renderTrip, saved: renderSaved };
   const binders: Record<string, (root: HTMLElement) => void> = {
     plan: (root) => bindPlan(root, store, actions),
-    compare: (root) => bindCompare(root, store, actions),
-    trip: (root) => bindTrip(root, store, actions),
+    compare: (root) => { bindCompare(root, store, actions); bindChat(root, actions); },
+    trip: (root) => { bindTrip(root, store, actions); bindChat(root, actions); },
     saved: (root) => bindSaved(root, actions),
   };
   let shownView: string | null = null;

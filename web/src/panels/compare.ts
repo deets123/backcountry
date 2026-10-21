@@ -2,6 +2,7 @@ import { candidateColor } from "../basemaps";
 import { miles, signedFeet } from "../format";
 import type { State, Store } from "../store";
 import type { Candidate, Trailhead } from "../types";
+import { renderChat } from "./chat";
 import { esc, notesHtml } from "./common";
 
 export function segmentNames(c: Candidate): string[] {
@@ -43,6 +44,7 @@ ${notesHtml(lines)}
 ${run.candidates.length ? `<div class="cards">${run.candidates.map((c) => cardHtml(c, c.index === s.selected)).join("")}</div>` : `<p class="note">No candidates. Change the settings and try again.</p>`}
 ${run.candidates.length ? `<button class="primary" id="open-trip">Open candidate ${s.selected}</button>` : ""}
 ${run.diff ? `<details><summary>What changed since last time</summary><pre class="note" style="white-space:pre-wrap">${esc(run.diff)}</pre></details>` : ""}
+${renderChat(s)}
 <button class="link" id="replan">Change the settings</button>`;
 }
 

@@ -1,5 +1,5 @@
 // Typed client for the piece-1 API. All errors become ApiError with the server's wording.
-import type { ApiErrorBody, FeaturesInView, GenerateRequest, Region, Run, TrailFeatureCollection, Trailhead } from "./types";
+import type { ApiErrorBody, ChatAnswer, FeaturesInView, GenerateRequest, Region, Run, TrailFeatureCollection, Trailhead } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public field?: string) {
@@ -66,4 +66,8 @@ export function gpxUrl(runId: string, n: number, day?: number): string {
 
 export function geojsonUrl(runId: string, n: number): string {
   return `/api/runs/${runId}/candidates/${n}.geojson`;
+}
+
+export function chat(body: { run_id: string; candidate: number; message: string; history: { role: string; text: string }[] }): Promise<ChatAnswer> {
+  return request("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
