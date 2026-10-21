@@ -46,6 +46,13 @@ def _mentions_day(reply: str, day: int) -> bool:
     return re.search(rf"\bday {day}\b", reply, re.IGNORECASE) is not None
 
 
+_SAME = re.compile(r"\b(same|equal|identical|tied?)\b", re.IGNORECASE)
+
+
+def _days_text(days: list[int]) -> str:
+    return str(days[0]) if len(days) == 1 else ", ".join(map(str, days[:-1])) + f" or {days[-1]}"
+
+
 def _mentions_number(reply: str, value: float) -> bool:
     for token in re.findall(r"\d[\d,]*(?:\.\d+)?", reply):
         decimals = len(token.split(".")[1]) if "." in token else 0
@@ -104,14 +111,13 @@ def check_case(case: dict, result: dict | None, error: str | None, run: dict, n:
         if e["proposal_or_note_includes"].lower() not in text.lower():
             problems.append(f"neither proposal nor note mentions {e['proposal_or_note_includes']}")
     days = (c.get("plan") or {}).get("days") or []
-    if e.get("mentions_hardest_day") and days:
-        hardest = max(days, key=lambda d: d["gain_ft"] or 0)["index"]
-        if not _mentions_day(reply, hardest):
-            problems.append(f"reply doesn't name day {hardest}")
-    if e.get("mentions_longest_day") and days:
-        longest = max(days, key=lambda d: d["length_m"])["index"]
-        if not _mentions_day(reply, longest):
-            problems.append(f"reply doesn't name day {longest}")
+    for flag, key, tol in (("mentions_hardest_day", "gain_ft", 1.0), ("mentions_longest_day", "length_m", 0.01 * M_PER_MI)):
+        if not (e.get(flag) and days):
+            continue
+        top = max(d[key] or 0 for d in days)
+        tied = [d["index"] for d in days if top - (d[key] or 0) <= tol]  # days within rounding of the top one
+        if not (any(_mentions_day(reply, i) for i in tied) or (len(tied) > 1 and _SAME.search(reply))):
+            problems.append(f"reply doesn't name day {_days_text(tied)}")
     if "mentions_number" in e:
         key = e["mentions_number"]
         value = c[key] / M_PER_MI if key.endswith("_m") else c[key]

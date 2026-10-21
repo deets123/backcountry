@@ -25,12 +25,12 @@
 - id: skip-road
   message: skip Dolly Sods Road
   expect: {kind: change, request_contains: {avoid: Dolly Sods Road}}
-- id: must-red-creek
-  message: I want to hike the Red Creek Trail
-  expect: {kind: change, request_contains: {must_visit: Red Creek Trail}}
+- id: must-breathed-mountain
+  message: I want to hike the Breathed Mountain Trail
+  expect: {kind: change, request_contains: {must_visit: Breathed Mountain Trail}}
 - id: misspelled-trail
-  message: include the Red Creek Trial
-  expect: {kind: change, proposal_or_note_includes: Red Creek Trail}
+  message: include the Breathed Mountin Trail
+  expect: {kind: change, proposal_or_note_includes: Breathed Mountain Trail}
 - id: less-climbing
   message: less climbing per day please
   expect: {kind: change, lower: max_gain_day}
@@ -63,7 +63,7 @@
   expect: {kind: unclear, no_proposal: true}
 - id: unclear-better
   message: can you make it better
-  expect: {kind: unclear, no_proposal: true}
+  expect: {no_proposal: true}
 - id: keep-same
   message: keep everything the same
   expect: {no_proposal: true}

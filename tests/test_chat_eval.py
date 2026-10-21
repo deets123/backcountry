@@ -82,3 +82,10 @@ def _grid_run():
                                             "days": [{**d, "loss_ft": 1.0, "start_label": "Start", "end_label": "End"}
                                                      for d in RUN["candidates"][0]["plan"]["days"]]}}],
             "known_gaps": ["permits: not checked"]}
+
+
+def test_a_tie_for_longest_day_accepts_any_tied_day_or_same_length_wording():
+    case = {"id": "l", "message": "longest day?", "expect": {"mentions_longest_day": True}}
+    assert check_case(case, result("explain", "All days are the same length, 6.34 mi each."), None, RUN) == []
+    assert check_case(case, result("explain", "Day 2 and day 3 tie."), None, RUN) == []
+    assert check_case(case, result("explain", "It is long."), None, RUN) == ["reply doesn't name day 1, 2 or 3"]
