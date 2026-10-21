@@ -135,19 +135,20 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       const s = store.get();
       const message = text.trim();
       if (!message || !s.run || s.chatBusy) return;
-      const history = s.chat.slice(-6).map((m) => ({ role: m.role, text: m.text }));
-      store.set({ chat: [...s.chat, { role: "user", text: message }], chatBusy: true, chatError: null });
+      const runId = s.run.run_id;
+      const history = s.chat.filter((m) => m.runId === runId).slice(-6).map((m) => ({ role: m.role, text: m.text })); // this result's only
+      store.set({ chat: [...s.chat, { role: "user", text: message, runId }], chatBusy: true, chatError: null });
       try {
         const a = await chat({ run_id: s.run.run_id, candidate: s.selected, message, history });
         store.set((x) => ({ chatBusy: false, chat: [...x.chat, { role: "assistant", text: a.reply, proposal: a.proposal, note: a.note,
-          withheld: a.withheld, status: a.proposal ? "open" : undefined }] }));
+          withheld: a.withheld, status: a.proposal ? "open" : undefined, runId }] }));
       } catch (e) {
         store.set({ chatBusy: false, chatError: (e as Error).message }); // the rest of the app keeps working
       }
     },
     async runProposal(i: number) {
       const m = store.get().chat[i];
-      if (!m?.proposal || m.status !== "open") return;
+      if (!m?.proposal || m.status !== "open" || m.runId !== store.get().run?.run_id) return;
       store.set((x) => ({ chat: x.chat.map((c, j) => (j === i ? { ...c, status: "ran" } : c)) }));
       await actions.generate(m.proposal.request);
     },

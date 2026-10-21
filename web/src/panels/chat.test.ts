@@ -54,3 +54,15 @@ describe("bindChat", () => {
     expect(calls).toEqual(["send:3 nights", "send:avoid roads", "run:0", "dismiss:0"]);
   });
 });
+
+describe("chat across runs", () => {
+  it("a proposal from an earlier result can't be run and says why", () => {
+    const html = renderChat({ ...INITIAL, run, chat: [{ role: "assistant", text: "", proposal, status: "open", runId: "older" }] });
+    expect(html).toContain("From an earlier result; not runnable here."); expect(html).not.toContain("data-run=");
+    expect(renderChat({ ...INITIAL, run, chat: [{ role: "assistant", text: "", proposal, status: "open", runId: "r1" }] })).toContain('data-run="0"');
+  });
+  it("says that camps moved on the map aren't what the chat sees", () => {
+    expect(renderChat({ ...INITIAL, run, view: "trip", campsM: [1000, 2000] })).toContain("Chat uses the engine's camps, not the ones you moved.");
+    expect(renderChat({ ...INITIAL, run, view: "trip", campsM: null })).not.toContain("not the ones you moved");
+  });
+});

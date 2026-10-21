@@ -72,4 +72,4 @@ export interface ApiErrorBody { error: string; field?: string }
 
 export interface ChatProposal { request: GenerateRequest; changes: string[] }
 export interface ChatAnswer { reply: string; kind: "change" | "explain" | "unclear"; proposal: ChatProposal | null; note: string | null; withheld: string | null; model: string }
-export interface ChatMessage { role: "user" | "assistant"; text: string; proposal?: ChatProposal | null; note?: string | null; withheld?: string | null; status?: "open" | "ran" | "dismissed" }
+export interface ChatMessage { role: "user" | "assistant"; text: string; proposal?: ChatProposal | null; note?: string | null; withheld?: string | null; status?: "open" | "ran" | "dismissed"; runId?: string }
