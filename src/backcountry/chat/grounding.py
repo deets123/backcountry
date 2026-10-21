@@ -17,9 +17,11 @@ _BANNED = [
     (r"\breliable water\b|\bwater (source|supply) is reliable\b", "says water is reliable"),
     (r"\b(is|are) (open|closed)\b", "says something is open or closed"),
     (r"\blegal(ly)?\b", "says something is legal"),
-    (r"\bpermitted\b|\bpermits? (is |are )?(needed|required)\b|\b(do(n'?t)?|does(n'?t)?|will) (need|require) a permit\b|"
+    (r"\bpermitted\b|(?<!\bif a )(?<!\bwhether a )(?<!\bif )(?<!\bwhether )\bpermits? (is |are )?(needed|required)\b|\b(do(n'?t)?|does(n'?t)?|will) (need|require) a permit\b|"
      r"\b(need|needs|require|requires) a permit\b", "makes a permit claim"),
-    (r"\b(is|are) (allowed|illegal|prohibited|banned)\b|\billegal\b", "says something is allowed or not"),
+    # "roads are allowed" is a setting, not a rule about the land, so roads are left out
+    (r"\b(camping|camp|fires?|campfires?|dogs|pets|hunting|swimming|it|this|that|everything|anything|parking)"
+     r" (is|are) (allowed|prohibited|banned)\b|\ballowed (to camp|anywhere)\b|\billegal\b", "says something is allowed or not"),
     (r"\bthere('s| is| are| will be) (plenty of |some |good )?water\b|\b(has|have) water\b|\bplenty of water\b|"
      r"\bfind water\b|\bwater (nearby|close by)\b", "says water is there"),
     (r"\bconditions (are|will be)\b|\b(trail|route|path) is (clear|passable|in good (shape|condition))\b", "describes conditions"),

@@ -67,3 +67,11 @@ def test_positive_permit_legality_and_water_claims_are_withheld():
 def test_the_unknown_exemption_covers_only_its_own_clause():
     assert not check_reply("I cannot say whether it is crowded, but the water is reliable and the route is safe.", FACTS)[0]
     assert check_reply("Whether there is water at Stonecoal Run is unknown.", FACTS)[0]
+
+
+def test_settings_wording_and_conditional_permit_questions_are_not_claims():
+    assert check_reply("It uses 0.81 mi of roads, which is acceptable since roads are allowed.", FACTS)[0]
+    assert check_reply("Contact the relevant authority to determine if a permit is required for this trip.", FACTS)[0]
+    assert check_reply("Ask whether a permit is needed.", FACTS)[0]
+    for bad in ["Camping is allowed anywhere here.", "Fires are allowed at camp 2.", "Dogs are allowed.", "A permit is required."]:
+        assert not check_reply(bad, FACTS)[0], bad
