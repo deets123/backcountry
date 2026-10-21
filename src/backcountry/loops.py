@@ -98,9 +98,12 @@ def loop_graph(tg, start: int, no_roads: bool = False, exclude_keys=frozenset())
     for u, v, k, d in G.subgraph(nx.node_connected_component(G, start)).edges(keys=True, data=True):
         if (no_roads and d["is_road"]) or k in exclude_keys:
             continue
-        H.add_edge(u, v, key=k, keys=[k], path=[u, v], length_m=d["length_m"],
-                   road_m=d["length_m"] if d["is_road"] else 0.0,
-                   last_resort_m=d["length_m"] if d["last_resort"] else 0.0)
+        # Millimetres: each platform's math library converts coordinates slightly differently (~1e-9 m), and the
+        # search must break ties between equal-length paths the same way everywhere.
+        length = round(d["length_m"], 3)
+        H.add_edge(u, v, key=k, keys=[k], path=[u, v], length_m=length,
+                   road_m=length if d["is_road"] else 0.0,
+                   last_resort_m=length if d["last_resort"] else 0.0)
     lg = LoopGraph(H, start)
 
     # Dead-end spurs can't be part of a cycle (the start is kept: it may need a stem).

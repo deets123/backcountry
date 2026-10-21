@@ -11,6 +11,7 @@ the same way. Used only to cross-check the OSM graph, never as routing geometry.
 """
 
 import json
+import os
 import re
 import ssl
 import time
@@ -25,7 +26,7 @@ import certifi
 
 from backcountry.region import REPO_ROOT, Region
 
-RAW_DIR = REPO_ROOT / "data" / "raw"
+RAW_DIR = Path(os.environ.get("BACKCOUNTRY_RAW_DIR") or REPO_ROOT / "data" / "raw")  # env: e.g. a git worktree using the main checkout's cache
 RETRY_WAIT_S = 30.0  # one polite retry after a server-side timeout/overload
 
 

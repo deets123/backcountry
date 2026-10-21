@@ -280,3 +280,14 @@ def test_fetch_retries_once_on_server_timeout_then_explains(tmp_path, monkeypatc
 
     with pytest.raises(ingest.FetchError, match="504.*Overpass"):
         ingest.fetch(REGION, raw_dir=tmp_path, fetcher=dead, refresh=True)
+
+
+def test_raw_dir_can_come_from_the_environment(tmp_path):
+    # scripts/heavy-tests points a git worktree (which has no cached data) at the main checkout's data this way.
+    import os
+    import subprocess
+    import sys
+    out = subprocess.run([sys.executable, "-c", "from backcountry import ingest; print(ingest.RAW_DIR)"],
+                         env={**os.environ, "BACKCOUNTRY_RAW_DIR": str(tmp_path)},
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert out == str(tmp_path)

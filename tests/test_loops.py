@@ -296,3 +296,17 @@ def test_no_loops_from_a_spur_explains_and_suggests_lollipops(grid, tg):
     report = search(tg, grid.ids["T"], 3.9 * KM, 4.1 * KM, kinds=("loop",))
     assert report["candidates"] == []
     assert any("dead-end" in n and "--type any" in n for n in report["notes"])
+
+
+def test_search_does_not_depend_on_sub_millimetre_length_noise(grid):
+    # Each platform's math library converts coordinates slightly differently (~1e-9 m). Equal-length paths must
+    # stay equal everywhere, or the search picks different routes on Linux and macOS.
+    found = []
+    for noise in (-1e-6, 0.0, 1e-6):  # far below a millimetre, enough to flip a tie either way
+        tg = build_graph(grid.doc(), crs=CRS)
+        for u, v, d in tg.graph.edges(data=True):
+            if {u, v} == {grid.ids["g01"], grid.ids["m"]}:  # g00 to g11 is 2,000 m two ways; this breaks the tie
+                d["length_m"] += noise
+        cands = find_candidates(tg, grid.ids["g00"], 5.9 * KM, 6.1 * KM, kinds=("loop",), no_roads=True)
+        found.append([round(c.length_m) for c in cands])
+    assert found[0] == found[1] == found[2] == [6000]
