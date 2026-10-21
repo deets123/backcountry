@@ -20,7 +20,8 @@ _BANNED = [
     (r"\bconditions (are|will be)\b|\b(trail|route|path) is (clear|passable|in good (shape|condition))\b", "describes conditions"),
 ]
 _UNKNOWN = re.compile(r"\bunknown\b|\bnot (known|checked)\b|\bcan'?t (tell|say|know|check)\b|\bcannot\b|"
-                      r"\bdon'?t know\b|\bisn'?t known\b|\bhasn'?t checked\b|\bno (data|way to)\b|\baren'?t checked\b")
+                      r"\bdon'?t know\b|\bisn'?t known\b|\bhasn'?t checked\b|\bno (data|way to)\b|\baren'?t checked\b|"
+                      r"\bnot confirmed\b|\bunconfirmed\b|\bwhether\b")
 _NAME = re.compile(r"\b((?:[A-Z][\w'’-]*\s){1,4}(?:Trail|Trailhead|Run|Road|Creek|Ridge|Knob|Mountain|Lake|Pond|Spring|Grade|Rocks|Plains))\b")
 
 

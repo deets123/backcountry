@@ -39,3 +39,10 @@ def test_trail_and_place_names_must_be_in_the_facts():
 
 def test_the_fallback_wording():
     assert CANT_ANSWER == "I can't answer that from this trip's data."
+
+
+def test_not_confirmed_and_whether_wording_counts_as_unknown():
+    reply = ("Water presence along the route is unknown. Stream crossings are noted, but whether water is present, "
+             "flowing, or drinkable is not confirmed.")
+    assert check_reply(reply, FACTS) == (True, [])
+    assert not check_reply("Water is present at Stonecoal Run.", FACTS)[0]
