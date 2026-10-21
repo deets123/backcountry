@@ -88,7 +88,9 @@ def _edit(current: list[str], add: list[str], remove: list[str]) -> list[str]:
     return out + [a for a in add if a.lower() not in {v.lower() for v in out}]
 
 
-def apply_changes(request: dict, changes: dict, trails: list[str], starts: list[dict]) -> tuple[dict, list[str]]:
+def apply_changes(request: dict, changes: dict, trails: list[str], starts: list[dict],
+                  current_camps: list[float] | None = None) -> tuple[dict, list[str]]:
+    """`current_camps`: where the plan's camps are now (miles); pins at those same places change nothing."""
     new = {k: (list(v) if isinstance(v, list) else v) for k, v in request.items()}
     for key in ("nights", "total", "daily", "max_gain_day", "type", "no_roads", "direction", "camps_at_sites"):
         if key in changes:
@@ -108,7 +110,10 @@ def apply_changes(request: dict, changes: dict, trails: list[str], starts: list[
             raise ProposalError(f"That change doesn't work: {len(miles)} camps for {nights} nights.")
         if any(b <= a for a, b in zip(miles, miles[1:])) or any(m <= 0 for m in miles):
             raise ProposalError("That change doesn't work: Camp miles must go up from one night to the next and be more than 0.")
-        new["camps"] = [f"{m:g}" for m in miles]
+        same = current_camps is not None and len(miles) == len(current_camps) and all(
+            abs(m - c) < 0.01 for m, c in zip(miles, current_camps))
+        if not same:
+            new["camps"] = [f"{m:g}" for m in miles]
     elif len(new.get("camps") or []) > nights:
         new["camps"] = []  # fewer nights than pins: let the engine place the camps again
     try:

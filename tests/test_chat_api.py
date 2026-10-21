@@ -97,3 +97,14 @@ def test_chat_turn_without_http(setup):
     m = FakeModel([{"reply": "Okay.", "kind": "explain", "changes": {}}])
     out = chat_turn(m, run, 1, "hi", [], ["Row 0"], [])
     assert out == {"reply": "Okay.", "kind": "explain", "proposal": None, "note": None, "withheld": None, "model": "fake"}
+
+
+def test_pins_at_the_current_camps_and_empty_changes_get_a_note(setup):
+    client, model, run = setup
+    camp = run["candidates"][0]["plan"]["camps"][0]["dist_m"] / 1609.344
+    model.answers.append({"reply": "Moving camp 1.", "kind": "change", "changes": {"camps": [round(camp, 2)]}})
+    body = ask(client, run).json()
+    assert body["proposal"] is None and body["note"] == "That wouldn't change any setting."
+    model.answers.append({"reply": "I will make day 1 shorter.", "kind": "change", "changes": {}})
+    body = ask(client, run).json()
+    assert body["proposal"] is None and body["note"] == "No setting change was proposed; try saying what to change."

@@ -6,6 +6,7 @@ from backcountry.chat.facts import fact_sheet
 from backcountry.chat.grounding import CANT_ANSWER, check_reply
 from backcountry.chat.models import ChatModel
 from backcountry.chat.proposal import RESPONSE_SCHEMA, SYSTEM_PROMPT, ProposalError, apply_changes
+from backcountry.scoring import M_PER_MI
 
 HISTORY = 6  # earlier messages sent along with the new one
 
@@ -30,9 +31,12 @@ def chat_turn(model: ChatModel, run: dict, n: int, message: str, history: list[d
                             RESPONSE_SCHEMA)
     kind, reply, changes = answer["kind"], answer["reply"].strip(), answer.get("changes") or {}
     proposal = note = None
-    if kind == "change" and changes:
+    camps = [cp["dist_m"] / M_PER_MI for cp in ((run["candidates"][n - 1].get("plan") or {}).get("camps") or [])]
+    if kind == "change" and not changes:
+        note = "No setting change was proposed; try saying what to change."
+    elif kind == "change":
         try:
-            request, lines = apply_changes(run["request"], changes, trails, starts)
+            request, lines = apply_changes(run["request"], changes, trails, starts, current_camps=camps)
             if lines:
                 proposal = {"request": request, "changes": lines}
             else:

@@ -72,3 +72,10 @@ def test_the_prompts_camp_example_does_not_reuse_the_eval_routes_miles():
     # The eval's Bear Rocks route camps at miles 6.34 and 12.68; an example built on those numbers is an answer key.
     for leaked in ("6.34", "12.68", "10.5", "14.5"):
         assert leaked not in SYSTEM_PROMPT
+
+
+def test_pins_at_the_current_camps_change_nothing():
+    new, lines = apply_changes(REQ, {"camps": [7.48, 14.95]}, TRAILS, STARTS, current_camps=[7.481, 14.952])
+    assert lines == [] and new["camps"] == []
+    _, moved = apply_changes(REQ, {"camps": [7.48, 13.0]}, TRAILS, STARTS, current_camps=[7.481, 14.952])
+    assert moved == ["Camps: placed by the engine → pinned at mile 7.48, 13"]
