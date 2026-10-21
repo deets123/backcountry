@@ -642,3 +642,58 @@ on the phone, the native app (piece 5).
 - **Your frontend feedback, for the UI pass after the backend pieces:** the campsites-and-water table is a long,
   report-style list that feels odd in an app; the app overall looks primitive.
 
+
+## Phase 2 piece 4 — Chat layer (built 2026-10-21; awaiting your phone check)
+
+Spec: `docs/superpowers/specs/2026-10-20-phase2-chat-design.md`; plan:
+`docs/superpowers/plans/2026-10-20-phase2-chat.md`. Built on branch `phase2-chat`. No new dependencies.
+
+**Done**
+- `src/backcountry/chat/`: a fact sheet per trip (settings, route, days, camps, water and campsites with
+  "presence unknown" / "existence and status unknown", engine notes, known gaps, trail and trailhead names; miles and
+  feet; no raw OSM ids; long lists capped); a local model through Ollama using only the standard library
+  (`think: false`, `temperature: 0`, an 8,192-token window, the answer forced into a JSON shape, one retry); proposals
+  merged into the current settings and validated by the engine's own `GenerateRequest` (misspelled trails get "did you
+  mean …?", impossible values get the engine's wording, a no-op says "That wouldn't change any setting."); an honesty
+  check that withholds replies with numbers, trail names or claims (safe, water there, open, legal, permitted,
+  conditions) the facts don't support.
+- `POST /api/chat`: one turn; 503 when Ollama isn't running ("The chat model isn't reachable (Ollama at
+  127.0.0.1:11434). Start Ollama, or plan with the form."), 504 after 60 s, 502 for nonsense output. It never runs or
+  saves anything.
+- Web: a chat box under Compare and Trip. A change shows as a card ("Miles per day: 6-11 mi → 6-9 mi") with **Run**
+  (the normal generate, and the form then shows what ran) and **Dismiss**. "Thinking… (local model, can take ~20 s)";
+  "Chat needs the server." offline; withheld answers show "(answer withheld: <reason>)".
+- `backcountry chat-eval --model ollama:<m> [--model …]`: 32 cases (21 changes or unclear requests, 11 questions)
+  against a Bear Rocks 2-night run planned from the cached data; results in `evals/results/` (git-ignored).
+- Settings: `.env.example` (committed, no values); `.env` is git-ignored.
+
+**Local model comparison** (2026-10-21, M1 Pro 16 GB, Ollama 0.23.2, final instructions):
+
+| model | passed | errors | withheld | mean s |
+|---|---|---|---|---|
+| **qwen3:14b** (default) | **29/32** | 0 | 1 | 5.1 |
+| qwen3.5:9b | 22/32 | 2 | 4 | 4.3 |
+| qwen2.5:7b-instruct | 20/32 | 0 | 2 | 4.4 |
+| llama3.2 | 17/32 | 0 | 2 | 2.2 |
+| llama3 | 14/32 | 0 | 0 | 2.6 |
+| gpt-oss:20b | 5/32 | 27 timeouts | 0 | 57.8 |
+| gemma4:12b | 0/32 | 32 | 0 | — |
+
+- gemma4:12b doesn't load in this Ollama ("unsupported architecture"); not a judgment of the model. gpt-oss:20b is
+  too big for 16 GB alongside everything else and times out at 60 s.
+- Chosen default: **qwen3:14b**, most cases passed by a wide margin, ~5 s per answer once loaded (the first message
+  after a while loads the model, ~10–15 s).
+- The first qwen3:14b run scored 23/32. Its failures were mostly the instructions (it asked "would you like me to…?"
+  instead of proposing; it couldn't build camp lists; it used camps for a per-day mileage limit) and two cases that
+  didn't fit the eval route (Red Creek Trail is already on it; all three days tie at 6.34 mi). Both fixed.
+- The eval also found a false withhold: "whether water is present … is not confirmed" was held back as a water
+  claim. "Not confirmed" and "whether" now count as saying it's unknown.
+- Remaining qwen3:14b misses: "shorten day 3" moved the wrong camp (the card shows the change before you run it);
+  "I want to hike the Breathed Mountain Trail" got "not listed" although it is in the names it was given.
+
+**Tests**: pytest 325 passed / 1 skipped, Vitest 105, Playwright 9 (new: a chat proposal shows what changes and runs
+only when tapped, with a fake model, so no Ollama is needed).
+
+**Not done (later)**: Claude models (one new dependency, `anthropic`, and your key, behind the same `ChatModel`
+interface; the fact sheet and messages would then go to Anthropic); planning from scratch by talking; moving camps
+from chat; chat offline; history across sessions.

@@ -91,6 +91,18 @@ Other commands: `route --from A --to B` (shortest point-to-point), `trailheads` 
 trailheads from the data), `qa` (data quality report and map), `reference` (export a trail
 for a CalTopo comparison). `uv run backcountry --help` lists them all.
 
+### Chat (local model)
+
+The Compare and Trip views have a chat box: "make day 2 shorter", "3 nights instead", "avoid roads" become a
+proposed settings change you run with one tap; "which day is hardest?" is answered only from the trip's numbers.
+Replies with numbers, names or claims the trip's data doesn't support are withheld ("I can't answer that from
+this trip's data."). Nothing is run until you tap Run.
+
+It uses a local model through [Ollama](https://ollama.com) (free; nothing leaves the laptop): install Ollama,
+`ollama pull <model>`, and optionally copy `.env.example` to `.env` to pick the model (`BACKCOUNTRY_LLM`). Never
+commit `.env`. Compare models on the test set with
+`uv run backcountry chat-eval --model ollama:<model> [--model …]` (cases in `evals/chat_cases.yaml`).
+
 ## Regions
 
 Two regions exist: `regions/dolly_sods.yaml` (Dolly Sods Wilderness, WV) and `regions/pemi.yaml`
