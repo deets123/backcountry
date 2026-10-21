@@ -6,6 +6,7 @@ chat can never ask for anything the form couldn't. The user sees the before/afte
 
 from difflib import get_close_matches
 
+from backcountry.chat.facts import place_text
 from backcountry.planning import GenerateRequest, RequestError
 
 SYSTEM_PROMPT = """You help plan a backpacking trip in a trip-planning app. You can do two things:
@@ -134,7 +135,7 @@ def _show(key: str, v, starts: list[dict]) -> str:
     if key == "direction":
         return {"cw": "clockwise", "ccw": "counterclockwise"}.get(v, "either")
     if key in ("must_visit", "avoid"):
-        return ", ".join(v) or "none"
+        return ", ".join(place_text(x) for x in v) or "none"
     if key == "camps":
         return "pinned at mile " + ", ".join(v) if v else "placed by the engine"
     if key == "camps_at_sites":

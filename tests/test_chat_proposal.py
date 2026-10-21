@@ -79,3 +79,8 @@ def test_pins_at_the_current_camps_change_nothing():
     assert lines == [] and new["camps"] == []
     _, moved = apply_changes(REQ, {"camps": [7.48, 13.0]}, TRAILS, STARTS, current_camps=[7.481, 14.952])
     assert moved == ["Camps: placed by the engine → pinned at mile 7.48, 13"]
+
+
+def test_point_must_visits_never_show_raw_ids_in_the_card():
+    _, lines = apply_changes({**REQ, "must_visit": ["155984740"]}, {"must_visit_add": ["Red Creek Trail"]}, TRAILS, STARTS)
+    assert lines == ["Must visit: a point from the trail data → a point from the trail data, Red Creek Trail"]

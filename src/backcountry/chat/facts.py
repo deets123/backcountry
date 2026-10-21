@@ -37,7 +37,7 @@ def start_name(trailhead: str, starts: list[dict]) -> str:
     return "a start point from the trail data"
 
 
-def _place(value: str) -> str:
+def place_text(value: str) -> str:
     return "a point from the trail data" if value.isdigit() else value  # never a raw node id
 
 
@@ -52,8 +52,8 @@ def settings_text(req: dict, starts: list[dict]) -> str:
         f"gain cap {ft(gain) + ' per day' if gain is not None else 'none'}",
         "roads " + ("avoided" if req.get("no_roads") else "allowed"),
         "direction " + {"cw": "clockwise", "ccw": "counterclockwise"}.get(req.get("direction"), "either"),
-        "must visit " + (", ".join(_place(v) for v in req.get("must_visit") or []) or "none"),
-        "avoid " + (", ".join(_place(v) for v in req.get("avoid") or []) or "none"),
+        "must visit " + (", ".join(place_text(v) for v in req.get("must_visit") or []) or "none"),
+        "avoid " + (", ".join(place_text(v) for v in req.get("avoid") or []) or "none"),
         "camps " + ("pinned at mile " + ", ".join(req["camps"]) if req.get("camps") else "placed by the engine"),
         "camps at known campsites only " + ("yes" if req.get("camps_at_sites") else "no"),
     ]
