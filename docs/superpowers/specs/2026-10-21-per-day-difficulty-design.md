@@ -75,11 +75,11 @@ Per day, from the day's own section of the route, in its direction of travel:
    rates Old Rag "hard, not strenuous" and the Needles slot canyons "hard, some technical scrambles". Strenuous needs
    the effort as well.
 4. **A trip's level is its hardest day's level** (confirmed by the user).
-6. **Two scales, by type of hike** (user: "I want this app to work for day and backpack hikers, so scale based on the
+5. **Two scales, by type of hike** (user: "I want this app to work for day and backpack hikers, so scale based on the
    type of hike"). A day hike (no nights) uses the day-hike scale; a day of a trip with nights uses the backpacking
    scale, where the same miles and climbing rate harder because of the pack. Both use the same formula, steepness
    and terrain rules; only the cutoffs differ, and both are calibrated (below).
-5. Levels only go **up** from the effort score; steepness and terrain never lower one. That is what stops a short
+6. Levels only go **up** from the effort score; steepness and terrain never lower one. That is what stops a short
    brutal day from coming out easy, the gap the park itself notes in its formula.
 
 **Reasons** shown with the level are short tags for whatever raised it: "steep", "scramble (tagged)",
