@@ -16,9 +16,13 @@ from conftest import build_grid  # noqa: E402
 
 from backcountry.api.app import create_app  # noqa: E402
 from backcountry.api.store import Settings  # noqa: E402
+from backcountry.chat.models import FakeModel  # noqa: E402
 
 tmp = Path(tempfile.mkdtemp(prefix="backcountry-e2e-"))
 (tmp / "raw" / "dolly_sods").mkdir(parents=True)
 (tmp / "raw" / "dolly_sods" / "overpass_20260101T000000Z.json").write_text(json.dumps(build_grid().doc()))
-app = create_app(Settings(raw_dir=tmp / "raw", runs_dir=tmp / "runs", regions_dir=None), web_dist=tmp / "no-web")
+# The end-to-end test never needs Ollama: the chat always proposes lowering the daily maximum.
+CHAT_ANSWER = {"reply": "This lowers the most miles allowed in a day.", "kind": "change", "changes": {"daily": [0.5, 3]}}
+app = create_app(Settings(raw_dir=tmp / "raw", runs_dir=tmp / "runs", regions_dir=None), web_dist=tmp / "no-web",
+                 chat_model=FakeModel([CHAT_ANSWER] * 100))
 uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("BACKCOUNTRY_TEST_PORT", "8765")), log_level="warning")
