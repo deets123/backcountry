@@ -723,3 +723,7 @@ from chat; chat offline; history across sessions.
   sometimes; the card shows "Nights: 2 → none" before you run it).
 - **Your next idea, not built yet: a different difficulty per day** ("day 1 short for a late start, days 2–3 hard,
   day 4 light"). Today only camp pins can shape single days. Needs its own small design (see the chat).
+- **Fixed: "make this 1 day shorter" on a 3-night Pemi trip** was refused with "3 camps for 2 nights": the model
+  lowered nights but sent the old trip's camp list. When nights change and the camp list doesn't fit, the camps are
+  now dropped and the engine places them; the instructions also say to leave camps out when nights change. New
+  eval case `one-day-shorter`.
