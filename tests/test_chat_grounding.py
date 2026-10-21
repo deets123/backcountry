@@ -46,3 +46,24 @@ def test_not_confirmed_and_whether_wording_counts_as_unknown():
              "flowing, or drinkable is not confirmed.")
     assert check_reply(reply, FACTS) == (True, [])
     assert not check_reply("Water is present at Stonecoal Run.", FACTS)[0]
+
+
+def test_unit_conversions_are_withheld_even_when_the_bare_number_is_in_the_facts():
+    for bad in ["The loop is 19 km long.", "Camp 2 is about 1 km from Stonecoal Run.", "Day 1 climbs 784 m.",
+                "Day 1 is 6.34 kilometers."]:
+        ok, reasons = check_reply(bad, FACTS)
+        assert not ok and "uses other units" in reasons, bad
+    assert check_reply("Day 1 is 6.34 mi with 784 ft of gain.", FACTS)[0]
+
+
+def test_positive_permit_legality_and_water_claims_are_withheld():
+    for bad in ["You need a permit for Dolly Sods.", "A permit is required here.", "Camping is allowed anywhere here.",
+                "There is water at Stonecoal Run.", "Camp 2 has water nearby.", "There is plenty of water along Red Creek Trail.",
+                "You will find water at Stonecoal Run."]:
+        assert not check_reply(bad, FACTS)[0], bad
+    assert check_reply("This lowers the most miles allowed in a day.", FACTS)[0]
+
+
+def test_the_unknown_exemption_covers_only_its_own_clause():
+    assert not check_reply("I cannot say whether it is crowded, but the water is reliable and the route is safe.", FACTS)[0]
+    assert check_reply("Whether there is water at Stonecoal Run is unknown.", FACTS)[0]

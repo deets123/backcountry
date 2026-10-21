@@ -2,7 +2,8 @@
 
 A reply is withheld when it uses a number the facts don't have (at the reply's own precision), names a trail or
 place the facts don't mention, or makes a claim this app can't support (safe, water there, open, legal, permitted,
-conditions). Saying such things are unknown or not checked is fine: a sentence with that wording is exempt.
+conditions), or converts to other units. Saying such things are unknown or not checked is fine: a clause with that
+wording is exempt.
 """
 
 import re
@@ -16,12 +17,18 @@ _BANNED = [
     (r"\breliable water\b|\bwater (source|supply) is reliable\b", "says water is reliable"),
     (r"\b(is|are) (open|closed)\b", "says something is open or closed"),
     (r"\blegal(ly)?\b", "says something is legal"),
-    (r"\bpermitted\b|\bno permits? (is |are )?(needed|required)\b|\bdon'?t need a permit\b", "makes a permit claim"),
+    (r"\bpermitted\b|\bpermits? (is |are )?(needed|required)\b|\b(do(n'?t)?|does(n'?t)?|will) (need|require) a permit\b|"
+     r"\b(need|needs|require|requires) a permit\b", "makes a permit claim"),
+    (r"\b(is|are) (allowed|illegal|prohibited|banned)\b|\billegal\b", "says something is allowed or not"),
+    (r"\bthere('s| is| are| will be) (plenty of |some |good )?water\b|\b(has|have) water\b|\bplenty of water\b|"
+     r"\bfind water\b|\bwater (nearby|close by)\b", "says water is there"),
     (r"\bconditions (are|will be)\b|\b(trail|route|path) is (clear|passable|in good (shape|condition))\b", "describes conditions"),
 ]
 _UNKNOWN = re.compile(r"\bunknown\b|\bnot (known|checked)\b|\bcan'?t (tell|say|know|check)\b|\bcannot\b|"
                       r"\bdon'?t know\b|\bisn'?t known\b|\bhasn'?t checked\b|\bno (data|way to)\b|\baren'?t checked\b|"
                       r"\bnot confirmed\b|\bunconfirmed\b|\bwhether\b")
+_OTHER_UNITS = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?\s*(?:km|kilomet(?:er|re)s?|met(?:er|re)s?|m)\b", re.IGNORECASE)
+_CLAUSE = re.compile(r"(?<=[.!?;:,])\s+|\s+(?:but|although|though)\s+", re.IGNORECASE)
 _NAME = re.compile(r"\b((?:[A-Z][\w'’-]*\s){1,4}(?:Trail|Trailhead|Run|Road|Creek|Ridge|Knob|Mountain|Lake|Pond|Spring|Grade|Rocks|Plains))\b")
 
 
@@ -42,11 +49,13 @@ def check_reply(reply: str, facts: str) -> tuple[bool, list[str]]:
         v, tol = _value(token)
         if not any(abs(v - k) <= tol for k in known):
             reasons.append(f"unsupported number '{token}'")
-    for sentence in re.split(r"(?<=[.!?;:])\s+", reply):
-        if _UNKNOWN.search(sentence.lower()):
+    if _OTHER_UNITS.search(reply):
+        reasons.append("uses other units")  # the facts are in miles and feet; "19 km" is not "19 mi"
+    for clause in _CLAUSE.split(reply):  # "unknown" wording excuses only its own clause
+        if _UNKNOWN.search(clause.lower()):
             continue
         for pattern, why in _BANNED:
-            if re.search(pattern, sentence, re.IGNORECASE):
+            if re.search(pattern, clause, re.IGNORECASE) and why not in reasons:
                 reasons.append(why)
     facts_lower = facts.lower()
     for name in _NAME.findall(reply):
