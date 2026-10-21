@@ -23,3 +23,6 @@ web/playwright-report/
 web/.vite/
 .env
 evals/results/
+
+# Reference tracks that may not be redistributed (e.g. exported from AllTrails): local calibration only
+tests/reference/local/
