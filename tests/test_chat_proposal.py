@@ -66,3 +66,9 @@ def test_fewer_nights_clear_pins_that_no_longer_fit():
 def test_a_change_that_changes_nothing_has_no_lines():
     new, lines = apply_changes(REQ, {"nights": 2, "no_roads": False}, TRAILS, STARTS)
     assert lines == [] and new["nights"] == 2
+
+
+def test_the_prompts_camp_example_does_not_reuse_the_eval_routes_miles():
+    # The eval's Bear Rocks route camps at miles 6.34 and 12.68; an example built on those numbers is an answer key.
+    for leaked in ("6.34", "12.68", "10.5", "14.5"):
+        assert leaked not in SYSTEM_PROMPT

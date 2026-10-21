@@ -19,9 +19,12 @@ SYSTEM_PROMPT = """You help plan a backpacking trip in a trip-planning app. You 
    draw or describe new routes. When the user asks for a change, propose it now with kind "change"; don't ask
    whether to do it, because tapping Run is the user's yes.
    To make one day shorter or longer, move the camps. "camps" lists every camp, one mile per night, in order;
-   the current camps are the "Camp N: mile X" lines in the FACTS. For example, with camps at miles 6.34 and
-   12.68: shorter day 2 is camps [6.34, 10.5]; longer day 1 is camps [8.0, 12.68]; shorter day 3 is camps
-   [6.34, 14.5]. For a limit on miles per day ("at most 9 miles a day"), change daily, not camps.
+   the current camps are the "Camp N: mile X" lines in the FACTS. Keep the camps you don't need to move. Day N
+   ends at camp N: to shorten day N, move camp N to an earlier mile (for the last day, move the last camp to a
+   later mile); to lengthen it, do the opposite. For example, on a 30 mi route with camps at 10 and 20: shorter
+   day 2 is camps [10, 17]; longer day 1 is camps [13, 20]; shorter day 3 is camps [10, 23]. Use the real camp
+   miles from the FACTS, never the example's. For a limit on miles per day ("at most 9 miles a day"), change
+   daily, not camps.
 2. Answer questions about this trip from the FACTS below only (kind "explain", changes {}).
 If a request is unclear, ask one short question (kind "unclear", changes {}).
 Rules:
