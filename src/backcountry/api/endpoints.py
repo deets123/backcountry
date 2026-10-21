@@ -7,6 +7,7 @@ from fastapi.responses import Response
 
 from backcountry import ingest
 from backcountry.api.store import NotFound
+from backcountry.chat.service import chat_turn, start_names, trail_names
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
 from backcountry.planning import GenerateRequest, RequestError, plan_trip
@@ -158,3 +159,27 @@ def candidate_geojson(run_id: str, n: int, request: Request):
                "properties": {"name": w["name"], "kind": w["kind"], "description": w["desc"], "dist_m": w["dist_m"]}}
               for w in c["waypoints"]]
     return {"type": "FeatureCollection", "attribution": run["data_sources"][0]["attribution"], "features": feats}
+
+
+# --- chat ---------------------------------------------------------------------------------
+
+
+@router.post("/chat")
+def chat(request: Request, body: dict):
+    run_id, n = body.get("run_id"), body.get("candidate")
+    message = body.get("message") if isinstance(body.get("message"), str) else ""
+    message = message.strip()
+    history = body.get("history") or []
+    if not isinstance(run_id, str) or not run_id:
+        raise RequestError("run_id", "run_id is required")
+    if not isinstance(n, int) or isinstance(n, bool):
+        raise RequestError("candidate", "candidate must be a whole number")
+    if not message:
+        raise RequestError("message", "Type a message first.")
+    if len(message) > 1000:
+        raise RequestError("message", "Keep messages under 1,000 characters.")
+    if not isinstance(history, list):
+        raise RequestError("history", "history must be a list of messages")
+    run, _ = _candidate(request, run_id, n)
+    loaded = _regions(request).get(run["region"])
+    return chat_turn(request.app.state.chat_model(), run, n, message, history, trail_names(loaded.tg), start_names(loaded.region))

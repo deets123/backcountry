@@ -11,17 +11,29 @@ from fastapi.staticfiles import StaticFiles
 
 from backcountry.api.endpoints import router
 from backcountry.api.store import NotFound, RegionStore, RunStore, Settings
+from backcountry.chat.models import ChatModel, ModelBadOutput, ModelTimeout, ModelUnavailable, model_from_env
 from backcountry.planning import RequestError
 from backcountry.region import REPO_ROOT
 
 
-def create_app(settings: Settings | None = None, web_dist: Path | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, web_dist: Path | None = None, chat_model: ChatModel | None = None) -> FastAPI:
     """The API, plus the built web app at / when web/dist exists (so a phone gets both from one address)."""
     settings = settings or Settings.default()
     app = FastAPI(title="Backcountry route engine", version="0.2")
     app.state.settings = settings
     app.state.regions = RegionStore(settings)
     app.state.runs = RunStore(settings.runs_dir) if settings.runs_dir else None
+    cached: list = [chat_model]
+
+    def get_chat_model() -> ChatModel:
+        if cached[0] is None:  # built from .env on first use, so the API starts even if the chat isn't set up
+            try:
+                cached[0] = model_from_env()
+            except ValueError as e:
+                raise ModelUnavailable(str(e)) from e
+        return cached[0]
+
+    app.state.chat_model = get_chat_model
     app.include_router(router)
 
     @app.exception_handler(RequestError)
@@ -39,6 +51,18 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = None) -
         loc = [str(x) for x in first.get("loc", []) if x not in ("body", "query", "path")]
         return JSONResponse(status_code=400, content={"error": f"{'.'.join(loc) or 'request'}: {first.get('msg', 'invalid')}",
                                                       "field": loc[-1] if loc else "request"})
+
+    @app.exception_handler(ModelUnavailable)
+    def model_unavailable(request: Request, exc: ModelUnavailable):
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+
+    @app.exception_handler(ModelTimeout)
+    def model_timeout(request: Request, exc: ModelTimeout):
+        return JSONResponse(status_code=504, content={"error": str(exc)})
+
+    @app.exception_handler(ModelBadOutput)
+    def model_bad_output(request: Request, exc: ModelBadOutput):
+        return JSONResponse(status_code=502, content={"error": str(exc)})
 
     @app.exception_handler(Exception)
     def failed(request: Request, exc: Exception):
