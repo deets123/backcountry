@@ -8,6 +8,7 @@ candidate. Both callers then only format and store the result.
 from dataclasses import dataclass, field
 
 from backcountry import ingest
+from backcountry.difficulty import LEVEL_TARGETS, LEVELS
 from backcountry.elevation import densify
 from backcountry.features import along_route
 from backcountry.loops import avoided_keys, search
@@ -16,6 +17,7 @@ from backcountry.scoring import M_PER_MI, Weights
 from backcountry.split import resolve_pins, split_route
 
 KINDS = {"loop": ("loop",), "lollipop": ("lollipop",), "any": ("loop", "lollipop")}
+LEVEL_WORDS = "easy, moderate, hard or strenuous"
 
 
 class RequestError(ValueError):
@@ -40,6 +42,91 @@ def parse_range(value, field: str) -> tuple[float, float]:
     return lo, hi
 
 
+def _level(value, field: str, prefix: str = "") -> str | None:
+    if value is None or value in LEVELS:
+        return value
+    raise RequestError(field, f"{prefix}level must be {LEVEL_WORDS}")
+
+
+def _positive(data: dict, key: str, prefix: str) -> float | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise RequestError("days", f"{prefix}{key} must be a number above 0; got {value!r}")
+    return float(value)
+
+
+def _mi(x: float) -> str:
+    return f"{x:g}"
+
+
+@dataclass
+class DayTarget:
+    """One day's targets. Explicit numbers win over the level's table values, which win over the trip's."""
+
+    day: int
+    level: str | None = None
+    miles: tuple[float, float] | None = None
+    max_gain_ft: float | None = None
+    max_grade_pct: float | None = None
+
+    @classmethod
+    def from_dict(cls, data) -> "DayTarget":
+        if not isinstance(data, dict) or not _is_int(data.get("day")):
+            raise RequestError("days", f"each day target needs a day number; got {data!r}")
+        day = data["day"]
+        prefix = f"day {day}: "
+        if day < 1:
+            raise RequestError("days", f"{prefix}days are numbered from 1")
+        miles = None
+        if data.get("miles") is not None:
+            try:
+                miles = parse_range(data["miles"], "miles")
+            except RequestError:
+                raise RequestError("days", f"{prefix}miles must look like 8-12 (low-high); got {data['miles']!r}")
+        return cls(day=day, level=_level(data.get("level"), "days", prefix), miles=miles,
+                   max_gain_ft=_positive(data, "max_gain_ft", prefix), max_grade_pct=_positive(data, "max_grade_pct", prefix))
+
+    def to_dict(self) -> dict:
+        return {"day": self.day, "level": self.level, "miles": list(self.miles) if self.miles else None,
+                "max_gain_ft": self.max_gain_ft, "max_grade_pct": self.max_grade_pct}
+
+    def resolved(self, scale: str, trip: "GenerateRequest") -> dict:
+        table = LEVEL_TARGETS[scale][self.level] if self.level else {}
+        miles = self.miles or table.get("miles") or trip.daily
+        gain = self.max_gain_ft if self.max_gain_ft is not None else table.get("max_gain_ft", trip.max_gain_day)
+        grade = self.max_grade_pct if self.max_grade_pct is not None else table.get("max_grade_pct")
+        return {"day": self.day, "level": self.level, "miles": [float(m) for m in miles] if miles else None,
+                "max_gain_ft": float(gain) if gain is not None else None,
+                "max_grade_pct": float(grade) if grade is not None else None, "targeted": True}
+
+
+def _day_targets(data: dict, nights, daily, total) -> list[DayTarget]:
+    raw = data.get("days") or []
+    if not isinstance(raw, list):
+        raise RequestError("days", f"days must be a list of day targets; got {raw!r}")
+    days = sorted((DayTarget.from_dict(d) for d in raw), key=lambda t: t.day)
+    if not days:
+        return []
+    if nights is None:
+        raise RequestError("days", "per-day targets need nights")
+    for a, b in zip(days, days[1:]):
+        if a.day == b.day:
+            raise RequestError("days", f"day {a.day} is set twice")
+    if days[-1].day > nights + 1:
+        raise RequestError("days", f"day {days[-1].day}: this trip has {nights + 1} days")
+    by_day = {t.day: t for t in days}
+    ranges = [(by_day[i].miles or (LEVEL_TARGETS["backpacking"][by_day[i].level]["miles"] if by_day[i].level else None))
+              if i in by_day else None for i in range(1, nights + 2)]
+    ranges = [r or daily for r in ranges]
+    lo, hi = sum(r[0] for r in ranges), sum(r[1] for r in ranges)
+    if lo > total[1] or hi < total[0]:
+        raise RequestError("days", f"the day targets add up to {_mi(lo)}-{_mi(hi)} mi, outside the total "
+                                   f"{_mi(total[0])}-{_mi(total[1])} mi")
+    return days
+
+
 @dataclass
 class GenerateRequest:
     trailhead: str
@@ -57,6 +144,8 @@ class GenerateRequest:
     must_visit: list[str] = field(default_factory=list)
     avoid: list[str] = field(default_factory=list)
     direction: str | None = None
+    days: list[DayTarget] = field(default_factory=list)
+    level: str | None = None  # trip-level filter: keep only loops whose hardest day is this level
 
     @classmethod
     def from_dict(cls, data: dict) -> "GenerateRequest":
@@ -85,6 +174,7 @@ class GenerateRequest:
             repeat_weight=_number(data, "repeat_weight", 0.5), camps=_strings(data, "camps"),
             camps_at_sites=_flag(data, "camps_at_sites"), must_visit=_strings(data, "must_visit"),
             avoid=_strings(data, "avoid"), direction=direction,
+            days=_day_targets(data, nights, daily, total), level=_level(data.get("level"), "level"),
         )
 
     def to_dict(self) -> dict:
@@ -94,7 +184,16 @@ class GenerateRequest:
             "count": self.count, "no_roads": self.no_roads, "road_weight": self.road_weight,
             "repeat_weight": self.repeat_weight, "camps": list(self.camps), "camps_at_sites": self.camps_at_sites,
             "must_visit": list(self.must_visit), "avoid": list(self.avoid), "direction": self.direction,
+            "days": [t.to_dict() for t in self.days], "level": self.level,
         }
+
+    def targets_for(self, ndays: int) -> list[dict]:
+        """One resolved target per day; days without a target take the trip-wide daily range and gain cap."""
+        by_day = {t.day: t for t in self.days}
+        return [by_day[i].resolved("backpacking", self) if i in by_day else
+                {"day": i, "level": None, "miles": [float(m) for m in self.daily] if self.daily else None,
+                 "max_gain_ft": self.max_gain_day, "max_grade_pct": None, "targeted": False}
+                for i in range(1, ndays + 1)]
 
     @property
     def kinds(self) -> tuple:
