@@ -105,6 +105,15 @@ def test_zero_nights_means_a_one_day_hike():
     assert (new["nights"], new["daily"]) == (None, None) and "Nights: 2 → none" in lines
 
 
+def test_fewer_nights_with_the_old_camp_list_lets_the_engine_place_camps():
+    # The model changed nights 3 → 2 but sent the old trip's three camps (seen on the phone, Pemi).
+    three = {**REQ, "nights": 3}
+    new, lines = apply_changes(three, {"nights": 2, "camps": [7.2, 14.5, 21.8]}, TRAILS, STARTS)
+    assert new["nights"] == 2 and new["camps"] == [] and "Nights: 3 → 2" in lines
+    with pytest.raises(ProposalError, match="5 camps for 2 nights"):  # without a nights change it's still refused
+        apply_changes(REQ, {"camps": [1, 2, 3, 4, 5]}, TRAILS, STARTS)
+
+
 # --- per-day levels and the trip level -----------------------------------------------
 
 

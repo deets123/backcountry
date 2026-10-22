@@ -721,8 +721,12 @@ from chat; chat offline; history across sessions.
   "Total miles need a low below the high, both above 0 (e.g. 20-26); got 22.97-22.97." Three new eval cases
   (day hike, 2 days shorter, ignore miles per day): qwen3:14b 28/35 (it still reads "one-night trip" as a day hike
   sometimes; the card shows "Nights: 2 → none" before you run it).
-- **Your next idea, not built yet: a different difficulty per day** ("day 1 short for a late start, days 2–3 hard,
-  day 4 light"). Today only camp pins can shape single days. Needs its own small design (see the chat).
+- **Your next idea: a different difficulty per day** ("day 1 short for a late start, days 2–3 hard, day 4 light"):
+  built, see "Per-day difficulty" below.
+- **Fixed: "make this 1 day shorter" on a 3-night Pemi trip** was refused with "3 camps for 2 nights": the model
+  lowered nights but sent the old trip's camp list. When nights change and the camp list doesn't fit, the camps are
+  now dropped and the engine places them; the instructions also say to leave camps out when nights change. New
+  eval case `one-day-shorter`.
 
 ## Per-day difficulty (built 2026-10-22; awaiting your phone check)
 

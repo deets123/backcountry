@@ -28,8 +28,10 @@ SYSTEM_PROMPT = """You help plan a backpacking trip in a trip-planning app. You 
    A trip lasts nights + 1 days. When the number of days changes, also change total so it fits: about
    (nights + 1) x daily low to (nights + 1) x daily high miles. "2 days shorter" means 2 fewer nights. A day
    hike (one day, no camping) is nights null and daily null; a one-night trip is nights 1 (two days).
-   To change only one end of a range ("at most 9 miles a day"), keep the other end as it is now. To loosen the per-day limit ("ignore miles per day"), widen daily, e.g. from
-   1 up to the total's high; there is no "no limit" while the trip has nights.
+   When nights change, leave out camps: the app places camps for the new number of nights.
+   To change only one end of a range ("at most 9 miles a day"), keep the other end as it is now. To loosen
+   the per-day limit ("ignore miles per day"), widen daily, e.g. from 1 up to the total's high; there is no
+   "no limit" while the trip has nights.
    To make one day shorter or longer, move the camps. "camps" lists every camp, one mile per night, in order;
    the current camps are the "Camp N: mile X" lines in the FACTS. Keep the camps you don't need to move. Day N
    ends at camp N: to shorten day N, move camp N to an earlier mile (for the last day, move the last camp to a
@@ -150,6 +152,11 @@ def apply_changes(request: dict, changes: dict, trails: list[str], starts: list[
     if "trailhead" in changes:
         new["trailhead"] = _trailhead(changes["trailhead"], starts)
     nights = new.get("nights") or 0
+    changes = dict(changes)
+    nights_changed = "nights" in changes and (request.get("nights") or 0) != nights
+    if nights_changed and len(changes.get("camps") or []) not in (0, nights):
+        del changes["camps"]  # the model kept the old trip's camp list; let the engine place camps for the new nights
+        new["camps"] = []
     if "camps" in changes:
         miles = [float(m) for m in changes["camps"]]
         if len(miles) > nights:
