@@ -89,3 +89,35 @@ def test_a_tie_for_longest_day_accepts_any_tied_day_or_same_length_wording():
     assert check_case(case, result("explain", "All days are the same length, 6.34 mi each."), None, RUN) == []
     assert check_case(case, result("explain", "Day 2 and day 3 tie."), None, RUN) == []
     assert check_case(case, result("explain", "It is long."), None, RUN) == ["reply doesn't name day 1, 2 or 3"]
+
+
+def test_days_include_expectation():
+    case = {"id": "d", "message": "day 1 easy", "expect": {"days_include": [{"day": 1, "level": "easy"}, {"day": 2}]}}
+    days = [{"day": 1, "level": "easy", "miles": None, "max_gain_ft": None, "max_grade_pct": None},
+            {"day": 2, "level": None, "miles": [2.0, 4.0], "max_gain_ft": None, "max_grade_pct": None}]
+    assert check_case(case, result(request={"days": days}), None, RUN) == []
+    assert check_case(case, result(request={"days": days[:1]}), None, RUN) == ["no target for day 2"]
+    assert check_case(case, result(request={"days": [days[0] | {"level": "hard"}, days[1]]}), None, RUN) == ["day 1 isn't set to easy"]
+    assert check_case(case, result(kind="explain"), None, RUN) == ["no proposal"]
+
+
+def test_hardest_level_day_expectation():
+    import copy
+
+    run = copy.deepcopy(RUN)
+    for d, lvl in zip(run["candidates"][0]["plan"]["days"], ["moderate", "hard", "moderate"]):
+        d["rating"] = {"level": lvl}
+    case = {"id": "h", "message": "hardest by level?", "expect": {"mentions_hardest_level_day": True}}
+    assert check_case(case, result(kind="explain", reply="Day 2 is the hardest: it's hard."), None, run) == []
+    assert check_case(case, result(kind="explain", reply="Day 3 climbs the most."), None, run) == ["reply doesn't name day 2"]
+
+
+def test_all_days_at_one_level_can_be_said_as_such():
+    import copy
+
+    run = copy.deepcopy(RUN)
+    for d in run["candidates"][0]["plan"]["days"]:
+        d["rating"] = {"level": "moderate"}
+    case = {"id": "h", "message": "hardest by level?", "expect": {"mentions_hardest_level_day": True}}
+    assert check_case(case, result(kind="explain", reply="All three days are moderate."), None, run) == []
+    assert check_case(case, result(kind="explain", reply="It's moderate."), None, run) == ["reply doesn't name day 1, 2 or 3"]

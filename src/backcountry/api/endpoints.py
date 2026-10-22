@@ -8,6 +8,7 @@ from fastapi.responses import Response
 from backcountry import ingest
 from backcountry.api.store import NotFound
 from backcountry.chat.service import chat_turn, start_names, trail_names
+from backcountry.difficulty import rate_saved, segments_terrain
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
 from backcountry.planning import GenerateRequest, RequestError, plan_trip
@@ -117,6 +118,41 @@ def generate(region_id: str, request: Request, body: dict):
     if runs:
         runs.save(run)
     return run
+
+
+def _is_number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+@router.post("/difficulty")
+def difficulty(request: Request, body: dict):
+    """Re-rate a saved trip's days from its stored route (camps moved on the phone included), with the
+    terrain rebuilt from this region's graph. For trips saved before levels existed, and after rule changes."""
+    loaded = _regions(request).get(str(body.get("region")))
+    prof = body.get("profile")
+    if (not isinstance(prof, dict) or not isinstance(prof.get("d_m"), list) or not isinstance(prof.get("z_m"), list)
+            or len(prof["d_m"]) != len(prof["z_m"]) or len(prof["d_m"]) < 2
+            or not all(_is_number(x) for x in prof["d_m"]) or any(b <= a for a, b in zip(prof["d_m"], prof["d_m"][1:]))
+            or not all(v is None or _is_number(v) for v in prof["z_m"])):
+        raise RequestError("profile", "profile must be {d_m, z_m}: equal-length lists, d_m increasing")
+    segs = body.get("segments")
+    if not isinstance(segs, list) or not all(
+            isinstance(s, dict) and _is_number(s.get("length_m")) and isinstance(s.get("sources"), list) for s in segs):
+        raise RequestError("segments", "segments must be a list of {length_m, sources}")
+    nights, camps = body.get("nights"), body.get("camps_m")
+    if nights is not None and (not isinstance(nights, int) or isinstance(nights, bool) or nights < 1):
+        raise RequestError("nights", "nights must be a whole number of at least 1, or null for a day hike")
+    if nights:
+        end = prof["d_m"][-1]
+        if (not isinstance(camps, list) or len(camps) != nights or not all(_is_number(m) and 0 < m < end for m in camps)
+                or camps != sorted(camps)):
+            raise RequestError("camps_m", f"camps_m must be {nights} distance(s) in order along the route (0 to {end:.0f} m)")
+    geometry = body.get("geometry")
+    if geometry is not None and (not isinstance(geometry, list) or not all(
+            isinstance(c, list) and len(c) >= 2 and all(_is_number(x) for x in c[:2]) for c in geometry)):
+        raise RequestError("geometry", "geometry must be the route's [lon, lat] points")
+    terrain = segments_terrain(loaded.tg, segs, geometry)
+    return rate_saved(prof, terrain, nights, [float(m) for m in camps] if nights else None)
 
 
 @router.get("/runs/{run_id}")

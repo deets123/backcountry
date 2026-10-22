@@ -34,12 +34,22 @@ export interface GenerateRequest {
   max_gain_day?: number | null; type?: "loop" | "lollipop" | "any"; count?: number; no_roads?: boolean;
   road_weight?: number; repeat_weight?: number; camps?: string[]; camps_at_sites?: boolean;
   must_visit?: string[]; avoid?: string[]; direction?: "cw" | "ccw" | null;
+  days?: DayTarget[]; level?: Level | null;
+}
+
+export type Level = "easy" | "moderate" | "hard" | "strenuous";
+export interface DayTarget { day: number; level?: Level | null; miles?: [number, number] | null; max_gain_ft?: number | null; max_grade_pct?: number | null }
+export interface Steep { grade_pct: number; start_m: number; end_m: number }
+export interface TerrainInterval { start_m: number; end_m: number; reason: string | null; sources: string[] }
+export interface Rating {
+  level: Level | null; reasons: string[]; effort: number | null; steep: Steep | null;
+  tagged: TerrainInterval[]; untagged_share: number;
 }
 
 export interface Segment { label: string; highway: string; is_road: boolean; last_resort: boolean; length_m: number; sources: string[] }
 export interface Piece { name: string; points: [number, number, number | null][]; start_m: number; end_m: number; length_m: number; gain_ft: number | null; loss_ft: number | null; day: number | null }
 export interface Waypoint { name: string; desc: string; lat: number; lon: number; dist_m: number; ele: number | null; kind: "start" | "end" | "camp" | "junction" }
-export interface Day { index: number; start_m: number; end_m: number; length_m: number; gain_ft: number | null; loss_ft: number | null; start_label: string; end_label: string }
+export interface Day { index: number; start_m: number; end_m: number; length_m: number; gain_ft: number | null; loss_ft: number | null; start_label: string; end_label: string; rating?: Rating | null }
 export interface NearbySite { source: string; kind: string; name: string | null; url?: string | null; distance_m: number }
 export interface Camp {
   index: number; dist_m: number; lat: number; lon: number; on_source: string; on_name: string | null; nearby: NearbySite[];
@@ -51,6 +61,8 @@ export interface Plan {
   nights: number; daily_min_m: number; daily_max_m: number; max_gain_ft: number | null; days: Day[]; camps: Camp[];
   ok: boolean; violations: string[]; notes: string[]; penalty: number;
 }
+/** One re-checked setting change that clears every miss (planning.suggest_fix). */
+export interface Suggestion { text: string; days: DayTarget[] }
 export interface RouteFeature extends MapFeature { dist_m: number; off_m: number; day?: number | null }
 export interface Candidate {
   index: number; kind: "loop" | "lollipop"; length_m: number; gain_ft: number | null; loss_ft: number | null; road_m: number;
@@ -58,6 +70,8 @@ export interface Candidate {
   geometry: { type: "LineString"; coordinates: [number, number][] }; pieces: Piece[]; waypoints: Waypoint[];
   plan: Plan | null; features: RouteFeature[]; profile: { d_m: number[]; z_m: (number | null)[] } | null;
   title: string; description: string; notes: string[];
+  /** Runs saved before levels existed have none of these. */
+  level?: Level | null; rating?: Rating | null; terrain?: TerrainInterval[]; suggestion?: Suggestion | null;
 }
 export interface Run {
   run_id: string; region: string; request: GenerateRequest & { total: [number, number]; daily: [number, number] | null };
@@ -67,6 +81,13 @@ export interface Run {
   candidates: Candidate[];
   data_sources: { name: string; retrieved_at: string | null; attribution: string }[];
   known_gaps: string[]; diff: string | null;
+  difficulty_rules?: DifficultyRules;
+}
+export interface DifficultyRules {
+  version: number;
+  scales: Record<"day_hike" | "backpacking", { cutoffs: [number, number, number] }>;
+  steep: { window_m: number; tag_pct: number; raise_pct: number };
+  terrain: { min_m: number; sac_scale: Record<string, string>; trail_visibility: Record<string, string> };
 }
 export interface ApiErrorBody { error: string; field?: string }
 

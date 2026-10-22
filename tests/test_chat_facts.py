@@ -74,3 +74,37 @@ def test_fact_sheet_caps_long_lists(run):
     assert sheet.count("Spring: Cold Spring,") == MAX_FEATURES + 1  # the listed features, plus the camp's nearest water
     assert f"(and {100 - MAX_FEATURES} more)" in sheet
     assert "Trail 299" in sheet and "Trail 300" not in sheet and f"(and {500 - MAX_NAMES} more)" in sheet
+
+
+def test_fact_sheet_has_day_levels_and_reasons(run):
+    c = run["candidates"][0]
+    c["plan"]["days"][0]["rating"] = {"level": "hard", "reasons": ["steep", "scramble (tagged)"], "effort": 120.0,
+                                      "steep": None, "tagged": [], "untagged_share": 0.5}
+    c["plan"]["days"][1]["rating"] = {"level": None, "reasons": [], "effort": None, "steep": None, "tagged": [],
+                                      "untagged_share": 1.0}
+    c["level"], c["suggestion"] = None, {"text": "Allowing day 1 up to 5 mi would fix it.", "days": []}
+    run["request"] |= {"level": "hard", "days": [{"day": 1, "level": "easy", "miles": None, "max_gain_ft": None,
+                                                  "max_grade_pct": None},
+                                                 {"day": 2, "level": None, "miles": [2.0, 4.0], "max_gain_ft": 900.0,
+                                                  "max_grade_pct": None}]}
+    sheet = fact_sheet(run, 1, ["Row 0"], STARTS)
+    assert "level hard (steep, scramble (tagged))." in sheet
+    assert "level unknown (no elevation data)." in sheet
+    assert "Trip level: unknown (a trip is as hard as its hardest day)." in sheet
+    assert "trip level hard" in sheet and "day targets day 1 easy and day 2 2-4 mi, up to 900 ft" in sheet
+    assert "Engine suggestion: Allowing day 1 up to 5 mi would fix it." in sheet
+    run["request"] |= {"level": None, "days": []}
+    sheet = fact_sheet(run, 1, ["Row 0"], STARTS)
+    assert "trip level any" in sheet and "day targets none" in sheet
+
+
+def test_hardest_day_is_computed_not_left_to_the_model():
+    from backcountry.chat.facts import hardest_day
+
+    def day(i, gain, level):
+        return {"index": i, "gain_ft": gain, "rating": {"level": level} if level else None}
+    assert hardest_day([day(1, 784, "moderate"), day(2, 331, "moderate"), day(3, 908, "moderate")]) == \
+        "Hardest day: Day 3 (level moderate, the most gain of the moderate days)."
+    assert hardest_day([day(1, 900, "moderate"), day(2, 300, "hard")]) == "Hardest day: Day 2 (level hard, the only one at that level)."
+    assert hardest_day([day(1, 900, None), day(2, 300, None)]) == "Hardest day: Day 1 (the most gain; levels unknown)."
+    assert hardest_day([{"index": 1, "gain_ft": None, "rating": None}]) is None

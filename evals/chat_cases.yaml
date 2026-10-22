@@ -2,7 +2,8 @@
 # 2 nights, 18-26 mi, 6-11 mi/day, 2,500 ft/day cap, any shape (planned from cached Dolly Sods data).
 # Expectations (all optional): kind; request {field: value}; request_contains {field: item}; lower: field;
 # day_shorter/day_longer: day; no_proposal; grounded; reply_includes_any [words]; proposal_or_note_includes: text;
-# mentions_hardest_day / mentions_longest_day; mentions_number: candidate field (road_m, gain_ft, length_m).
+# mentions_hardest_day / mentions_longest_day; mentions_number: candidate field (road_m, gain_ft, length_m);
+# days_include [{day, level?}]: the proposal has a target for that day (at that level); mentions_hardest_level_day.
 
 - id: shorter-day-2
   message: make day 2 shorter
@@ -108,7 +109,22 @@
   expect: {kind: explain, grounded: true, reply_includes_any: [not checked, unknown], no_proposal: true}
 - id: weather
   message: what's the weather going to be like?
-  expect: {kind: explain, grounded: true, reply_includes_any: [not checked, unknown, "can't", "don't"], no_proposal: true}
+  expect: {kind: explain, grounded: true, reply_includes_any: [not checked, unknown, "can't", "don't", "does not"], no_proposal: true}
 - id: why-this-one
   message: why is this the top candidate?
   expect: {kind: explain, grounded: true, no_proposal: true}
+- id: per-day-levels
+  message: day 1 easy, days 2 and 3 hard
+  expect: {kind: change, days_include: [{day: 1, level: easy}, {day: 2, level: hard}, {day: 3, level: hard}]}
+- id: late-start
+  message: we start late on day 1, make it short
+  expect: {kind: change, days_include: [{day: 1}]}
+- id: light-last-day
+  message: keep the last day light
+  expect: {kind: change, days_include: [{day: 3, level: easy}]}
+- id: hardest-by-level
+  message: which day is the hardest by difficulty level?
+  expect: {kind: explain, grounded: true, mentions_hardest_level_day: true, no_proposal: true}
+- id: trip-level
+  message: find me something hard instead
+  expect: {kind: change, request: {level: hard}}

@@ -11,6 +11,12 @@ Camp points are positions on the route line (source geometry), labeled
 `camp_location: unverified`. Nearby OSM camp sites are listed with their
 source; nothing here says a camp is legal or has water.
 
+Per-day targets (`targets`, one per day, from GenerateRequest.targets_for)
+replace the daily range and gain cap day by day, and can add a steepness cap
+and a level: a day set to a level costs `level_miss` per level step it lands
+away from it, so the split leans toward days that come out at their level.
+Every day carries its difficulty rating (backpacking scale).
+
 Camps can be pinned (`pins_m`, distances along the route): pinned camps
 stay put and the planner places the rest. `sites_only` restricts camps to
 known camp sites lying on the route, for areas with designated sites.
@@ -22,6 +28,7 @@ import numpy as np
 from pyproj import Transformer
 from shapely.geometry import Point
 
+from backcountry.difficulty import RULES, level_index, rate_stretch, window_grades
 from backcountry.elevation import FT_PER_M, cumulative_gain_loss, smooth
 from backcountry.route import Route
 from backcountry.scoring import M_PER_MI, Weights
@@ -41,6 +48,7 @@ class Day:
     loss_ft: float | None
     start_label: str
     end_label: str
+    rating: dict | None = None  # difficulty.Rating.to_dict() on the backpacking scale
 
 
 @dataclass
@@ -70,15 +78,64 @@ class DayPlan:
     violations: list[str]
     notes: list[str]
     penalty: float
+    targets: list[dict] | None = None  # the per-day targets used, if any
+
+
+def _pair_levels(cd, cg, d, z, terrain, rules) -> tuple[np.ndarray, np.ndarray]:
+    """For every pair of candidate points (i < j): the day's level index and steepest sustained climb (% grade,
+    NaN = none), by the same rules as difficulty.rate_stretch, so the split can score levels and grade caps."""
+    P = len(cd)
+    _, grade, end = window_grades(d, z, rules["steep"]["window_m"])
+    grade = np.where(np.isnan(grade), -np.inf, grade)
+    start_idx = np.searchsorted(d, cd - 1e-6, "left")
+    steep = np.full((P, P), np.nan)
+    for j in range(1, P):
+        valid = d[end] <= cd[j] + 1e-6
+        pmax = int(np.nonzero(valid)[0].max()) if valid.any() else -1
+        if pmax < 0:
+            continue
+        r = np.maximum.accumulate(grade[:pmax + 1][::-1])[::-1]  # r[p] = steepest window starting at or after p
+        s = start_idx[:j]
+        ok = s <= pmax
+        vals = np.full(j, -np.inf)
+        vals[ok] = r[s[ok]]
+        steep[:j, j] = np.where(np.isfinite(vals) & (vals > 0), vals, np.nan)
+    gain = np.maximum(cg[None, :] - cg[:, None], 0.0)
+    miles = np.maximum(cd[None, :] - cd[:, None], 0.0) / M_PER_MI
+    effort = np.sqrt(gain * 2 * miles)
+    hard = level_index("hard")
+    # scale is filled in by the caller's rules; split days are backpacking days
+    level = np.searchsorted(np.asarray(rules["scales"]["backpacking"]["cutoffs"], dtype=float), effort, "right")
+    raise_ = np.nan_to_num(steep, nan=-1.0) >= rules["steep"]["raise_pct"]
+    level = np.where(raise_ & (level < hard), level + 1, level)
+    tagged = [t for t in terrain if t["reason"]]
+    if tagged:
+        # a day [cd_i, cd_j] counts a tagged stretch when it covers at least min_m of it (as rate_stretch)
+        touched = np.zeros((P, P), dtype=bool)
+        for t in tagged:
+            ov = np.minimum(t["end_m"], cd[None, :]) - np.maximum(t["start_m"], cd[:, None])
+            touched |= ov >= rules["terrain"]["min_m"]
+        level = np.where(touched, np.maximum(level, hard), level)
+    return level, steep
 
 
 def split_route(route: Route, nights: int, daily_min_m: float, daily_max_m: float, max_gain_ft: float | None = None,
-                weights: Weights = Weights(), camp_sites=(), pins_m=(), sites_only: bool = False) -> DayPlan:
+                weights: Weights = Weights(), camp_sites=(), pins_m=(), sites_only: bool = False,
+                targets: list[dict] | None = None, terrain: list[dict] | None = None, rules: dict = RULES) -> DayPlan:
     if route.profile is None:
         raise ValueError("route has no profile; call add_elevation first (a DEM is needed even for distance-only splits)")
     d = np.asarray(route.profile["d_m"], dtype=float)
     ndays = nights + 1
     notes = []
+    terrain = terrain or []
+    if targets is not None and len(targets) != ndays:
+        raise ValueError(f"{len(targets)} day targets for {ndays} days")
+    # Per-day limits in meters: a day target's numbers, else the trip-wide daily range and gain cap.
+    day_lo = [t["miles"][0] * M_PER_MI if t and t["miles"] else daily_min_m for t in (targets or [None] * ndays)]
+    day_hi = [t["miles"][1] * M_PER_MI if t and t["miles"] else daily_max_m for t in (targets or [None] * ndays)]
+    day_cap = [t["max_gain_ft"] if t else max_gain_ft for t in (targets or [None] * ndays)]
+    day_grade = [t["max_grade_pct"] if t else None for t in (targets or [None] * ndays)]
+    day_level = [level_index(t["level"]) if t and t["level"] else None for t in (targets or [None] * ndays)]
     pins = sorted(float(p) for p in pins_m)
     if len(pins) > nights:
         raise ValueError(f"{len(pins)} camps pinned but only {nights} night(s)")
@@ -93,7 +150,10 @@ def split_route(route: Route, nights: int, daily_min_m: float, daily_max_m: floa
         notes.append("elevation unknown along this route, so days were split by distance only and gain is not checked")
 
     total_m = d[-1]
-    if not ndays * daily_min_m <= total_m <= ndays * daily_max_m:
+    if targets is not None and not sum(day_lo) <= total_m <= sum(day_hi):
+        notes.append(f"This route can't fit your day targets: it is {total_m / M_PER_MI:.2f} mi, and they need between "
+                     f"{sum(day_lo) / M_PER_MI:.1f} and {sum(day_hi) / M_PER_MI:.1f} mi. The split below is the least-bad one.")
+    elif targets is None and not ndays * daily_min_m <= total_m <= ndays * daily_max_m:
         notes.append(f"This route can't fit {ndays} days of {daily_min_m / M_PER_MI:.1f}-{daily_max_m / M_PER_MI:.1f} mi: "
                      f"it is {total_m / M_PER_MI:.2f} mi, and {ndays} such days need between "
                      f"{ndays * daily_min_m / M_PER_MI:.1f} and {ndays * daily_max_m / M_PER_MI:.1f} mi. "
@@ -117,7 +177,11 @@ def split_route(route: Route, nights: int, daily_min_m: float, daily_max_m: floa
     cg = np.interp(cd, d, G) if gain_known else None
     cl = np.interp(cd, d, L) if gain_known else None
     P = len(cd)
-    target = total_m / ndays
+    # the imbalance pull: an equal split, or with day targets each day's own midpoint
+    day_mid = [(lo + hi) / 2 for lo, hi in zip(day_lo, day_hi)] if targets is not None else [total_m / ndays] * ndays
+    pair_level = pair_steep = None
+    if gain_known and (any(lv is not None for lv in day_level) or any(g is not None for g in day_grade)):
+        pair_level, pair_steep = _pair_levels(cd, cg, d, route.profile["z_m"], terrain, rules)
     # A day may not pass over a pinned camp: its start must be at or after the last pin before its end.
     pin_pos = {int(np.argmin(np.abs(cd - p))) for p in pins}
     lower = np.zeros(P, dtype=int)
@@ -139,10 +203,16 @@ def split_route(route: Route, nights: int, daily_min_m: float, daily_max_m: floa
             if not np.isfinite(prev).any():
                 continue
             m = cd[j] - cd[lo_i:j]
-            cost = (weights.daily_out_of_range * (np.maximum(0.0, daily_min_m - m) + np.maximum(0.0, m - daily_max_m))
-                    + weights.imbalance * np.abs(m - target)) / M_PER_MI
-            if gain_known and max_gain_ft is not None:
-                cost = cost + weights.gain_over_cap * np.maximum(0.0, cg[j] - cg[lo_i:j] - max_gain_ft) / 1000.0
+            lo_m, hi_m, cap, grade_cap, lvl = day_lo[k - 1], day_hi[k - 1], day_cap[k - 1], day_grade[k - 1], day_level[k - 1]
+            cost = (weights.daily_out_of_range * (np.maximum(0.0, lo_m - m) + np.maximum(0.0, m - hi_m))
+                    + weights.imbalance * np.abs(m - day_mid[k - 1])) / M_PER_MI
+            if gain_known and cap is not None:
+                cost = cost + weights.gain_over_cap * np.maximum(0.0, cg[j] - cg[lo_i:j] - cap) / 1000.0
+            if pair_steep is not None and grade_cap is not None:
+                over = np.nan_to_num(pair_steep[lo_i:j, j], nan=0.0) - grade_cap
+                cost = cost + weights.gain_over_cap * np.maximum(0.0, over)
+            if pair_level is not None and lvl is not None:
+                cost = cost + weights.level_miss * np.abs(pair_level[lo_i:j, j] - lvl)
             total = prev + cost
             b = int(np.argmin(total))
             dp[k, j], back[k, j] = total[b], lo_i + b
@@ -160,14 +230,16 @@ def split_route(route: Route, nights: int, daily_min_m: float, daily_max_m: floa
         length = cd[j] - cd[i]
         gain = (cg[j] - cg[i]) if gain_known else None
         loss = (cl[j] - cl[i]) if gain_known else None
+        rating = rate_stretch(route.profile["d_m"], route.profile["z_m"], terrain, float(cd[i]), float(cd[j]),
+                              float(gain) if gain is not None else None, "backpacking", rules)
         days.append(Day(k + 1, cd[i], cd[j], length, gain, loss,
-                        "Start" if k == 0 else f"Camp {k}", "End" if k == ndays - 1 else f"Camp {k + 1}"))
-        if length < daily_min_m:
-            violations.append(f"Day {k + 1}: {length / M_PER_MI:.2f} mi is under the {daily_min_m / M_PER_MI:.2f} mi daily minimum")
-        if length > daily_max_m:
-            violations.append(f"Day {k + 1}: {length / M_PER_MI:.2f} mi is over the {daily_max_m / M_PER_MI:.2f} mi daily max")
-        if gain is not None and max_gain_ft is not None and gain > max_gain_ft:
-            violations.append(f"Day {k + 1}: {gain:,.0f} ft of climbing is over the {max_gain_ft:,.0f} ft daily gain cap")
+                        "Start" if k == 0 else f"Camp {k}", "End" if k == ndays - 1 else f"Camp {k + 1}",
+                        rating=rating.to_dict()))
+        violations += _day_violations(k + 1, length, gain, rating, (targets or [None] * ndays)[k],
+                                      day_lo[k], day_hi[k], day_cap[k])
+        want = (targets or [None] * ndays)[k]
+        if want and want["level"] and rating.level is None:
+            notes.append(f"Day {k + 1}: level unknown (no elevation), so its {want['level']} target can't be checked")
 
     camps = []
     for k in range(nights):
@@ -177,7 +249,33 @@ def split_route(route: Route, nights: int, daily_min_m: float, daily_max_m: floa
         camps.append(camp)
     ok = not violations and not (sites_only is False and any("Designated-site mode" in n for n in notes))
     return DayPlan(nights, daily_min_m, daily_max_m, max_gain_ft, days, camps, ok=ok,
-                   violations=violations, notes=notes, penalty=float(dp[ndays, P - 1]))
+                   violations=violations, notes=notes, penalty=float(dp[ndays, P - 1]), targets=targets)
+
+
+def _day_violations(n: int, length: float, gain, rating, target: dict | None, lo: float, hi: float, cap) -> list[str]:
+    """What a day misses. Numbers the user set for the day are worded "your ... target"; a day set only to a
+    level is held to the level (the level table's numbers only shape the split), so only a level miss shows."""
+    out = []
+    targeted = bool(target and target["targeted"])
+    mine = set(target.get("explicit", [])) if targeted else set()
+    trip = set(target.get("from_trip", [])) if targeted else {"miles", "max_gain_ft"}
+    if "miles" in mine | trip and length < lo:
+        out.append(f"Day {n}: {length / M_PER_MI:.2f} mi is under your {lo / M_PER_MI:.2f} mi target" if "miles" in mine else
+                   f"Day {n}: {length / M_PER_MI:.2f} mi is under the {lo / M_PER_MI:.2f} mi daily minimum")
+    if "miles" in mine | trip and length > hi:
+        out.append(f"Day {n}: {length / M_PER_MI:.2f} mi is over your {hi / M_PER_MI:.2f} mi target" if "miles" in mine else
+                   f"Day {n}: {length / M_PER_MI:.2f} mi is over the {hi / M_PER_MI:.2f} mi daily max")
+    if "max_gain_ft" in mine | trip and gain is not None and cap is not None and gain > cap:
+        out.append(f"Day {n}: {gain:,.0f} ft of climbing is over your {cap:,.0f} ft target" if "max_gain_ft" in mine else
+                   f"Day {n}: {gain:,.0f} ft of climbing is over the {cap:,.0f} ft daily gain cap")
+    grade_cap = target["max_grade_pct"] if target else None
+    if "max_grade_pct" in mine and grade_cap is not None and rating.steep and round(rating.steep["grade_pct"]) > grade_cap:
+        s = rating.steep
+        out.append(f"Day {n}: {s['grade_pct']:.0f}% grade for {(s['end_m'] - s['start_m']) / M_PER_MI:.1f} mi "
+                   f"is over your {grade_cap:g}% target")
+    if target and target["level"] and rating.level and rating.level != target["level"]:
+        out.append(f"Day {n} came out {rating.level}, not {target['level']}")
+    return out
 
 
 def _sites_on_route(route: Route, camp_sites) -> list[dict]:

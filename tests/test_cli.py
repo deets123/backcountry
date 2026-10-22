@@ -250,3 +250,17 @@ def test_generate_request_record_keeps_the_cli_format(tmp_path, monkeypatch, gri
     assert "Request: trailhead=" in md and "total=2.4-5.1" in md and "daily=0.5-4" in md and "[2.4" not in md
     record = json.loads((tmp_path / "out" / "loops" / f"{g00}_2.4-5.1mi" / "candidates.json").read_text())
     assert record["request"]["total"] == "2.4-5.1" and "camps" in record["request"]
+
+
+def test_ingest_reads_regions_from_another_directory(tmp_path, monkeypatch, network):
+    _cache(tmp_path, monkeypatch)
+    regions = tmp_path / "calibration"
+    regions.mkdir()
+    (regions / "calib.yaml").write_text("id: calib\nname: Calib\ncrs: EPSG:32617\n"
+                                        "bbox: {south: 36.0, west: -81.1, north: 36.2, east: -80.9}\n")
+    d = tmp_path / "raw" / "calib"
+    d.mkdir(parents=True)
+    (d / "overpass_20260101T000000Z.json").write_text(json.dumps(network.doc()))
+    result = runner.invoke(app, ["ingest", "--region", "calib", "--regions-dir", str(regions)])
+    assert result.exit_code == 0, result.output
+    assert "Using cached" in result.output

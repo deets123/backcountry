@@ -8,6 +8,8 @@ export interface SavedTrip {
   gpx: { whole: string | null; days: (string | null)[] }; trails: TrailFeatureCollection; box: Box;
   tiles: { cache: string; total: number; saved: number; missingByZoom: Record<string, number> };
   bytes: number; persisted: boolean; complete: boolean; problems: string[];
+  /** When levels were last fetched for a trip saved before they existed (offline/levels.ts); new saves carry them. */
+  levelsRefreshedAt?: string;
 }
 
 const DB = "backcountry", STORE = "trips", VERSION = 1;

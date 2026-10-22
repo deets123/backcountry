@@ -20,7 +20,7 @@ test("plan, compare, open a trip, download its GPX", async ({ page }) => {
   await page.click("#open-trip");
   await expect(page.locator("h1")).toContainText("Candidate 2");
   await expect(page.locator("#known-gaps")).toContainText("Not checked by this tool");
-  await expect(page.locator("table")).toContainText("Day 1");
+  await expect(page.locator(".days")).toContainText("Day 1");
   const [download] = await Promise.all([page.waitForEvent("download"), page.click('a[href$="/candidates/2.gpx"]')]);
   expect(download.suggestedFilename()).toMatch(/candidate_2\.gpx$/);
   const text = (await (await download.createReadStream()).toArray()).join("");  // chunks stringify as UTF-8
@@ -91,4 +91,22 @@ test("data-derived start points are drawn as a map layer, not one DOM marker eac
   await expect(page.locator("#map canvas")).toBeVisible();
   await page.waitForTimeout(1500);  // markers are added once the map has loaded
   await expect(page.locator(".marker")).toHaveCount(0);  // the grid's yaml trailheads are off the network, so no badges at all
+});
+
+test("set day 1 easy in the day strip and generate", async ({ page }) => {
+  await page.goto("/");
+  await pickDataStart(page);
+  await page.fill('input[name="total"]', "2.4-5.1");
+  await page.fill('input[name="nights"]', "1");
+  await page.fill('input[name="daily"]', "0.5-4");
+  await page.fill('input[name="maxGainDay"]', "");
+  await page.check('input[name="perDay"]');
+  await expect(page.locator(".day-block")).toHaveCount(2);
+  await page.locator(".day-block").first().click();
+  await page.locator('.day-editor [data-level="easy"]').click();
+  await expect(page.locator(".day-block").first()).toHaveText("D1 Easy");
+  await page.click("#generate");
+  await expect(page.locator(".card")).toHaveCount(3, { timeout: 30_000 });
+  await page.click("#open-trip");
+  await expect(page.locator(".days .day-row").first().locator(".lvl")).toBeVisible();  // a level chip (unknown without a DEM)
 });

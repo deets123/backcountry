@@ -1,4 +1,5 @@
 // Typed client for the piece-1 API. All errors become ApiError with the server's wording.
+import type { DifficultyAnswer, DifficultyBody } from "./offline/levels";
 import type { ApiErrorBody, ChatAnswer, FeaturesInView, GenerateRequest, Region, Run, TrailFeatureCollection, Trailhead } from "./types";
 
 export class ApiError extends Error {
@@ -70,4 +71,9 @@ export function geojsonUrl(runId: string, n: number): string {
 
 export function chat(body: { run_id: string; candidate: number; message: string; history: { role: string; text: string }[] }): Promise<ChatAnswer> {
   return request("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+/** Levels for a saved trip's route (offline/levels.ts). */
+export function difficulty(body: DifficultyBody): Promise<DifficultyAnswer> {
+  return request("/api/difficulty", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }

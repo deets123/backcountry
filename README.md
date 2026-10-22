@@ -103,6 +103,27 @@ It uses a local model through [Ollama](https://ollama.com) (free; nothing leaves
 commit `.env`. Compare models on the test set with
 `uv run backcountry chat-eval --model ollama:<model> [--model …]` (cases in `evals/chat_cases.yaml`).
 
+### Difficulty levels
+
+Every day and every trip is labeled **easy**, **moderate**, **hard** or **strenuous**, with a short reason
+("Hard · steep"); tap a day for the numbers behind it. Levels are computed only from the trail and elevation
+data (`src/backcountry/difficulty.py`):
+
+- **Effort**: Shenandoah National Park's formula, √(2 × feet climbed × miles). Descent doesn't count.
+- **Steep**: a sustained climb of 15%+ over 400 m is tagged "steep"; 30%+ raises the level by one, never into
+  strenuous.
+- **Terrain**: OpenStreetMap `sac_scale` and `trail_visibility` tags ("scramble (tagged)", "demanding trail
+  (tagged)", "hard to follow (tagged)") make a day at least hard. Where OSM has no terrain tags, the details say
+  "terrain unknown"; most trails have none.
+- **Two scales**: a day hike and a day of a backpacking trip use different cutoffs (a pack makes the same miles
+  harder). A trip is as hard as its hardest day. No elevation data means "Level unknown", never a guess.
+
+Set days individually in the plan form (the day strip: tap a day, pick a level or type miles, climbing and
+grade) or in the chat ("day 1 easy, days 2 and 3 hard", "we start late on day 1"), and filter by trip level.
+When no loop meets every day's target, the closest one says which days miss and suggests one change the engine
+re-checked. The levels were tuned against trips the user has hiked (`tests/calibration/`); the reference tracks
+are local only and never committed.
+
 ## Regions
 
 Two regions exist: `regions/dolly_sods.yaml` (Dolly Sods Wilderness, WV) and `regions/pemi.yaml`

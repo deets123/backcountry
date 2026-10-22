@@ -58,6 +58,10 @@ class Candidate:
     lengths: dict = field(default_factory=dict)
     plan: object = None  # a split.DayPlan once days are planned (M5)
     features: list | None = None  # camp sites / water along the route (features.along_route)
+    terrain: list | None = None  # difficulty.route_terrain intervals
+    rating: dict | None = None  # a day hike's difficulty rating (whole route, day-hike scale); trips rate per day
+    suggestion: dict | None = None  # planning.suggest_fix: one re-checked setting change {text, days}
+    pins_m: list | None = None  # resolved pinned camps, kept so the suggestion re-splits the same way
 
     def overlap(self, other: "Candidate") -> float:
         return overlap(self.keys, other.keys, self.lengths | other.lengths)

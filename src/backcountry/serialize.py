@@ -8,8 +8,10 @@ from dataclasses import asdict
 
 from shapely.geometry import mapping
 
+from backcountry.difficulty import RULES
 from backcountry.export import candidate_record, route_pieces, route_segments, route_waypoints
 from backcountry.ingest import DEM_ATTRIBUTION, OSM_ATTRIBUTION
+from backcountry.planning import candidate_level
 
 KNOWN_GAPS = [
     "water: map features only; whether water is present, flowing, or drinkable is unknown",
@@ -87,7 +89,7 @@ def plan_payload(plan) -> dict | None:
         "nights": plan.nights, "daily_min_m": plan.daily_min_m, "daily_max_m": plan.daily_max_m,
         "max_gain_ft": plan.max_gain_ft, "days": [asdict(d) for d in plan.days],
         "camps": [camp_payload(c) for c in plan.camps], "ok": plan.ok, "violations": list(plan.violations),
-        "notes": list(plan.notes), "penalty": plan.penalty,
+        "notes": list(plan.notes), "penalty": plan.penalty, "targets": plan.targets,
     }
 
 
@@ -104,6 +106,10 @@ def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str) -> dict
         "pieces": pieces,
         "waypoints": route_waypoints(c.route, start_text, f"{start_text} (loop)", c.plan),
         "plan": plan_payload(c.plan),
+        "level": candidate_level(c),
+        "rating": c.rating,
+        "terrain": c.terrain or [],
+        "suggestion": c.suggestion,
         "features": c.features or [],
         "profile": c.route.profile,
         "title": title,
@@ -131,5 +137,6 @@ def run_payload(run_id: str, region, result, raw, tg, generated_at: str, diff: s
                        for i, c in enumerate(report["candidates"], 1)],
         "data_sources": data_sources(region, raw, result),
         "known_gaps": KNOWN_GAPS,
+        "difficulty_rules": RULES,
         "diff": diff,
     }

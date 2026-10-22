@@ -75,3 +75,36 @@ def test_settings_wording_and_conditional_permit_questions_are_not_claims():
     assert check_reply("Ask whether a permit is needed.", FACTS)[0]
     for bad in ["Camping is allowed anywhere here.", "Fires are allowed at camp 2.", "Dogs are allowed.", "A permit is required."]:
         assert not check_reply(bad, FACTS)[0], bad
+
+
+LEVEL_FACTS = FACTS + """
+Day 1: Start to Camp 1, 6.34 mi, gain 784 ft, loss 622 ft, level moderate.
+Day 2: Camp 1 to Camp 2, 6.34 mi, gain 331 ft, loss 300 ft, level hard (steep).
+Day 3: Camp 2 to End, 6.34 mi, gain 908 ft, loss 422 ft, level unknown (no elevation data).
+Constraint not met: Day 2 came out hard, not easy"""
+
+
+def test_level_claims_must_match_the_computed_levels():
+    ok, reasons = check_reply("Day 2 is easy.", LEVEL_FACTS)
+    assert not ok and reasons == ["says day 2 is easy, but it is hard"]
+    assert check_reply("Day 2 is hard because it's steep.", LEVEL_FACTS) == (True, [])
+    assert check_reply("Day 2 came out hard, not easy.", LEVEL_FACTS) == (True, [])
+    assert check_reply("Day 1 is moderate and day 2 is hard.", LEVEL_FACTS) == (True, [])
+    assert not check_reply("Day 1 is moderate and day 2 is moderate.", LEVEL_FACTS)[0]
+    assert check_reply("Day 3's level is unknown.", LEVEL_FACTS)[0]
+    assert check_reply("Day 3 is hard to say.", LEVEL_FACTS)[0]  # "hard to" isn't a level
+    ok, reasons = check_reply("Day 3 is strenuous.", LEVEL_FACTS)
+    assert not ok and reasons == ["says day 3 is strenuous, but its level is unknown"]
+
+
+def test_plural_day_references_are_checked_too():
+    ok, reasons = check_reply("Days 1 and 2 are easy.", LEVEL_FACTS)
+    assert not ok and reasons == ["says day 1 is easy, but it is moderate", "says day 2 is easy, but it is hard"]
+    assert check_reply("Days 1 and 2 are moderate and hard.", LEVEL_FACTS)[0] is False  # can't tell which is which: checked as both
+    assert check_reply("Day 2 is hard; days 1, 2 or 3 could change.", LEVEL_FACTS)[0]
+
+
+def test_a_change_reply_names_the_requested_levels_without_being_withheld():
+    reply = "I've set day 1 to easy and days 2 and 3 to hard."
+    assert not check_reply(reply, LEVEL_FACTS)[0]
+    assert check_reply(reply, LEVEL_FACTS, check_levels=False) == (True, [])

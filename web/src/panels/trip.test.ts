@@ -111,3 +111,60 @@ describe("renderTrip, review fixes", () => {
     expect(patchTrip(root, s1, { ...s2, gps: { mode: "off" as const } })).toBe(false); // a mode change needs a full render
   });
 });
+
+describe("levels in the trip view", () => {
+  const M = 1609.344;
+  const rating = (over: Partial<import("../types").Rating> = {}) => ({ level: "easy" as const, reasons: [], effort: 40.2, steep: null,
+    tagged: [], untagged_share: 0, ...over });
+  const day = (index: number, start: number, end: number, r: unknown) => ({ index, start_m: start, end_m: end, length_m: end - start,
+    gain_ft: 720, loss_ft: 300, start_label: index === 1 ? "Start" : "Camp 1", end_label: index === 1 ? "Camp 1" : "End", rating: r as never });
+  const withDays = (days: unknown[], extra: Partial<Candidate> = {}) => renderTrip({ ...INITIAL, selected: 1, view: "trip", run: run({
+    level: "hard", ...extra, plan: { nights: 1, daily_min_m: 1, daily_max_m: 2, max_gain_ft: null, ok: true, penalty: 0, notes: [], violations: [],
+      days: days as never, camps: [] } }) });
+
+  it("days show level, miles, gain and reasons", () => {
+    const html = withDays([day(1, 0, 4.6 * M, rating()), day(2, 4.6 * M, 30000, rating({ level: "hard", reasons: ["steep", "scramble (tagged)"] }))]);
+    expect(html).toContain('Day 1 · <span class="lvl lvl-easy">Easy</span> · 4.60 mi · +720 ft');
+    expect(html).toContain('<span class="lvl lvl-hard">Hard</span> · 14.04 mi · +720 ft · steep, scramble (tagged)');
+  });
+  it("unknown level says Level unknown", () => {
+    const html = withDays([day(1, 0, 15000, rating({ level: null, effort: null })), day(2, 15000, 30000, null)], { level: null });
+    expect(html).toContain('Day 1 · <span class="lvl">Level unknown</span>');
+    expect(html).toContain("Level unknown: no elevation data for this day.");
+    expect(html).not.toContain("Day 2 · <span");  // no rating stored (a trip saved before levels): no level shown at all
+  });
+  it("details list the steep stretch and terrain unknown share", () => {
+    const html = withDays([day(1, 0, 15000, rating({ level: "hard", reasons: ["steep"], effort: 151.6,
+      steep: { grade_pct: 18.4, start_m: 14.2 * M, end_m: 14.6 * M }, untagged_share: 0.82,
+      tagged: [{ start_m: 3.1 * M, end_m: 3.4 * M, reason: "scramble (tagged)", sources: ["osm:way/9"] }] })), day(2, 15000, 30000, rating())]);
+    expect(html).toContain("<details");
+    expect(html).toContain("Effort score 152");
+    expect(html).toContain("Steepest climb: 18% for 0.4 mi at mile 14.2");
+    expect(html).toContain("Tagged in OpenStreetMap: scramble from mile 3.1 to 3.4");
+    expect(html).toContain("Terrain unknown for 82% of this day");
+    expect(html).not.toContain("osm:way/9");
+  });
+  it("the suggestion shows under the days", () => {
+    const html = withDays([day(1, 0, 15000, rating()), day(2, 15000, 30000, rating())],
+      { suggestion: { text: "Allowing day 1 up to 6 mi would fix it.", days: [] } });
+    expect(html).toContain("Allowing day 1 up to 6 mi would fix it.");
+  });
+  it("a day hike shows its level", () => {
+    const html = renderTrip({ ...INITIAL, selected: 1, view: "trip", run: run({ level: "moderate", rating: rating({ level: "moderate", reasons: ["steep"] }) }) });
+    expect(html).toContain('Level: <span class="lvl lvl-moderate">Moderate</span> · steep');
+  });
+});
+
+describe("tagged stretches in a day's details", () => {
+  it("are clipped to the day", () => {
+    const M = 1609.344;
+    const r = { level: "hard" as const, reasons: ["scramble (tagged)"], effort: 40, steep: null, untagged_share: 0,
+      tagged: [{ start_m: 5 * M, end_m: 7 * M, reason: "scramble (tagged)", sources: [] }] };
+    const html = renderTrip({ ...INITIAL, selected: 1, view: "trip", run: run({ level: "hard", plan: { nights: 1, daily_min_m: 1, daily_max_m: 2,
+      max_gain_ft: null, ok: true, penalty: 0, notes: [], violations: [], camps: [], days: [
+        { index: 1, start_m: 0, end_m: 6 * M, length_m: 6 * M, gain_ft: 1, loss_ft: 1, start_label: "Start", end_label: "Camp 1", rating: r },
+        { index: 2, start_m: 6 * M, end_m: 30000, length_m: 30000 - 6 * M, gain_ft: 1, loss_ft: 1, start_label: "Camp 1", end_label: "End", rating: r }] } }) });
+    expect(html).toContain("scramble from mile 5.0 to 6.0");
+    expect(html).toContain("scramble from mile 6.0 to 7.0");
+  });
+});

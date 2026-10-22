@@ -108,3 +108,20 @@ def test_pins_at_the_current_camps_and_empty_changes_get_a_note(setup):
     model.answers.append({"reply": "I will make day 1 shorter.", "kind": "change", "changes": {}})
     body = ask(client, run).json()
     assert body["proposal"] is None and body["note"] == "No setting change was proposed; try saying what to change."
+
+
+def test_a_level_change_reply_is_shown_with_its_proposal():
+    from backcountry.chat.models import FakeModel
+    from backcountry.chat.service import chat_turn
+
+    run = {"request": {"trailhead": "bear_rocks", "total": [18.0, 26.0], "nights": 2, "daily": [6.0, 11.0]},
+           "known_gaps": [], "candidates": [{"kind": "loop", "length_m": 30000.0, "gain_ft": 900.0, "loss_ft": 900.0, "road_m": 0.0,
+           "repeated_m": 0.0, "penalty": 0.0, "segments": [], "notes": [], "features": [], "index": 1, "level": "moderate",
+           "plan": {"days": [{"index": i, "start_label": "a", "end_label": "b", "length_m": 10000.0, "gain_ft": 300.0, "loss_ft": 300.0,
+                              "rating": {"level": "moderate", "reasons": []}} for i in (1, 2, 3)],
+                    "camps": [], "notes": [], "violations": []}}]}
+    model = FakeModel([{"reply": "I've set day 1 to easy and days 2 and 3 to hard.", "kind": "change",
+                        "changes": {"days": [{"day": 1, "level": "easy"}, {"day": 2, "level": "hard"}, {"day": 3, "level": "hard"}]}}])
+    out = chat_turn(model, run, 1, "day 1 easy, days 2 and 3 hard", [], [], [{"id": "bear_rocks", "name": "Bear Rocks Trailhead"}])
+    assert out["withheld"] is None and out["reply"].startswith("I've set day 1 to easy")
+    assert out["proposal"] and out["proposal"]["changes"][0].startswith("Day 1: not set → Easy")

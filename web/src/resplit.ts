@@ -1,19 +1,24 @@
 // Re-cut a saved trip's days at camps the user moved, on the phone, with the engine's rules
 // (split.py: day lengths, interpolated gain/loss, violation wording). The route never changes.
+import { rateStretch, tripLevel } from "./difficulty";
 import { cumulativeFeet, interp } from "./elevation";
 import { M_PER_MI } from "./format";
 import { metersBetween, RouteLine } from "./routeline";
-import type { Camp, Candidate, Day, NearbySite, Piece, Segment, Waypoint } from "./types";
+import type { Camp, Candidate, Day, DifficultyRules, NearbySite, Piece, Segment, TerrainInterval, Waypoint } from "./types";
 
 export const NEARBY_CAMP_M = 500; // split.py NEARBY_CAMP_M
 const CAMP_KINDS = new Set(["camp_site", "camp_pitch"]);
 
 export interface Limits { daily_min_m: number; daily_max_m: number; max_gain_ft: number | null }
+/** What re-rating days needs: the route's terrain and the rules it was rated with. Trips saved before levels
+ * existed have neither until they're refreshed, and then their days get no rating at all. */
+export interface LevelData { terrain: TerrainInterval[]; rules: DifficultyRules }
 
 const grouped = (n: number) => Math.round(n).toLocaleString("en-US");
 const mi2 = (m: number) => (m / M_PER_MI).toFixed(2);
 
-export function resplitDays(profile: Candidate["profile"], lengthM: number, campsM: number[], limits: Limits): { days: Day[]; violations: string[] } {
+export function resplitDays(profile: Candidate["profile"], lengthM: number, campsM: number[], limits: Limits,
+  levels: LevelData | null = null): { days: Day[]; violations: string[] } {
   const end = profile && profile.d_m.length ? profile.d_m[profile.d_m.length - 1]! : lengthM;
   const bounds = [0, ...campsM, end];
   for (let i = 1; i < bounds.length; i++) {
@@ -26,8 +31,9 @@ export function resplitDays(profile: Candidate["profile"], lengthM: number, camp
     const a = bounds[k]!, b = bounds[k + 1]!, length = b - a;
     const gain = cum ? interp(b, cum.d, cum.G) - interp(a, cum.d, cum.G) : null;
     const loss = cum ? interp(b, cum.d, cum.L) - interp(a, cum.d, cum.L) : null;
+    const rating = levels && profile ? rateStretch(profile, levels.terrain, a, b, gain, "backpacking", levels.rules) : null;
     days.push({ index: k + 1, start_m: a, end_m: b, length_m: length, gain_ft: gain, loss_ft: loss,
-      start_label: k === 0 ? "Start" : `Camp ${k}`, end_label: k === n - 1 ? "End" : `Camp ${k + 1}` });
+      start_label: k === 0 ? "Start" : `Camp ${k}`, end_label: k === n - 1 ? "End" : `Camp ${k + 1}`, rating });
     if (length < limits.daily_min_m) violations.push(`Day ${k + 1}: ${mi2(length)} mi is under the ${mi2(limits.daily_min_m)} mi daily minimum`);
     if (length > limits.daily_max_m) violations.push(`Day ${k + 1}: ${mi2(length)} mi is over the ${mi2(limits.daily_max_m)} mi daily max`);
     if (gain !== null && limits.max_gain_ft !== null && gain > limits.max_gain_ft) {
@@ -43,12 +49,14 @@ function segmentAt(c: Candidate, m: number): Segment | undefined {
   return c.segments[c.segments.length - 1];
 }
 
-/** The candidate with its camps at `campsM` (meters along, in order). Everything else is copied. */
-export function withCamps(c: Candidate, campsM: number[], line: RouteLine = RouteLine.of(c)): Candidate {
+/** The candidate with its camps at `campsM` (meters along, in order). Everything else is copied. Days are
+ * re-rated when the candidate has its terrain and `rules` are given (the run's difficulty_rules). */
+export function withCamps(c: Candidate, campsM: number[], line: RouteLine = RouteLine.of(c), rules?: DifficultyRules): Candidate {
   const p = c.plan;
   if (!p) throw new Error("This trip has no day plan, so there are no camps to move.");
   if (campsM.length !== p.camps.length) throw new Error(`This trip has ${p.camps.length} camp(s); got ${campsM.length}.`);
-  const { days, violations } = resplitDays(c.profile, c.length_m, campsM, p);
+  const levels = rules && c.terrain ? { terrain: c.terrain, rules } : null;
+  const { days, violations } = resplitDays(c.profile, c.length_m, campsM, p, levels);
   const prof = c.profile && !c.profile.z_m.some((z) => z == null) ? c.profile : null;
   const ele = (m: number) => (prof ? interp(m, prof.d_m, prof.z_m as number[]) : null);
   const sites = c.features.filter((f) => CAMP_KINDS.has(f.kind));
@@ -84,7 +92,8 @@ export function withCamps(c: Candidate, campsM: number[], line: RouteLine = Rout
   const waypoints = [...others.filter((w) => w.kind !== "junction"), ...campWps, ...others.filter((w) => w.kind === "junction")];
   const features = c.features.map((f) => ({ ...f, day: days.find((d) => d.start_m <= f.dist_m && f.dist_m <= d.end_m)?.index ?? null }));
   const notes = [...p.notes, "Camps moved by you on this phone; the route itself is unchanged."];
-  return { ...c, pieces, waypoints, features, plan: { ...p, days, camps, violations, ok: violations.length === 0, notes } };
+  const level = levels ? { level: tripLevel(days.map((d) => d.rating!)) } : {};
+  return { ...c, ...level, pieces, waypoints, features, plan: { ...p, days, camps, violations, ok: violations.length === 0, notes } };
 }
 
 export function campsOf(c: Candidate): number[] {

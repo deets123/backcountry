@@ -3,7 +3,7 @@
 A reply is withheld when it uses a number the facts don't have (at the reply's own precision), names a trail or
 place the facts don't mention, or makes a claim this app can't support (safe, water there, open, legal, permitted,
 conditions), or converts to other units. Saying such things are unknown or not checked is fine: a clause with that
-wording is exempt.
+wording is exempt. A clause that calls day N by a difficulty level must use the level the facts give day N.
 """
 
 import re
@@ -31,6 +31,9 @@ _UNKNOWN = re.compile(r"\bunknown\b|\bnot (known|checked)\b|\bcan'?t (tell|say|k
                       r"\bnot confirmed\b|\bunconfirmed\b|\bwhether\b")
 _OTHER_UNITS = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?\s*(?:km|kilomet(?:er|re)s?|met(?:er|re)s?|m)\b", re.IGNORECASE)
 _CLAUSE = re.compile(r"(?<=[.!?;:,])\s+|\s+(?:but|although|though)\s+", re.IGNORECASE)
+_FACT_LEVEL = re.compile(r"^Day (\d+):.*, level (easy|moderate|hard|strenuous|unknown)\b", re.MULTILINE)
+_DAY = re.compile(r"\bdays? (\d+(?:\s*(?:,|and|&|or)\s*\d+)*)\b", re.IGNORECASE)  # "day 2", "days 2 and 3"
+_LEVEL_WORD = re.compile(r"\b(easy|moderate|hard|strenuous)\b(?!\s+to\b)", re.IGNORECASE)  # "hard to say" isn't a level
 _NAME = re.compile(r"\b((?:[A-Z][\w'’-]*\s){1,4}(?:Trail|Trailhead|Run|Road|Creek|Ridge|Knob|Mountain|Lake|Pond|Spring|Grade|Rocks|Plains))\b")
 
 
@@ -44,7 +47,30 @@ def _numbers(text: str) -> list[str]:
     return _NUMBER.findall(text)
 
 
-def check_reply(reply: str, facts: str) -> tuple[bool, list[str]]:
+def _level_claims(clause: str, levels: dict[int, str | None]) -> list[str]:
+    """Each level word belongs to the closest day mention before it ("day 2", or every day of "days 2 and 3");
+    "not hard" is no claim."""
+    out = []
+    mentions = [(m.start(), [int(x) for x in re.findall(r"\d+", m[1])]) for m in _DAY.finditer(clause)]
+    for m in _LEVEL_WORD.finditer(clause):
+        before = [days for at, days in mentions if at < m.start()]
+        if not before or clause[:m.start()].lower().rstrip().endswith("not"):
+            continue
+        said = m[1].lower()
+        for day in before[-1]:
+            if day not in levels:
+                continue
+            actual = levels[day]
+            why = (f"says day {day} is {said}, but its level is unknown" if actual is None else
+                   f"says day {day} is {said}, but it is {actual}" if said != actual else None)
+            if why and why not in out:
+                out.append(why)
+    return out
+
+
+def check_reply(reply: str, facts: str, check_levels: bool = True) -> tuple[bool, list[str]]:
+    """`check_levels=False` for a reply describing a proposed change: "I've set day 1 to easy" names a target,
+    not the day's computed level."""
     reasons = []
     known = [float(t.replace(",", "")) for t in _numbers(facts)]
     for token in _numbers(reply):
@@ -59,6 +85,10 @@ def check_reply(reply: str, facts: str) -> tuple[bool, list[str]]:
         for pattern, why in _BANNED:
             if re.search(pattern, clause, re.IGNORECASE) and why not in reasons:
                 reasons.append(why)
+    levels = {int(d): (None if lvl == "unknown" else lvl) for d, lvl in _FACT_LEVEL.findall(facts)}
+    if levels and check_levels:
+        for clause in _CLAUSE.split(reply):
+            reasons += [r for r in _level_claims(clause, levels) if r not in reasons]
     facts_lower = facts.lower()
     for name in _NAME.findall(reply):
         words = name.split()

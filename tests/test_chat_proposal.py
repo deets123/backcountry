@@ -112,3 +112,78 @@ def test_fewer_nights_with_the_old_camp_list_lets_the_engine_place_camps():
     assert new["nights"] == 2 and new["camps"] == [] and "Nights: 3 → 2" in lines
     with pytest.raises(ProposalError, match="5 camps for 2 nights"):  # without a nights change it's still refused
         apply_changes(REQ, {"camps": [1, 2, 3, 4, 5]}, TRAILS, STARTS)
+
+
+# --- per-day levels and the trip level -----------------------------------------------
+
+
+def test_day_levels_become_a_proposal_with_numbers():
+    from backcountry.difficulty import LEVEL_TARGETS
+
+    new, lines = apply_changes(REQ, {"days": [{"day": 1, "level": "easy"}, {"day": 2, "level": "hard"},
+                                              {"day": 3, "level": "hard", "miles": [8, 10]}]}, TRAILS, STARTS)
+    assert [d["level"] for d in new["days"]] == ["easy", "hard", "hard"] and new["days"][2]["miles"] == [8.0, 10.0]
+    easy = LEVEL_TARGETS["backpacking"]["easy"]
+    assert lines[0] == (f"Day 1: not set → Easy ({easy['miles'][0]}-{easy['miles'][1]} mi, ≤ {easy['max_gain_ft']:,} ft, "
+                        f"≤ {easy['max_grade_pct']}%)")
+    assert lines[2].startswith("Day 3: not set → Hard (8-10 mi, ≤ ")
+    assert "Days" not in " ".join(lines)  # one line per day, not a raw list
+    schema_days = RESPONSE_SCHEMA["properties"]["changes"]["properties"]["days"]
+    assert schema_days["items"]["properties"]["level"]["enum"] == ["easy", "moderate", "hard", "strenuous", None]
+
+
+def test_day_targets_merge_by_day_and_clear():
+    first, _ = apply_changes(REQ, {"days": [{"day": 1, "level": "easy"}, {"day": 2, "level": "hard"}]}, TRAILS, STARTS)
+    second, lines = apply_changes(first, {"days": [{"day": 2, "level": "moderate"}]}, TRAILS, STARTS)
+    assert [(d["day"], d["level"]) for d in second["days"]] == [(1, "easy"), (2, "moderate")]
+    assert lines == ["Day 2: Hard → Moderate (4-8 mi, ≤ 1,200 ft, ≤ 15%)"]
+    unset, lines = apply_changes(second, {"days": [{"day": 1, "level": None}]}, TRAILS, STARTS)
+    assert [d["day"] for d in unset["days"]] == [2] and lines == ["Day 1: Easy → not set"]
+    cleared, _ = apply_changes(second, {"days": []}, TRAILS, STARTS)
+    assert cleared["days"] == []
+
+
+def test_late_start_sets_a_day_one_target():
+    new, lines = apply_changes(REQ, {"days": [{"day": 1, "miles": [2, 4]}]}, TRAILS, STARTS)
+    assert new["days"] == [{"day": 1, "level": None, "miles": [2.0, 4.0], "max_gain_ft": None, "max_grade_pct": None}]
+    assert lines == ["Day 1: not set → 2-4 mi"]
+
+
+def test_day_targets_replace_camp_pins():
+    pinned = REQ | {"camps": ["7", "14"]}
+    new, lines = apply_changes(pinned, {"days": [{"day": 1, "level": "easy"}]}, TRAILS, STARTS)
+    assert new["camps"] == [] and "Camps: pinned at mile 7, 14 → placed by the engine" in lines
+
+
+def test_bad_day_targets_are_refused_in_plain_words():
+    with pytest.raises(ProposalError, match="That change doesn't work: day 4: this trip has 3 days"):
+        apply_changes(REQ, {"days": [{"day": 4, "level": "easy"}]}, TRAILS, STARTS)
+
+
+def test_fewer_nights_drops_targets_for_days_that_no_longer_exist():
+    first, _ = apply_changes(REQ, {"days": [{"day": 1, "level": "easy"}, {"day": 3, "level": "hard"}]}, TRAILS, STARTS)
+    new, _ = apply_changes(first, {"nights": 1, "total": [12, 22]}, TRAILS, STARTS)
+    assert [d["day"] for d in new["days"]] == [1]
+    hike, _ = apply_changes(first, {"nights": None, "total": [6, 10]}, TRAILS, STARTS)
+    assert hike["days"] == []
+
+
+def test_trip_level_is_a_change():
+    new, lines = apply_changes(REQ, {"level": "moderate"}, TRAILS, STARTS)
+    assert new["level"] == "moderate" and lines == ["Trip level: any → Moderate"]
+    back, lines = apply_changes(new, {"level": None}, TRAILS, STARTS)
+    assert back["level"] is None and lines == ["Trip level: Moderate → any"]
+
+
+def test_prompt_maps_words_to_levels_and_days():
+    for words in ("days (not daily)", "start late", "chill", "brutal", "easy, moderate, hard or strenuous unless", "hardest day"):
+        assert words in " ".join(SYSTEM_PROMPT.lower().split()), words
+
+
+def test_no_daily_limit_on_a_trip_with_nights_means_the_loosest_range():
+    # the prompt says to widen daily from 1 up to the total's high; a model that sends null instead means the same
+    new, lines = apply_changes(REQ, {"daily": None}, TRAILS, STARTS)
+    assert new["daily"] == [1.0, 26.0] and new["nights"] == 2
+    assert lines == ["Miles per day: 6-11 mi → 1-26 mi"]
+    hike, _ = apply_changes(REQ, {"nights": None, "daily": None, "total": [6, 10]}, TRAILS, STARTS)
+    assert hike["daily"] is None

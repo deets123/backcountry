@@ -8,6 +8,8 @@
                 miles outside the daily range * daily_out_of_range
               + thousands of ft over the daily gain cap * gain_over_cap
               + miles away from an equal split * imbalance
+              + with per-day targets: level steps away from a day's level * level_miss,
+                and % grade over a day's steepness cap * gain_over_cap
 
 Lower is better. All weights are per mile so they're easy to reason about:
 road=1.0 means a road mile is as unwelcome as an extra mile of distance.
@@ -27,6 +29,7 @@ class Weights:
     daily_out_of_range: float = 10.0
     gain_over_cap: float = 5.0  # per 1,000 ft over the cap
     imbalance: float = 0.5
+    level_miss: float = 5.0  # per level step a day lands away from its target level
 
 
 def distance_deviation_m(length_m: float, min_m: float, max_m: float) -> float:

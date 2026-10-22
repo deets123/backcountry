@@ -1,0 +1,29 @@
+# The user's known trips and the levels they gave them (2026-10-21). Tracks are the user's own GPX files in
+# tests/reference/local/ (AllTrails exports: never committed). `track: null` means the route is still to confirm
+# with the user. `camps` pins camps by OSM camp-site id, `camps_mi` by miles; without either the engine places them.
+- id: old_rag
+  region: old_rag
+  type: day_hike
+  nights: 0
+  track: old_rag_mountain_loop.gpx
+  expected: hard            # "hard, not strenuous"
+- id: zion_west_rim
+  region: zion_west_rim
+  type: backpacking
+  nights: 1
+  track: zion_west_rim_top_down.gpx   # top-down from Lava Point, point to point
+  camps: ["osm:node/5213150068"]      # "Campsite 6" in OSM (the user camped at site 6), mile 6.94
+  expected: moderate        # "moderate as a backpacking trip since it's mostly downhill and 2 days"
+- id: mount_tammany
+  region: mount_tammany
+  type: day_hike
+  nights: 0
+  track: mount_tammany_loop.gpx       # Red Dot up, Blue Dot down
+  expected: moderate        # "moderate at best"
+- id: peekaboo_spooky
+  region: peekaboo_spooky
+  type: day_hike
+  nights: 0
+  track: peekaboo_spooky_slots.gpx    # Peekaboo and Spooky slot canyons from the Lower Dry Fork Narrows trailhead
+  expected: hard            # "hard, some technical scrambles" (first noted as the Needles)
+  known_gap: "OpenStreetMap has no scramble tags on these slots (only sac_scale=hiking on Lower Dry Fork), so the data rates 6.4 mi, +600 ft as moderate"

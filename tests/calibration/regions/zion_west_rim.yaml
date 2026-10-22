@@ -1,0 +1,6 @@
+# Calibration area, not a region in the app. bbox = the user's reference track bounds + 0.01 deg
+# (a fetch extent only, not a place claim). No trailheads.
+id: zion_west_rim
+name: Zion West Rim (calibration area)
+crs: EPSG:32612
+bbox: {south: 37.24912, west: -113.033, north: 37.39175, east: -112.93988}

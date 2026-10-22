@@ -102,3 +102,152 @@ def test_too_many_pinned_camps_is_a_request_error(grid):
     with pytest.raises(RequestError) as e:
         plan_trip(REGION, raw, tg, req)
     assert e.value.field == "camps" and "pinned" in str(e.value)
+
+
+# --- per-day targets and the trip level ---------------------------------------------
+
+TRIP = {"trailhead": "1000", "total": "18-26", "nights": 3, "daily": "6-11"}
+
+
+def test_day_targets_round_trip():
+    req = GenerateRequest.from_dict(TRIP | {"days": [{"day": 1, "level": "easy"},
+                                                     {"day": 2, "miles": "8-12", "max_gain_ft": 3000}],
+                                            "level": "hard"})
+    out = req.to_dict()
+    assert out["level"] == "hard"
+    assert out["days"] == [
+        {"day": 1, "level": "easy", "miles": None, "max_gain_ft": None, "max_grade_pct": None},
+        {"day": 2, "level": None, "miles": [8.0, 12.0], "max_gain_ft": 3000.0, "max_grade_pct": None},
+    ]
+    assert GenerateRequest.from_dict(out) == req
+    assert GenerateRequest.from_dict(TRIP).to_dict()["days"] == [] and GenerateRequest.from_dict(TRIP).level is None
+
+
+def test_unknown_level_is_refused():
+    with pytest.raises(RequestError) as e:
+        GenerateRequest.from_dict(TRIP | {"days": [{"day": 1, "level": "chill"}]})
+    assert e.value.field == "days" and str(e.value) == "day 1: level must be easy, moderate, hard or strenuous"
+    with pytest.raises(RequestError) as e:
+        GenerateRequest.from_dict(TRIP | {"level": "brutal"})
+    assert e.value.field == "level" and str(e.value) == "level must be easy, moderate, hard or strenuous"
+
+
+@pytest.mark.parametrize("days, message", [
+    ([{"day": 0}], "day 0: days are numbered from 1"),
+    ([{"day": "1"}], "each day target needs a day number; got {'day': '1'}"),
+    ([{"day": 1, "miles": "9-3"}], "day 1: miles must look like 8-12 (low-high); got '9-3'"),
+    ([{"day": 1, "max_gain_ft": -5}], "day 1: max_gain_ft must be a number above 0; got -5"),
+    ([{"day": 1}, {"day": 1, "level": "easy"}], "day 1 is set twice"),
+    ("easy", "days must be a list of day targets; got 'easy'"),
+])
+def test_bad_day_targets_are_refused(days, message):
+    with pytest.raises(RequestError) as e:
+        GenerateRequest.from_dict(TRIP | {"days": days})
+    assert e.value.field == "days" and str(e.value) == message
+
+
+def test_day_targets_beyond_the_trip_are_refused():
+    with pytest.raises(RequestError) as e:
+        GenerateRequest.from_dict(TRIP | {"nights": 2, "days": [{"day": 4, "level": "easy"}]})
+    assert e.value.field == "days" and str(e.value) == "day 4: this trip has 3 days"
+    with pytest.raises(RequestError) as e:
+        GenerateRequest.from_dict({"trailhead": "1000", "total": "4-6", "days": [{"day": 1, "level": "easy"}]})
+    assert e.value.field == "days" and str(e.value) == "per-day targets need nights"
+
+
+def test_day_targets_that_cannot_fit_the_total_are_refused():
+    with pytest.raises(RequestError) as e:
+        GenerateRequest.from_dict({"trailhead": "1000", "total": "10-12", "nights": 1, "daily": "4-8",
+                                   "days": [{"day": 1, "miles": [8, 9]}, {"day": 2, "miles": [8, 9]}]})
+    assert e.value.field == "days"
+    assert str(e.value) == "the day targets add up to 16-18 mi, outside the total 10-12 mi"
+
+
+def test_targets_for_fills_untargeted_days_from_the_trip():
+    from backcountry.difficulty import LEVEL_TARGETS
+
+    req = GenerateRequest.from_dict(TRIP | {"max_gain_day": 2500, "days": [{"day": 1, "level": "easy"},
+                                                                          {"day": 3, "level": "hard", "miles": "9-10"}]})
+    t = req.targets_for(4)
+    easy, hard = LEVEL_TARGETS["backpacking"]["easy"], LEVEL_TARGETS["backpacking"]["hard"]
+    assert t[0] == {"day": 1, "level": "easy", "miles": [float(m) for m in easy["miles"]],
+                    "max_gain_ft": easy["max_gain_ft"], "max_grade_pct": easy["max_grade_pct"], "targeted": True,
+                    "explicit": [], "from_trip": []}
+    assert t[1] == {"day": 2, "level": None, "miles": [6.0, 11.0], "max_gain_ft": 2500.0, "max_grade_pct": None,
+                    "targeted": False, "explicit": [], "from_trip": ["miles", "max_gain_ft"]}
+    assert t[2]["explicit"] == ["miles"]
+    assert t[2]["miles"] == [9.0, 10.0] and t[2]["max_gain_ft"] == hard["max_gain_ft"]  # numbers win over the level
+    assert len(t) == 4 and t[3]["level"] is None
+
+
+# --- the trip-level filter and the closest-fit suggestion ---------------------------
+
+
+def _tagged_grid(grid):
+    for e in grid.elements:
+        if e.get("id") == 111:  # Col 1: a tagged scramble makes every loop over it at least hard
+            e["tags"]["sac_scale"] = "alpine_hiking"
+    raw = grid.doc()
+    return raw, build_graph(raw, crs=CRS)
+
+
+def _levels(result):
+    from backcountry.planning import candidate_level
+
+    return [candidate_level(c) for c in result.report["candidates"]]
+
+
+@pytest.mark.parametrize("level", ["easy", "hard"])
+def test_level_filter_keeps_only_matching_trips(grid, level):
+    from conftest import plane_dem
+
+    raw, tg = _tagged_grid(grid)
+    base = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "count": 2}
+    result = plan_trip(REGION, raw, tg, GenerateRequest.from_dict(base | {"level": level}), dem=plane_dem(0, 0, 500))
+    assert _levels(result) and set(_levels(result)) == {level}
+    assert not any("comes out" in n for n in result.report["notes"])
+
+
+def test_level_filter_falls_back_to_the_closest_with_a_note(grid):
+    from conftest import plane_dem
+
+    raw, tg = _tagged_grid(grid)
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "level": "strenuous"})
+    result = plan_trip(REGION, raw, tg, req, dem=plane_dem(0, 0, 500))
+    assert _levels(result) and set(_levels(result)) == {"hard"}  # hard is one step from strenuous, easy three
+    assert "No loop here comes out strenuous; showing the closest (hard)." in result.report["notes"]
+
+
+def _flat_trip(grid, days):
+    from conftest import plane_dem
+
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    data = {"trailhead": str(grid.ids["g00"]), "total": "1.0-2.6", "nights": 1, "daily": "0.5-4", "days": days}
+    return raw, tg, data, plan_trip(REGION, raw, tg, GenerateRequest.from_dict(data), dem=plane_dem(0, 0, 500))
+
+
+def test_suggestion_is_rechecked(grid):
+    from conftest import plane_dem
+
+    raw, tg, data, result = _flat_trip(grid, [{"day": 1, "miles": [0.5, 1.0]}, {"day": 2, "miles": [1.0, 1.3]}])
+    c = result.report["candidates"][0]
+    assert c.plan.violations and c.suggestion
+    assert c.suggestion["text"] == "Allowing day 1 up to 2 mi would fix it."
+    fixed = plan_trip(REGION, raw, tg, GenerateRequest.from_dict(data | {"days": c.suggestion["days"]}),
+                      dem=plane_dem(0, 0, 500))
+    same = next(f for f in fixed.report["candidates"] if f.keys == c.keys)
+    assert same.plan.violations == []
+
+
+def test_no_suggestion_when_nothing_single_step_works(grid):
+    _, _, _, result = _flat_trip(grid, [{"day": 1, "miles": [0.5, 0.6]}, {"day": 2, "miles": [0.5, 0.6]}])
+    c = result.report["candidates"][0]
+    assert c.plan.violations and c.suggestion is None
+
+
+def test_level_suggestion_names_the_level(grid):
+    raw, tg, data, result = _flat_trip(grid, [{"day": 1, "level": "hard", "miles": [0.5, 2]}])
+    c = result.report["candidates"][0]
+    assert "Day 1 came out easy, not hard" in c.plan.violations
+    assert c.suggestion["text"] == "Setting day 1 to easy would fix it."  # moderate (one step) still misses on the flat
