@@ -5,10 +5,11 @@ loop search, and attaches elevation, day plans and along-route features to every
 candidate. Both callers then only format and store the result.
 """
 
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 
 from backcountry import ingest
-from backcountry.difficulty import LEVEL_TARGETS, LEVELS, rate_stretch, route_terrain
+from backcountry.difficulty import LEVEL_TARGETS, LEVELS, level_index, rate_stretch, route_terrain
 from backcountry.elevation import densify
 from backcountry.features import along_route
 from backcountry.loops import avoided_keys, search
@@ -237,6 +238,79 @@ def _strings(data: dict, key: str) -> list[str]:
     return [str(v) for v in value]
 
 
+def candidate_level(c) -> str | None:
+    """The trip's level: its hardest day's (a day hike: the whole route's). None if any day is unknown."""
+    levels = [d.rating["level"] if d.rating else None for d in c.plan.days] if c.plan else [(c.rating or {}).get("level")]
+    return None if not levels or None in levels else max(levels, key=LEVELS.index)
+
+
+def _relaxations(t: DayTarget, got: str | None):
+    """Single setting changes for one day's target, in the order they're tried: (new target, wording)."""
+    n = t.day
+    if t.miles:
+        lo, hi = t.miles
+        yield replace(t, miles=(lo, hi + 1)), f"Allowing day {n} up to {_mi(hi + 1)} mi would fix it."
+        if lo - 1 > 0:
+            yield replace(t, miles=(lo - 1, hi)), f"Allowing day {n} down to {_mi(lo - 1)} mi would fix it."
+    if t.max_gain_ft is not None:
+        gain = t.max_gain_ft + 500
+        yield replace(t, max_gain_ft=gain), f"Allowing day {n} up to {gain:,.0f} ft of climbing would fix it."
+    if t.max_grade_pct is not None:
+        grade = t.max_grade_pct + 5
+        yield replace(t, max_grade_pct=grade), f"Allowing day {n} up to {_mi(grade)}% grade would fix it."
+    if t.level and got and got != t.level:
+        step = level_index(t.level) + (1 if level_index(got) > level_index(t.level) else -1)
+        for level in dict.fromkeys([LEVELS[step], got]):  # one step toward what it came out, then what it came out
+            yield replace(t, level=level), f"Setting day {n} to {level} would fix it."
+
+
+def suggest_fix(c, req: "GenerateRequest", resplit) -> dict | None:
+    """One setting change that clears every miss on this candidate's days, re-checked by re-splitting.
+
+    `resplit(request)` returns the DayPlan for this candidate's route under another request. Only days with
+    a target are relaxed; returns {"text", "days"} (the day targets with the change), or None if no single
+    change works. Nothing is suggested that wasn't re-checked.
+    """
+    plan = c.plan
+    if plan is None or not plan.violations or not req.days:
+        return None
+    missed = sorted({int(m[1]) for v in plan.violations if (m := re.match(r"Day (\d+)", v))})
+    by_day = {t.day: t for t in req.days}
+    for n in missed:
+        if n not in by_day:
+            continue
+        rating = plan.days[n - 1].rating or {}
+        for change, text in _relaxations(by_day[n], rating.get("level")):
+            days = [(change if t.day == n else t).to_dict() for t in req.days]
+            try:
+                changed = GenerateRequest.from_dict(req.to_dict() | {"days": days})
+            except RequestError:
+                continue
+            if not resplit(changed).violations:
+                return {"text": text, "days": days}
+    return None
+
+
+def _filter_by_level(report: dict, req: "GenerateRequest") -> None:
+    """Keep loops whose trip level is req.level; if none, the closest, with a note saying so."""
+    cands = report["candidates"]
+    match = [c for c in cands if candidate_level(c) == req.level]
+    if match:
+        report["candidates"] = match[:req.count]
+        return
+    if cands and all(candidate_level(c) is None for c in cands):
+        report["candidates"] = cands[:req.count]
+        report["notes"].append("Levels are unknown here (no elevation data), so the trip-level filter wasn't applied.")
+        return
+    want = level_index(req.level)
+    closest = sorted(cands, key=lambda c: (abs(level_index(candidate_level(c)) - want) if candidate_level(c) else 99,
+                                           c.penalty))[:req.count]
+    report["candidates"] = closest
+    if closest:
+        levels = ", ".join(dict.fromkeys(candidate_level(c) or "unknown" for c in closest))
+        report["notes"].append(f"No loop here comes out {req.level}; showing the closest ({levels}).")
+
+
 @dataclass
 class PlanResult:
     report: dict
@@ -292,15 +366,19 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -
             c.route.profile = {"d_m": d, "z_m": [None] * len(d)}
             c.route.notes.append("elevation unknown: no DEM cached (run `backcountry dem`)")
 
+    def split(c, r: GenerateRequest, pins):
+        lo, hi = r.daily_m
+        return split_route(c.route, r.nights, lo, hi, r.max_gain_day, weights, sites, pins_m=pins,
+                           sites_only=r.camps_at_sites, targets=r.targets_for(r.nights + 1) if r.days else None,
+                           terrain=c.terrain)
+
     def evaluate(c):
         elevate(c)
         c.terrain = route_terrain(c.route)
         pins, problems = resolve_pins(c.route, req.camps, sites)
-        lo, hi = req.daily_m
+        c.pins_m = pins
         try:
-            c.plan = split_route(c.route, req.nights, lo, hi, req.max_gain_day, weights, sites, pins_m=pins,
-                                 sites_only=req.camps_at_sites, targets=req.targets_for(req.nights + 1) if req.days else None,
-                                 terrain=c.terrain)
+            c.plan = split(c, req, pins)
         except ValueError as e:  # e.g. more camps pinned than nights
             raise RequestError("camps", str(e))
         for p in problems:
@@ -310,7 +388,9 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -
         return c.plan.penalty + 100.0 * len(problems)
 
     lo, hi = req.total_m
-    report = search(tg, start["node"], lo, hi, kinds=req.kinds, count=req.count, no_roads=req.no_roads,
+    # the level filter drops loops after the search, so it asks for more to choose from
+    report = search(tg, start["node"], lo, hi, kinds=req.kinds, count=req.count * 4 if req.level else req.count,
+                    no_roads=req.no_roads,
                     weights=weights, evaluate=evaluate if req.nights is not None else None,
                     avoid=req.avoid, must_visit=musts, direction=req.direction)
     if req.nights is None:
@@ -321,4 +401,9 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -
             c.rating = rate_stretch(prof["d_m"], prof["z_m"], c.terrain, 0.0, prof["d_m"][-1], c.route.gain_ft,
                                     "day_hike").to_dict()
             c.features = along_route(c.route, sites, water, campgrounds)
+    if req.level:
+        _filter_by_level(report, req)
+    for c in report["candidates"]:
+        if c.plan is not None:
+            c.suggestion = suggest_fix(c, req, lambda r, c=c: split(c, r, c.pins_m))
     return PlanResult(report=report, start=start, request=req)

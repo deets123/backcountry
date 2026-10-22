@@ -8,9 +8,10 @@ from dataclasses import asdict
 
 from shapely.geometry import mapping
 
-from backcountry.difficulty import LEVELS, RULES
+from backcountry.difficulty import RULES
 from backcountry.export import candidate_record, route_pieces, route_segments, route_waypoints
 from backcountry.ingest import DEM_ATTRIBUTION, OSM_ATTRIBUTION
+from backcountry.planning import candidate_level
 
 KNOWN_GAPS = [
     "water: map features only; whether water is present, flowing, or drinkable is unknown",
@@ -92,12 +93,6 @@ def plan_payload(plan) -> dict | None:
     }
 
 
-def candidate_level(c) -> str | None:
-    """The trip's level: its hardest day's (a day hike: the whole route's). None if any day is unknown."""
-    levels = [d.rating["level"] if d.rating else None for d in c.plan.days] if c.plan else [(c.rating or {}).get("level")]
-    return None if not levels or None in levels else max(levels, key=LEVELS.index)
-
-
 def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str) -> dict:
     title = f"{start_text} to {start_text} (loop)"
     pieces = route_pieces(c.route, c.plan)
@@ -114,6 +109,7 @@ def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str) -> dict
         "level": candidate_level(c),
         "rating": c.rating,
         "terrain": c.terrain or [],
+        "suggestion": c.suggestion,
         "features": c.features or [],
         "profile": c.route.profile,
         "title": title,

@@ -178,3 +178,76 @@ def test_targets_for_fills_untargeted_days_from_the_trip():
     assert t[2]["explicit"] == ["miles"]
     assert t[2]["miles"] == [9.0, 10.0] and t[2]["max_gain_ft"] == hard["max_gain_ft"]  # numbers win over the level
     assert len(t) == 4 and t[3]["level"] is None
+
+
+# --- the trip-level filter and the closest-fit suggestion ---------------------------
+
+
+def _tagged_grid(grid):
+    for e in grid.elements:
+        if e.get("id") == 111:  # Col 1: a tagged scramble makes every loop over it at least hard
+            e["tags"]["sac_scale"] = "alpine_hiking"
+    raw = grid.doc()
+    return raw, build_graph(raw, crs=CRS)
+
+
+def _levels(result):
+    from backcountry.planning import candidate_level
+
+    return [candidate_level(c) for c in result.report["candidates"]]
+
+
+@pytest.mark.parametrize("level", ["easy", "hard"])
+def test_level_filter_keeps_only_matching_trips(grid, level):
+    from conftest import plane_dem
+
+    raw, tg = _tagged_grid(grid)
+    base = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "count": 2}
+    result = plan_trip(REGION, raw, tg, GenerateRequest.from_dict(base | {"level": level}), dem=plane_dem(0, 0, 500))
+    assert _levels(result) and set(_levels(result)) == {level}
+    assert not any("comes out" in n for n in result.report["notes"])
+
+
+def test_level_filter_falls_back_to_the_closest_with_a_note(grid):
+    from conftest import plane_dem
+
+    raw, tg = _tagged_grid(grid)
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "level": "strenuous"})
+    result = plan_trip(REGION, raw, tg, req, dem=plane_dem(0, 0, 500))
+    assert _levels(result) and set(_levels(result)) == {"hard"}  # hard is one step from strenuous, easy three
+    assert "No loop here comes out strenuous; showing the closest (hard)." in result.report["notes"]
+
+
+def _flat_trip(grid, days):
+    from conftest import plane_dem
+
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    data = {"trailhead": str(grid.ids["g00"]), "total": "1.0-2.6", "nights": 1, "daily": "0.5-4", "days": days}
+    return raw, tg, data, plan_trip(REGION, raw, tg, GenerateRequest.from_dict(data), dem=plane_dem(0, 0, 500))
+
+
+def test_suggestion_is_rechecked(grid):
+    from conftest import plane_dem
+
+    raw, tg, data, result = _flat_trip(grid, [{"day": 1, "miles": [0.5, 1.0]}, {"day": 2, "miles": [1.0, 1.3]}])
+    c = result.report["candidates"][0]
+    assert c.plan.violations and c.suggestion
+    assert c.suggestion["text"] == "Allowing day 1 up to 2 mi would fix it."
+    fixed = plan_trip(REGION, raw, tg, GenerateRequest.from_dict(data | {"days": c.suggestion["days"]}),
+                      dem=plane_dem(0, 0, 500))
+    same = next(f for f in fixed.report["candidates"] if f.keys == c.keys)
+    assert same.plan.violations == []
+
+
+def test_no_suggestion_when_nothing_single_step_works(grid):
+    _, _, _, result = _flat_trip(grid, [{"day": 1, "miles": [0.5, 0.6]}, {"day": 2, "miles": [0.5, 0.6]}])
+    c = result.report["candidates"][0]
+    assert c.plan.violations and c.suggestion is None
+
+
+def test_level_suggestion_names_the_level(grid):
+    raw, tg, data, result = _flat_trip(grid, [{"day": 1, "level": "hard", "miles": [0.5, 2]}])
+    c = result.report["candidates"][0]
+    assert "Day 1 came out easy, not hard" in c.plan.violations
+    assert c.suggestion["text"] == "Setting day 1 to easy would fix it."  # moderate (one step) still misses on the flat
