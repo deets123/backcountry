@@ -11,6 +11,7 @@ const CURRENT = (levelsJson.rules as unknown as DifficultyRules).version;
 export interface DifficultyBody {
   region: string; nights: number | null; camps_m: number[] | null;
   profile: { d_m: number[]; z_m: (number | null)[] }; segments: Run["candidates"][number]["segments"];
+  geometry: [number, number][];  // the route's line: places terrain tags inside a trail whose ways are tagged differently
 }
 export interface DifficultyAnswer {
   terrain: TerrainInterval[]; days: { start_m: number; end_m: number; gain_ft: number | null; rating: Rating }[];
@@ -40,7 +41,8 @@ export async function refreshLevels(trips: SavedTrip[], deps: LevelDeps): Promis
     const c = t.run.candidates[t.index - 1]!;
     try {
       const a = await deps.difficulty({ region: t.run.region, nights: c.plan?.nights ?? null,
-        camps_m: c.plan ? c.plan.camps.map((cp) => cp.dist_m) : null, profile: c.profile!, segments: c.segments });
+        camps_m: c.plan ? c.plan.camps.map((cp) => cp.dist_m) : null, profile: c.profile!, segments: c.segments,
+        geometry: c.geometry.coordinates });
       await deps.put(withLevels(t, a, deps.now()));
       done.push(t.id);
     } catch { /* offline, or the region is gone from the server: try again next time */ }

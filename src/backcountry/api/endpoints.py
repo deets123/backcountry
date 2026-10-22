@@ -147,7 +147,11 @@ def difficulty(request: Request, body: dict):
         if (not isinstance(camps, list) or len(camps) != nights or not all(_is_number(m) and 0 < m < end for m in camps)
                 or camps != sorted(camps)):
             raise RequestError("camps_m", f"camps_m must be {nights} distance(s) in order along the route (0 to {end:.0f} m)")
-    terrain = segments_terrain(loaded.tg, segs)
+    geometry = body.get("geometry")
+    if geometry is not None and (not isinstance(geometry, list) or not all(
+            isinstance(c, list) and len(c) >= 2 and all(_is_number(x) for x in c[:2]) for c in geometry)):
+        raise RequestError("geometry", "geometry must be the route's [lon, lat] points")
+    terrain = segments_terrain(loaded.tg, segs, geometry)
     return rate_saved(prof, terrain, nights, [float(m) for m in camps] if nights else None)
 
 

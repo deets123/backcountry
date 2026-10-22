@@ -9,6 +9,7 @@ const rating = (level: Rating["level"]): Rating => ({ level, reasons: [], effort
 
 function oldTrip(id = "r1-1"): SavedTrip {
   const cand = { index: 1, length_m: 3000, profile: { d_m: [0, 1500, 3000], z_m: [1, 2, 3] },
+    geometry: { type: "LineString", coordinates: [[-79.4, 39], [-79.4, 39.03]] },
     segments: [{ label: "A Trail", highway: "path", is_road: false, last_resort: false, length_m: 3000, sources: ["osm:way/1"] }],
     plan: { nights: 1, days: [{ index: 1, start_m: 0, end_m: 1500 }, { index: 2, start_m: 1500, end_m: 3000 }],
       camps: [{ index: 1, dist_m: 1500 }] } };
@@ -37,7 +38,8 @@ describe("levels for saved trips", () => {
       { difficulty: async (body) => { sent.push(body); return answer; }, put: async (t) => { stored.push(t); }, now: () => "2026-10-22T00:00:00Z" });
     expect(done).toEqual(["r1-1"]);  // the second already has levels from these rules
     expect(sent).toEqual([{ region: "dolly_sods", nights: 1, camps_m: [1500], profile: { d_m: [0, 1500, 3000], z_m: [1, 2, 3] },
-      segments: oldTrip().run.candidates[0]!.segments }]);  // the engine's camps: moved ones are re-rated on the phone
+      segments: oldTrip().run.candidates[0]!.segments, geometry: [[-79.4, 39], [-79.4, 39.03]] }]);
+    // the engine's camps (moved ones are re-rated on the phone) and the route's line (it places tags inside a trail)
     const c = stored[0]!.run.candidates[0]!;
     expect(c.terrain).toEqual(answer.terrain);
     expect(c.level).toBe("hard");

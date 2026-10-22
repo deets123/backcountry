@@ -204,29 +204,75 @@ def trip_level(ratings: list[Rating]) -> str | None:
     return max((r.level for r in ratings), key=level_index)
 
 
-def segments_terrain(tg, segments: list[dict], rules: dict = RULES) -> list[dict]:
+ON_LINE_M = 1.0  # a graph edge lies on a saved route when its vertices are this close to the route's line
+
+
+def segments_terrain(tg, segments: list[dict], line_wgs84: list | None = None, rules: dict = RULES) -> list[dict]:
     """Terrain intervals for a saved route, rebuilt from the graph's tags by the way ids in its segments.
 
-    A segment counts only if every way in it is in the graph and gives the same terrain reason; a mixed or
-    unknown segment adds nothing (terrain unknown there), so a saved trip is never rated harder than its
-    data supports.
+    A segment whose ways all give the same terrain reason counts as a whole. In a mixed segment (one trail name
+    over ways tagged differently) each way's stretch is placed by matching its graph edges to the saved route's
+    own line (`line_wgs84`, the candidate's geometry): the route is made of those edges' vertices, so they lie on
+    it. Without the line, or where an edge isn't on it, a mixed segment adds nothing (terrain unknown there), so
+    a saved trip is never rated harder than its data supports.
     """
-    tags_by_source = {}
+    tags_by_source, edges_by_source = {}, {}
     for *_, d in tg.graph.edges(data=True):
         tags_by_source.setdefault(d["source"], d.get("tags") or {})
-    edges = []
-    for s in segments:
+        edges_by_source.setdefault(d["source"], []).append(d)
+    line = None
+    if line_wgs84 and len(line_wgs84) >= 2:
+        from pyproj import Transformer
+        from shapely.geometry import LineString
+
+        xs, ys = Transformer.from_crs("EPSG:4326", tg.crs, always_xy=True).transform(*zip(*[c[:2] for c in line_wgs84]))
+        line = LineString(list(zip(xs, ys)))
+    pieces = []  # (start_m, end_m, reason, source) for every stretch with terrain data
+    for s, (a, b) in zip(segments, _spans(segments)):
+        if s.get("is_road"):
+            continue
         found = [tags_by_source.get(src) for src in s["sources"]]
         results = {_edge_reason({"tags": t}, rules) for t in found if t is not None}
-        uniform = None not in found and len(results) == 1 and next(iter(results))[0]
-        tags = found[0] if uniform else {}
-        edges.append({"length_m": s["length_m"], "is_road": s.get("is_road", False), "tags": tags,
-                      "source": s["sources"][0] if s["sources"] else ""})
-    out = route_terrain(SimpleNamespace(edges=edges), rules["terrain"]["min_m"], rules)
-    for t in out:  # keep every way of the merged segments as provenance
-        t["sources"] = list(dict.fromkeys(src for s, (a, b) in zip(segments, _spans(segments))
-                                          if a < t["end_m"] and b > t["start_m"] for src in s["sources"]))
-    return out
+        if None not in found and len(results) == 1:
+            known, reason = next(iter(results))
+            if known:
+                pieces += [(a, b, reason, src) for src in s["sources"]]  # the same span: they merge, keeping every way
+            continue
+        if line is None:
+            continue
+        for src in s["sources"]:
+            known, reason = _edge_reason({"tags": tags_by_source.get(src) or {}}, rules)
+            if not known:
+                continue
+            for d in edges_by_source.get(src, []):
+                coords = list(d["geom_utm"].coords)
+                if max(line.distance(_point(c)) for c in coords) > ON_LINE_M:
+                    continue
+                lo, hi = sorted((line.project(_point(coords[0])), line.project(_point(coords[-1]))))
+                lo, hi = max(lo, a), min(hi, b)
+                if hi > lo:
+                    pieces.append((lo, hi, reason, src))
+    return _merge_terrain(pieces, rules["terrain"]["min_m"])
+
+
+def _point(c):
+    from shapely.geometry import Point
+
+    return Point(c[0], c[1])
+
+
+def _merge_terrain(pieces: list[tuple], min_m: float) -> list[dict]:
+    """Walking-order intervals; touching or overlapping pieces with the same reason merge; short tagged ones drop."""
+    out = []
+    for lo, hi, reason, src in sorted(pieces, key=lambda p: (p[0], p[1])):
+        last = out[-1] if out else None
+        if last and last["reason"] == reason and lo <= last["end_m"] + 1e-6:
+            last["end_m"] = max(last["end_m"], hi)
+            if src not in last["sources"]:
+                last["sources"].append(src)
+        else:
+            out.append({"start_m": lo, "end_m": hi, "reason": reason, "sources": [src]})
+    return [t for t in out if t["reason"] is None or t["end_m"] - t["start_m"] >= min_m]
 
 
 def _spans(segments):

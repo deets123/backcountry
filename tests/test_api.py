@@ -427,3 +427,25 @@ def test_difficulty_unknown_region_is_404(client):
     r = client.post("/api/difficulty", json={"region": "mars", "nights": None, "camps_m": None,
                                              "profile": {"d_m": [0.0, 1.0], "z_m": [None, None]}, "segments": []})
     assert r.status_code == 404
+
+
+def test_difficulty_places_tags_inside_a_mixed_segment_by_the_route_line(tmp_path, grid):
+    # "Row 1" is two ways (g01-m, m-g11-g21); only g01-m is tagged: the saved route's own line says where it is
+    for e in grid.elements:
+        if e.get("id") == 101:
+            e["tags"]["sac_scale"] = "alpine_hiking"
+    client = _tagged_client(tmp_path, grid)
+    run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1",
+                                                                 "type": "loop"}).json()
+    mixed = [c for c in run["candidates"]
+             if any(len(s["sources"]) > 1 and "osm:way/101" in s["sources"] for s in c["segments"])]
+    assert mixed  # a loop over the whole of Row 1: the mixed segment this test is about
+    c = mixed[0]
+    body = _saved(c) | {"nights": None, "camps_m": None}
+    without_line = client.post("/api/difficulty", json=body).json()
+    row1 = next(t for t in c["terrain"] if "osm:way/101" in t["sources"])
+    assert not any("osm:way/101" in t["sources"] for t in without_line["terrain"])  # no line: the mixed segment adds nothing
+    with_line = client.post("/api/difficulty", json=body | {"geometry": c["geometry"]["coordinates"]}).json()
+    assert [(round(t["start_m"]), round(t["end_m"]), t["reason"]) for t in with_line["terrain"]] == \
+        [(round(t["start_m"]), round(t["end_m"]), t["reason"]) for t in c["terrain"]]
+    assert with_line["rating"]["level"] == c["rating"]["level"] and row1["reason"] == "scramble (tagged)"
