@@ -68,3 +68,76 @@ def test_run_payload_has_provenance_and_gaps(planned):
     assert run["data_sources"][0]["name"].startswith("OpenStreetMap") and run["data_sources"][0]["retrieved_at"]
     assert run["known_gaps"] == KNOWN_GAPS and "water" in KNOWN_GAPS[0]
     assert run["diff"] is None and run["start"]["node"] == result.start["node"]
+
+
+# --- difficulty levels in the payload ------------------------------------------------
+
+
+def _plan(grid, dem, **extra):
+    from conftest import plane_dem  # noqa: F401  (dem built by callers)
+
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "type": "loop"} | extra)
+    return raw, tg, plan_trip(REGION, raw, tg, req, dem=dem)
+
+
+def test_payload_has_levels_terrain_and_rules(grid):
+    from conftest import plane_dem
+
+    from backcountry.difficulty import RULES
+
+    raw, tg, result = _plan(grid, plane_dem(0.05, 0.02, 500), nights=1, daily="0.5-4")
+    run = json.loads(json.dumps(run_payload("r", REGION, result, raw, tg, "2026-01-01T00:00:00Z", diff=None)))
+    c = run["candidates"][0]
+    days = c["plan"]["days"]
+    assert all(d["rating"]["level"] in ("easy", "moderate", "hard", "strenuous") for d in days)
+    order = ["easy", "moderate", "hard", "strenuous"]
+    assert c["level"] == max((d["rating"]["level"] for d in days), key=order.index)
+    assert c["terrain"] == [] and c["rating"] is None  # the grid has no terrain tags; backpacking trips rate per day
+    assert run["difficulty_rules"] == RULES and run["difficulty_rules"]["version"] == 1
+
+
+def test_plan_without_dem_has_unknown_levels(grid):
+    raw, tg, result = _plan(grid, None, nights=1, daily="0.5-4")
+    c = candidate_payload(1, result.report["candidates"][0], "x", tg.retrieved_at)
+    assert all(d["rating"]["level"] is None for d in c["plan"]["days"])
+    assert c["level"] is None
+
+
+def test_day_hike_is_rated_on_the_day_hike_scale(grid):
+    from conftest import plane_dem
+
+    from backcountry.difficulty import rate_stretch
+
+    raw, tg, result = _plan(grid, plane_dem(0.05, 0.02, 500))
+    cand = result.report["candidates"][0]
+    c = candidate_payload(1, cand, "x", tg.retrieved_at)
+    assert c["plan"] is None and c["rating"]["level"] is not None and c["level"] == c["rating"]["level"]
+    prof = cand.route.profile
+    want = rate_stretch(prof["d_m"], prof["z_m"], [], 0.0, prof["d_m"][-1], cand.route.gain_ft, "day_hike")
+    assert c["rating"]["effort"] == pytest.approx(want.effort)
+
+
+def test_terrain_tags_reach_the_payload(grid):
+    from conftest import plane_dem
+
+    for e in grid.elements:
+        if e.get("id") == 110:  # Col 0
+            e["tags"]["sac_scale"] = "alpine_hiking"
+    raw, tg, result = _plan(grid, plane_dem(0.0, 0.0, 500), nights=1, daily="0.5-4")
+    cands = [candidate_payload(i, c, "x", tg.retrieved_at) for i, c in enumerate(result.report["candidates"], 1)]
+    tagged = [c for c in cands if any(t["reason"] == "scramble (tagged)" for t in c["terrain"])]
+    assert tagged and all(c["level"] == "hard" for c in tagged)
+    day = next(d for d in tagged[0]["plan"]["days"] if d["rating"]["tagged"])
+    assert "scramble (tagged)" in day["rating"]["reasons"]
+
+
+def test_day_targets_reach_the_split(grid):
+    from conftest import plane_dem
+
+    raw, tg, result = _plan(grid, plane_dem(0.0, 0.0, 500), nights=1, daily="0.5-4",
+                            days=[{"day": 1, "miles": [0.5, 1.0]}])
+    plan = result.report["candidates"][0].plan
+    assert plan.targets[0]["miles"] == [0.5, 1.0] and plan.targets[1]["miles"] == [0.5, 4.0]
+    assert plan.days[0].length_m <= 1.0 * 1609.344 + 1 or any("Day 1:" in v for v in plan.violations)

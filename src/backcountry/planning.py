@@ -8,7 +8,7 @@ candidate. Both callers then only format and store the result.
 from dataclasses import dataclass, field
 
 from backcountry import ingest
-from backcountry.difficulty import LEVEL_TARGETS, LEVELS
+from backcountry.difficulty import LEVEL_TARGETS, LEVELS, rate_stretch, route_terrain
 from backcountry.elevation import densify
 from backcountry.features import along_route
 from backcountry.loops import avoided_keys, search
@@ -99,7 +99,8 @@ class DayTarget:
         grade = self.max_grade_pct if self.max_grade_pct is not None else table.get("max_grade_pct")
         return {"day": self.day, "level": self.level, "miles": [float(m) for m in miles] if miles else None,
                 "max_gain_ft": float(gain) if gain is not None else None,
-                "max_grade_pct": float(grade) if grade is not None else None, "targeted": True}
+                "max_grade_pct": float(grade) if grade is not None else None, "targeted": True,
+                "explicit": [k for k in ("miles", "max_gain_ft", "max_grade_pct") if getattr(self, k) is not None]}
 
 
 def _day_targets(data: dict, nights, daily, total) -> list[DayTarget]:
@@ -192,7 +193,7 @@ class GenerateRequest:
         by_day = {t.day: t for t in self.days}
         return [by_day[i].resolved("backpacking", self) if i in by_day else
                 {"day": i, "level": None, "miles": [float(m) for m in self.daily] if self.daily else None,
-                 "max_gain_ft": self.max_gain_day, "max_grade_pct": None, "targeted": False}
+                 "max_gain_ft": self.max_gain_day, "max_grade_pct": None, "targeted": False, "explicit": []}
                 for i in range(1, ndays + 1)]
 
     @property
@@ -293,11 +294,13 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -
 
     def evaluate(c):
         elevate(c)
+        c.terrain = route_terrain(c.route)
         pins, problems = resolve_pins(c.route, req.camps, sites)
         lo, hi = req.daily_m
         try:
             c.plan = split_route(c.route, req.nights, lo, hi, req.max_gain_day, weights, sites, pins_m=pins,
-                                 sites_only=req.camps_at_sites)
+                                 sites_only=req.camps_at_sites, targets=req.targets_for(req.nights + 1) if req.days else None,
+                                 terrain=c.terrain)
         except ValueError as e:  # e.g. more camps pinned than nights
             raise RequestError("camps", str(e))
         for p in problems:
@@ -313,5 +316,9 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -
     if req.nights is None:
         for c in report["candidates"]:
             elevate(c)
+            c.terrain = route_terrain(c.route)
+            prof = c.route.profile
+            c.rating = rate_stretch(prof["d_m"], prof["z_m"], c.terrain, 0.0, prof["d_m"][-1], c.route.gain_ft,
+                                    "day_hike").to_dict()
             c.features = along_route(c.route, sites, water, campgrounds)
     return PlanResult(report=report, start=start, request=req)

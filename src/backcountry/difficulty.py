@@ -95,25 +95,40 @@ def _stretch(d_m, z_m, start_m: float, end_m: float):
     return d[i:j], list(z_m[i:j])
 
 
+def window_grades(d_m, z_m, window_m: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """For each profile sample p: the uphill grade (%) from p to the first sample at least `window_m` on,
+    on the whole route's smoothed profile, and that sample's index. Grade is NaN where elevation is
+    unknown or the window runs past the end. Smoothing the whole route (not each stretch) keeps a day's
+    numbers the same however the day was cut, like the day split's gain.
+    """
+    d = np.asarray(d_m, dtype=float)
+    z = np.array([np.nan if v is None else v for v in z_m], dtype=float)
+    zs = smooth(z, SMOOTH_SAMPLES)
+    end = np.searchsorted(d, d + window_m - 1e-6, "left")
+    grade = np.full(len(d), np.nan)
+    ok = end < len(d)
+    i = np.nonzero(ok)[0]
+    grade[i] = (zs[end[i]] - zs[i]) / (d[end[i]] - d[i]) * 100
+    return d, grade, np.minimum(end, len(d) - 1)
+
+
 def steepest_climb(d_m, z_m, start_m: float, end_m: float, window_m: float) -> dict | None:
-    """The steepest uphill grade over `window_m` inside the stretch, on the smoothed profile.
+    """The steepest uphill grade over `window_m` inside the stretch.
 
     None when elevation is unknown in the stretch, it is shorter than the window, or it never climbs.
     """
-    d, z = _stretch(d_m, z_m, start_m, end_m)
-    if len(d) < 2 or any(v is None for v in z) or d[-1] - d[0] < window_m - 1e-6:
+    d_s, z_s = _stretch(d_m, z_m, start_m, end_m)
+    if len(d_s) < 2 or any(v is None for v in z_s) or d_s[-1] - d_s[0] < window_m - 1e-6:
         return None
-    zs = smooth(np.array(z, dtype=float), SMOOTH_SAMPLES)
-    j = np.searchsorted(d, d + window_m - 1e-6, "left")
-    ok = j < len(d)
-    if not ok.any():
+    d, grade, end = window_grades(d_m, z_m, window_m)
+    inside = (d >= start_m - 1e-6) & (d[end] <= end_m + 1e-6) & ~np.isnan(grade)
+    if not inside.any():
         return None
-    i = np.nonzero(ok)[0]
-    grade = (zs[j[ok]] - zs[i]) / (d[j[ok]] - d[i]) * 100
-    best = int(np.argmax(grade))
+    i = np.nonzero(inside)[0]
+    best = int(i[np.argmax(grade[i])])
     if grade[best] <= 0:
         return None
-    return {"grade_pct": float(grade[best]), "start_m": float(d[i[best]]), "end_m": float(d[j[ok][best]])}
+    return {"grade_pct": float(grade[best]), "start_m": float(d[best]), "end_m": float(d[end[best]])}
 
 
 def _edge_reason(edge: dict, rules: dict) -> tuple[bool, str | None]:

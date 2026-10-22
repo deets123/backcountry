@@ -50,7 +50,8 @@ def build() -> dict:
         route = _route(elevation)
         plan = split_route(route, len(camps), LIMITS["daily_min_m"], LIMITS["daily_max_m"], LIMITS["max_gain_ft"],
                            pins_m=camps)
-        days = [{k: (float(v) if isinstance(v, float) else v) for k, v in asdict(day).items()} for day in plan.days]
+        days = [{k: (float(v) if isinstance(v, float) else v) for k, v in asdict(day).items() if k != "rating"}
+                for day in plan.days]  # ratings: difficulty-parity.json
         cases.append({"name": name, "profile": route.profile, "camps_m": camps, "days": days,
                       "violations": list(plan.violations)})
     return {"limits": LIMITS, "cases": cases}

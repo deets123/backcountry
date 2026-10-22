@@ -148,3 +148,107 @@ def test_resolve_pins_reports_points_off_the_route(route):
     assert pins == []
     assert len(problems) == 3 and "from this route" in problems[0] and "unknown camp site" in problems[1]
     assert "beyond the end" in problems[2]
+
+
+# --- per-day targets and levels ------------------------------------------------------
+
+
+def long_route(length_m: float, grade_pct: float = 0.0):
+    """A straight synthetic route with a uniform grade (no real place)."""
+    from shapely.geometry import LineString
+
+    from backcountry.elevation import densify
+    from backcountry.route import Route
+    from conftest import X0, Y0
+
+    line = LineString([(X0, Y0), (X0 + length_m, Y0)])
+    d, _ = densify(line)
+    z = [x * grade_pct / 100 for x in d]
+    to_ll = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
+    edge = {"source": "osm:way/1", "way_id": 1, "name": "Long Trail", "highway": "path", "is_road": False,
+            "last_resort": False, "length_m": length_m, "retrieved_at": "2026-01-01T00:00:00Z", "tags": {}}
+    return Route(nodes=[1, 2], edges=[edge], line_wgs84=LineString([to_ll.transform(*c) for c in line.coords]),
+                 line_utm=line, length_m=length_m, road_m=0.0, last_resort_m=0.0,
+                 gain_ft=z[-1] * 3.28084, loss_ft=0.0, profile={"d_m": d, "z_m": z}, crs=CRS)
+
+
+def targets(*days):
+    return [{"day": i, "level": lvl, "miles": miles, "max_gain_ft": None, "max_grade_pct": None,
+             "targeted": lvl is not None or miles is not None, "explicit": ["miles"] if miles else []}
+            for i, (lvl, miles) in enumerate(days, 1)]
+
+
+def test_day_targets_shape_the_split():
+    route = long_route(45_000)  # 27.96 mi, flat
+    plan = split_route(route, 3, 8 * M, 12 * M, targets=targets((None, [2, 5]), (None, [8, 12]), (None, [8, 12]), (None, [8, 12])))
+    miles = [d.length_m / M for d in plan.days]
+    assert 2 <= miles[0] <= 5
+    assert all(8 - 0.1 <= m <= 12 + 0.1 for m in miles[1:])
+    assert plan.violations == []
+
+
+def test_level_target_is_met_or_reported():
+    route = long_route(30_000)
+    plan = split_route(route, 2, 5 * M, 8 * M, targets=targets((None, None), ("hard", [7, 12]), (None, None)))
+    assert "Day 2 came out easy, not hard" in plan.violations
+    assert not plan.ok
+
+
+def test_level_target_pulls_the_camps():
+    # climbing 3% all the way: a longer day 2 is harder, so a hard target makes day 2 the long one
+    route = long_route(30_000, grade_pct=3)
+    t = targets((None, [3, 12]), ("hard", [3, 12]), (None, [3, 12]))
+    plan = split_route(route, 2, 3 * M, 12 * M, targets=t)
+    assert plan.days[1].rating["level"] == "hard"
+    assert plan.days[1].length_m == max(d.length_m for d in plan.days)
+
+
+def test_day_target_violations_name_the_target():
+    route = long_route(30_000)
+    plan = split_route(route, 1, 5 * M, 15 * M, targets=targets((None, [2, 5]), (None, [2, 5])))
+    assert any(v.startswith("Day 1: ") and "over your 5.00 mi target" in v for v in plan.violations)
+
+
+def test_grade_target_is_reported():
+    route = long_route(10_000, grade_pct=18)
+    t = [{"day": i, "level": None, "miles": [2, 4], "max_gain_ft": None, "max_grade_pct": 15.0, "targeted": True,
+          "explicit": ["miles", "max_grade_pct"]} for i in (1, 2)]
+    plan = split_route(route, 1, 2 * M, 4 * M, targets=t)
+    import re
+    assert any(re.fullmatch(r"Day 1: 18% grade for 0\.\d mi is over your 15% target", v) for v in plan.violations)
+
+
+def test_days_carry_ratings(route):
+    plan = split_route(route, nights=1, daily_min_m=1.0 * M, daily_max_m=1.3 * M)
+    assert all(d.rating["level"] in ("easy", "moderate", "hard", "strenuous") for d in plan.days)
+    assert plan.days[0].rating["effort"] > 0
+
+
+def test_days_without_elevation_have_unknown_levels(network):
+    tg = build_graph(network.doc(), crs=CRS)
+    r = add_elevation(shortest_route(tg, network.ids["A"], network.ids["F"]), plane_dem(0.1, 0.0, 1000, xmax=1200), CRS)
+    plan = split_route(r, nights=1, daily_min_m=0.5 * M, daily_max_m=2.0 * M,
+                       targets=targets(("easy", [0.5, 2]), (None, None)))
+    assert all(d.rating["level"] is None for d in plan.days)
+    assert not any("came out" in v for v in plan.violations)
+
+
+def test_a_level_only_day_reports_the_level_not_the_tables_numbers():
+    # 3% all the way: a hard day 2 needs more climbing than the hard row's gain cap allows at its length
+    from backcountry.difficulty import LEVEL_TARGETS
+
+    route = long_route(30_000, grade_pct=3)
+    hard = LEVEL_TARGETS["backpacking"]["hard"]
+    t = targets((None, [3, 12]), ("hard", None), (None, [3, 12]))
+    t[1] |= {"miles": hard["miles"], "max_gain_ft": 300.0, "max_grade_pct": hard["max_grade_pct"]}  # as resolved from the level
+    plan = split_route(route, 2, 3 * M, 12 * M, targets=t)
+    assert plan.days[1].rating["level"] == "hard"
+    assert not any(v.startswith("Day 2") for v in plan.violations)
+
+
+def test_grade_at_the_cap_after_rounding_is_not_a_miss():
+    route = long_route(10_000, grade_pct=15.2)
+    t = [{"day": i, "level": None, "miles": [2, 4], "max_gain_ft": None, "max_grade_pct": 15.0, "targeted": True,
+          "explicit": ["miles", "max_grade_pct"]} for i in (1, 2)]
+    plan = split_route(route, 1, 2 * M, 4 * M, targets=t)
+    assert not any("grade" in v for v in plan.violations)

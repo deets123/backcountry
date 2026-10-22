@@ -171,8 +171,10 @@ def test_targets_for_fills_untargeted_days_from_the_trip():
     t = req.targets_for(4)
     easy, hard = LEVEL_TARGETS["backpacking"]["easy"], LEVEL_TARGETS["backpacking"]["hard"]
     assert t[0] == {"day": 1, "level": "easy", "miles": [float(m) for m in easy["miles"]],
-                    "max_gain_ft": easy["max_gain_ft"], "max_grade_pct": easy["max_grade_pct"], "targeted": True}
+                    "max_gain_ft": easy["max_gain_ft"], "max_grade_pct": easy["max_grade_pct"], "targeted": True,
+                    "explicit": []}
     assert t[1] == {"day": 2, "level": None, "miles": [6.0, 11.0], "max_gain_ft": 2500.0, "max_grade_pct": None,
-                    "targeted": False}
+                    "targeted": False, "explicit": []}
+    assert t[2]["explicit"] == ["miles"]
     assert t[2]["miles"] == [9.0, 10.0] and t[2]["max_gain_ft"] == hard["max_gain_ft"]  # numbers win over the level
     assert len(t) == 4 and t[3]["level"] is None
