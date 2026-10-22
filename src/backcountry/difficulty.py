@@ -1,0 +1,180 @@
+"""Difficulty levels (easy / moderate / hard / strenuous) for a stretch of route.
+
+Computed only from sourced data, in the stretch's direction of travel:
+
+1. Effort score: Shenandoah National Park's formula, sqrt(gain_ft * 2 * miles)
+   (nps.gov/shen, "How to Determine Hiking Difficulty"). Descent doesn't count.
+   The cutoffs depend on the scale: a day hike, or a day of a backpacking trip
+   (the same miles and climbing rate harder with a pack).
+2. A long sustained uphill (grade over a window along the smoothed profile)
+   raises the level by one, at most. Short steep pitches don't.
+3. OSM terrain tags (sac_scale, trail_visibility) make a day at least hard,
+   never strenuous by themselves.
+
+Levels only go up from the effort level. Unknown elevation gives an unknown
+level, never a guess. RULES carries a version so stored ratings can be
+recomputed when the rules change; the web app's difficulty.ts is a port of
+rate_stretch held to this one by a parity fixture.
+"""
+
+import bisect
+import math
+from dataclasses import asdict, dataclass
+
+import numpy as np
+
+from backcountry.elevation import SMOOTH_SAMPLES, smooth
+from backcountry.scoring import M_PER_MI
+
+LEVELS = ("easy", "moderate", "hard", "strenuous")
+
+SCRAMBLE, DEMANDING, HARD_TO_FOLLOW = "scramble (tagged)", "demanding trail (tagged)", "hard to follow (tagged)"
+
+RULES = {
+    "version": 1,
+    # effort below cutoffs[0] is easy, below cutoffs[1] moderate, below cutoffs[2] hard, else strenuous
+    "scales": {"day_hike": {"cutoffs": [50, 100, 200]}, "backpacking": {"cutoffs": [35, 70, 140]}},
+    "steep": {"window_m": 400, "grade_pct": 15},
+    "terrain": {
+        "min_m": 100,  # a tagged stretch shorter than this doesn't count
+        "sac_scale": {"demanding_mountain_hiking": DEMANDING, "alpine_hiking": SCRAMBLE,
+                      "demanding_alpine_hiking": SCRAMBLE, "difficult_alpine_hiking": SCRAMBLE},
+        "trail_visibility": {"bad": HARD_TO_FOLLOW, "very_bad": HARD_TO_FOLLOW, "horrible": HARD_TO_FOLLOW,
+                             "no": HARD_TO_FOLLOW},
+    },
+}
+
+# What picking a level for a day sets: miles range, climbing cap (ft), steepness cap (% grade).
+LEVEL_TARGETS = {
+    "backpacking": {
+        "easy": {"miles": [2, 6], "max_gain_ft": 1000, "max_grade_pct": 12},
+        "moderate": {"miles": [5, 10], "max_gain_ft": 2000, "max_grade_pct": 15},
+        "hard": {"miles": [8, 13], "max_gain_ft": 3000, "max_grade_pct": 20},
+        "strenuous": {"miles": [10, 16], "max_gain_ft": 4500, "max_grade_pct": None},
+    },
+    "day_hike": {
+        "easy": {"miles": [1, 4], "max_gain_ft": 500, "max_grade_pct": 10},
+        "moderate": {"miles": [3, 7], "max_gain_ft": 1500, "max_grade_pct": 15},
+        "hard": {"miles": [5, 10], "max_gain_ft": 3000, "max_grade_pct": 20},
+        "strenuous": {"miles": [7, 14], "max_gain_ft": 5000, "max_grade_pct": None},
+    },
+}
+
+
+@dataclass
+class Rating:
+    level: str | None  # None = unknown
+    reasons: list[str]  # short tags for what raised or set the level, e.g. "steep"
+    effort: float | None
+    steep: dict | None  # steepest sustained climb: {grade_pct, start_m, end_m}
+    tagged: list[dict]  # terrain intervals with a reason overlapping the stretch
+    untagged_share: float  # share of the stretch with no terrain data at all (0-1)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def level_index(level: str) -> int:
+    return LEVELS.index(level)
+
+
+def effort_score(gain_ft: float, miles: float) -> float:
+    return math.sqrt(max(gain_ft, 0.0) * 2 * max(miles, 0.0))
+
+
+def _stretch(d_m, z_m, start_m: float, end_m: float):
+    """Indices of profile samples inside [start_m, end_m] (with a little slack for float camps)."""
+    d = np.asarray(d_m, dtype=float)
+    i, j = np.searchsorted(d, start_m - 1e-6, "left"), np.searchsorted(d, end_m + 1e-6, "right")
+    return d[i:j], list(z_m[i:j])
+
+
+def steepest_climb(d_m, z_m, start_m: float, end_m: float, window_m: float) -> dict | None:
+    """The steepest uphill grade over `window_m` inside the stretch, on the smoothed profile.
+
+    None when elevation is unknown in the stretch, it is shorter than the window, or it never climbs.
+    """
+    d, z = _stretch(d_m, z_m, start_m, end_m)
+    if len(d) < 2 or any(v is None for v in z) or d[-1] - d[0] < window_m - 1e-6:
+        return None
+    zs = smooth(np.array(z, dtype=float), SMOOTH_SAMPLES)
+    j = np.searchsorted(d, d + window_m - 1e-6, "left")
+    ok = j < len(d)
+    if not ok.any():
+        return None
+    i = np.nonzero(ok)[0]
+    grade = (zs[j[ok]] - zs[i]) / (d[j[ok]] - d[i]) * 100
+    best = int(np.argmax(grade))
+    if grade[best] <= 0:
+        return None
+    return {"grade_pct": float(grade[best]), "start_m": float(d[i[best]]), "end_m": float(d[j[ok][best]])}
+
+
+def _edge_reason(edge: dict, rules: dict) -> tuple[bool, str | None]:
+    """(has terrain data, reason or None) for one route edge."""
+    tags = edge.get("tags") or {}
+    terrain = rules["terrain"]
+    sac, vis = tags.get("sac_scale"), tags.get("trail_visibility")
+    reasons = [terrain["sac_scale"].get(sac), terrain["trail_visibility"].get(vis)]
+    for r in (SCRAMBLE, DEMANDING, HARD_TO_FOLLOW):
+        if r in reasons:
+            return True, r
+    return sac is not None or vis is not None, None
+
+
+def route_terrain(route, min_m: float = RULES["terrain"]["min_m"], rules: dict = RULES) -> list[dict]:
+    """Walking-order intervals of the route with terrain data: {start_m, end_m, reason, sources}.
+
+    `reason` is a tag reason, or None where the trail is tagged but nothing in the tags raises a level.
+    Roads carry no terrain. Adjacent edges with the same reason merge; merged intervals with a reason
+    shorter than `min_m` are dropped. `sources` is provenance for the details view, never shown as text.
+    """
+    out, at = [], 0.0
+    for e in route.edges:
+        start, at = at, at + e["length_m"]
+        if e.get("is_road"):
+            continue
+        known, reason = _edge_reason(e, rules)
+        if not known:
+            continue
+        last = out[-1] if out else None
+        if last and last["reason"] == reason and abs(last["end_m"] - start) < 1e-6:
+            last["end_m"] = at
+            if e["source"] not in last["sources"]:
+                last["sources"].append(e["source"])
+        else:
+            out.append({"start_m": start, "end_m": at, "reason": reason, "sources": [e["source"]]})
+    return [t for t in out if t["reason"] is None or t["end_m"] - t["start_m"] >= min_m]
+
+
+def _overlap(t: dict, start_m: float, end_m: float) -> float:
+    return max(0.0, min(t["end_m"], end_m) - max(t["start_m"], start_m))
+
+
+def rate_stretch(d_m, z_m, terrain: list[dict], start_m: float, end_m: float, gain_ft: float | None,
+                 scale: str, rules: dict = RULES) -> Rating:
+    length = max(end_m - start_m, 0.0)
+    tagged = [t for t in terrain if t["reason"] and _overlap(t, start_m, end_m) > 0]
+    covered = sum(_overlap(t, start_m, end_m) for t in terrain)
+    untagged = 1.0 - min(covered / length, 1.0) if length > 0 else 1.0
+    _, z = _stretch(d_m, z_m, start_m, end_m)
+    if gain_ft is None or not z or any(v is None for v in z):
+        return Rating(None, [], None, None, tagged, untagged)
+    effort = effort_score(gain_ft, length / M_PER_MI)
+    level = bisect.bisect_right(rules["scales"][scale]["cutoffs"], effort)
+    reasons = []
+    steep = steepest_climb(d_m, z_m, start_m, end_m, rules["steep"]["window_m"])
+    if steep and steep["grade_pct"] >= rules["steep"]["grade_pct"]:
+        level = min(level + 1, len(LEVELS) - 1)
+        reasons.append("steep")
+    if tagged:
+        level = max(level, level_index("hard"))
+        reasons += list(dict.fromkeys(t["reason"] for t in tagged))
+    return Rating(LEVELS[level], reasons, effort, steep, tagged, untagged)
+
+
+def trip_level(ratings: list[Rating]) -> str | None:
+    """A trip is as hard as its hardest day; unknown if any day is unknown."""
+    if not ratings or any(r.level is None for r in ratings):
+        return None
+    return max((r.level for r in ratings), key=level_index)
