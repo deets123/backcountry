@@ -47,7 +47,7 @@ const overlap = (t: TerrainInterval, a: number, b: number) => Math.max(0, Math.m
 export function rateStretch(p: Profile, terrain: TerrainInterval[], startM: number, endM: number, gainFt: number | null,
   scale: Scale, rules: DifficultyRules): Rating {
   const length = Math.max(endM - startM, 0);
-  const tagged = terrain.filter((t) => t.reason && overlap(t, startM, endM) > 0);
+  const tagged = terrain.filter((t) => t.reason && overlap(t, startM, endM) >= rules.terrain.min_m);
   const covered = terrain.reduce((sum, t) => sum + overlap(t, startM, endM), 0);
   const untagged = length > 0 ? 1 - Math.min(covered / length, 1) : 1;
   const z = stretch(p, startM, endM).z;

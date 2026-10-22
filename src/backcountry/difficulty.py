@@ -33,7 +33,7 @@ LEVELS = ("easy", "moderate", "hard", "strenuous")
 SCRAMBLE, DEMANDING, HARD_TO_FOLLOW = "scramble (tagged)", "demanding trail (tagged)", "hard to follow (tagged)"
 
 RULES = {
-    "version": 1,
+    "version": 2,  # bump on any change here: saved trips re-fetch their levels when it rises
     # effort below cutoffs[0] is easy, below cutoffs[1] moderate, below cutoffs[2] hard, else strenuous.
     # Tuned against the user's trips (tests/calibration/cases.yaml): Old Rag 217 (day hike) is hard,
     # Mount Tammany ~94 (day hike) moderate, Zion West Rim (backpacking) moderate for any camp from mile 6 to 10.
@@ -42,7 +42,7 @@ RULES = {
     # Zion West Rim's 16% climb doesn't make its day hard; Old Rag's 25% is in a day already hard.
     "steep": {"window_m": 400, "tag_pct": 15, "raise_pct": 25},
     "terrain": {
-        "min_m": 100,  # a tagged stretch shorter than this doesn't count
+        "min_m": 100,  # a tagged stretch shorter than this doesn't count, nor a day with less of it than this
         "sac_scale": {"demanding_mountain_hiking": DEMANDING, "alpine_hiking": SCRAMBLE,
                       "demanding_alpine_hiking": SCRAMBLE, "difficult_alpine_hiking": SCRAMBLE},
         "trail_visibility": {"bad": HARD_TO_FOLLOW, "very_bad": HARD_TO_FOLLOW, "horrible": HARD_TO_FOLLOW,
@@ -176,7 +176,7 @@ def _overlap(t: dict, start_m: float, end_m: float) -> float:
 def rate_stretch(d_m, z_m, terrain: list[dict], start_m: float, end_m: float, gain_ft: float | None,
                  scale: str, rules: dict = RULES) -> Rating:
     length = max(end_m - start_m, 0.0)
-    tagged = [t for t in terrain if t["reason"] and _overlap(t, start_m, end_m) > 0]
+    tagged = [t for t in terrain if t["reason"] and _overlap(t, start_m, end_m) >= rules["terrain"]["min_m"]]
     covered = sum(_overlap(t, start_m, end_m) for t in terrain)
     untagged = 1.0 - min(covered / length, 1.0) if length > 0 else 1.0
     _, z = _stretch(d_m, z_m, start_m, end_m)

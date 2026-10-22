@@ -95,7 +95,7 @@ def test_payload_has_levels_terrain_and_rules(grid):
     order = ["easy", "moderate", "hard", "strenuous"]
     assert c["level"] == max((d["rating"]["level"] for d in days), key=order.index)
     assert c["terrain"] == [] and c["rating"] is None  # the grid has no terrain tags; backpacking trips rate per day
-    assert run["difficulty_rules"] == RULES and run["difficulty_rules"]["version"] == 1
+    assert run["difficulty_rules"] == RULES and run["difficulty_rules"]["version"] == 2
 
 
 def test_plan_without_dem_has_unknown_levels(grid):

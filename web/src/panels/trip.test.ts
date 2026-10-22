@@ -154,3 +154,17 @@ describe("levels in the trip view", () => {
     expect(html).toContain('Level: <span class="lvl lvl-moderate">Moderate</span> · steep');
   });
 });
+
+describe("tagged stretches in a day's details", () => {
+  it("are clipped to the day", () => {
+    const M = 1609.344;
+    const r = { level: "hard" as const, reasons: ["scramble (tagged)"], effort: 40, steep: null, untagged_share: 0,
+      tagged: [{ start_m: 5 * M, end_m: 7 * M, reason: "scramble (tagged)", sources: [] }] };
+    const html = renderTrip({ ...INITIAL, selected: 1, view: "trip", run: run({ level: "hard", plan: { nights: 1, daily_min_m: 1, daily_max_m: 2,
+      max_gain_ft: null, ok: true, penalty: 0, notes: [], violations: [], camps: [], days: [
+        { index: 1, start_m: 0, end_m: 6 * M, length_m: 6 * M, gain_ft: 1, loss_ft: 1, start_label: "Start", end_label: "Camp 1", rating: r },
+        { index: 2, start_m: 6 * M, end_m: 30000, length_m: 30000 - 6 * M, gain_ft: 1, loss_ft: 1, start_label: "Camp 1", end_label: "End", rating: r }] } }) });
+    expect(html).toContain("scramble from mile 5.0 to 6.0");
+    expect(html).toContain("scramble from mile 6.0 to 7.0");
+  });
+});

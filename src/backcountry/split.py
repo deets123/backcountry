@@ -110,11 +110,12 @@ def _pair_levels(cd, cg, d, z, terrain, rules) -> tuple[np.ndarray, np.ndarray]:
     level = np.where(raise_ & (level < hard), level + 1, level)
     tagged = [t for t in terrain if t["reason"]]
     if tagged:
-        starts = np.array([t["start_m"] for t in tagged])
-        ends = np.array([t["end_m"] for t in tagged])
-        # a day [cd_i, cd_j] touches a tagged stretch if one starts before cd_j and ends after cd_i
-        max_end = np.array([ends[starts < cd[j]].max() if (starts < cd[j]).any() else -np.inf for j in range(P)])
-        level = np.where(max_end[None, :] > cd[:, None], np.maximum(level, hard), level)
+        # a day [cd_i, cd_j] counts a tagged stretch when it covers at least min_m of it (as rate_stretch)
+        touched = np.zeros((P, P), dtype=bool)
+        for t in tagged:
+            ov = np.minimum(t["end_m"], cd[None, :]) - np.maximum(t["start_m"], cd[:, None])
+            touched |= ov >= rules["terrain"]["min_m"]
+        level = np.where(touched, np.maximum(level, hard), level)
     return level, steep
 
 
@@ -257,15 +258,15 @@ def _day_violations(n: int, length: float, gain, rating, target: dict | None, lo
     out = []
     targeted = bool(target and target["targeted"])
     mine = set(target.get("explicit", [])) if targeted else set()
-    check = (lambda field: field in mine) if targeted else (lambda field: True)
-    if check("miles") and length < lo:
-        out.append(f"Day {n}: {length / M_PER_MI:.2f} mi is under your {lo / M_PER_MI:.2f} mi target" if mine else
+    trip = set(target.get("from_trip", [])) if targeted else {"miles", "max_gain_ft"}
+    if "miles" in mine | trip and length < lo:
+        out.append(f"Day {n}: {length / M_PER_MI:.2f} mi is under your {lo / M_PER_MI:.2f} mi target" if "miles" in mine else
                    f"Day {n}: {length / M_PER_MI:.2f} mi is under the {lo / M_PER_MI:.2f} mi daily minimum")
-    if check("miles") and length > hi:
-        out.append(f"Day {n}: {length / M_PER_MI:.2f} mi is over your {hi / M_PER_MI:.2f} mi target" if mine else
+    if "miles" in mine | trip and length > hi:
+        out.append(f"Day {n}: {length / M_PER_MI:.2f} mi is over your {hi / M_PER_MI:.2f} mi target" if "miles" in mine else
                    f"Day {n}: {length / M_PER_MI:.2f} mi is over the {hi / M_PER_MI:.2f} mi daily max")
-    if check("max_gain_ft") and gain is not None and cap is not None and gain > cap:
-        out.append(f"Day {n}: {gain:,.0f} ft of climbing is over your {cap:,.0f} ft target" if mine else
+    if "max_gain_ft" in mine | trip and gain is not None and cap is not None and gain > cap:
+        out.append(f"Day {n}: {gain:,.0f} ft of climbing is over your {cap:,.0f} ft target" if "max_gain_ft" in mine else
                    f"Day {n}: {gain:,.0f} ft of climbing is over the {cap:,.0f} ft daily gain cap")
     grade_cap = target["max_grade_pct"] if target else None
     if "max_grade_pct" in mine and grade_cap is not None and rating.steep and round(rating.steep["grade_pct"]) > grade_cap:

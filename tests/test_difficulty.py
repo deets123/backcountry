@@ -133,3 +133,24 @@ def test_steepest_climb_is_uphill_only_and_needs_the_window():
     s = steepest_climb(d, z, 0.0, d[-1], 400)
     assert s["grade_pct"] == pytest.approx(5, abs=0.5)
     assert steepest_climb(d, z, 0.0, 300.0, 400) is None
+
+
+def test_a_day_that_only_grazes_a_tagged_stretch_keeps_its_effort_level():
+    tag = [{"start_m": 0.0, "end_m": 5000.5, "reason": "scramble (tagged)", "sources": ["osm:way/1"]}]
+    d, z = profile([(10000, 0)])
+    grazed = rate_stretch(d, z, tag, 5000.0, d[-1], 0.0, "backpacking")
+    assert grazed.level == "easy" and grazed.reasons == [] and grazed.tagged == []
+    inside = rate_stretch(d, z, tag, 4800.0, d[-1], 0.0, "backpacking")  # 200 m of it: counts
+    assert inside.level == "hard"
+    assert RULES["version"] == 2
+
+
+def test_the_split_ignores_a_graze_too():
+    from backcountry.split import split_route
+    from test_split import long_route, targets, M
+
+    route = long_route(30_000)
+    tag = [{"start_m": 0.0, "end_m": 10_000.5, "reason": "scramble (tagged)", "sources": ["osm:way/1"]}]
+    plan = split_route(route, 2, 5 * M, 8 * M, targets=targets((None, None), ("easy", [5, 8]), (None, None)), terrain=tag)
+    # day 2 can start where the scramble ends; a half-metre graze must not make it hard
+    assert plan.days[1].rating["level"] == "easy"

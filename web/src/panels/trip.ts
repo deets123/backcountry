@@ -18,11 +18,11 @@ const NEAR = feet(500 * FT_PER_M);
 const mileAt = (m: number) => (m / M_PER_MI).toFixed(1);
 
 /** What's behind a level, for the tap-to-open details: effort, the steep stretch, tagged terrain, what's unknown. */
-function ratingDetails(r: Rating): string {
+function ratingDetails(r: Rating, startM = -Infinity, endM = Infinity): string {
   if (r.level === null) return `<li>Level unknown: no elevation data for this day.</li>`;
   const out = [`<li>Effort score ${Math.round(r.effort ?? 0)} (Shenandoah National Park's formula: the square root of 2 × feet climbed × miles).</li>`];
   if (r.steep) out.push(`<li>Steepest climb: ${Math.round(r.steep.grade_pct)}% for ${((r.steep.end_m - r.steep.start_m) / M_PER_MI).toFixed(1)} mi at mile ${mileAt(r.steep.start_m)}.</li>`);
-  for (const t of r.tagged) out.push(`<li>Tagged in OpenStreetMap: ${esc((t.reason ?? "").replace(" (tagged)", ""))} from mile ${mileAt(t.start_m)} to ${mileAt(t.end_m)}.</li>`);
+  for (const t of r.tagged) out.push(`<li>Tagged in OpenStreetMap: ${esc((t.reason ?? "").replace(" (tagged)", ""))} from mile ${mileAt(Math.max(t.start_m, startM))} to ${mileAt(Math.min(t.end_m, endM))}.</li>`);
   if (r.untagged_share > 0) out.push(`<li>Terrain unknown for ${Math.round(r.untagged_share * 100)}% of this day (no OpenStreetMap terrain tags there).</li>`);
   return out.join("");
 }
@@ -32,7 +32,7 @@ function dayRow(d: Day): string {
   const r = d.rating;
   const head = `<span class="swatch" style="background:${dayColor(d.index)}"></span>Day ${d.index}${r ? ` · ${levelChip(r.level)}` : ""} · ${miles(d.length_m)} · ${d.gain_ft == null ? "gain unknown" : `+${feet(d.gain_ft)}`}${r && r.reasons.length ? ` · ${esc(r.reasons.join(", "))}` : ""}`;
   return `<details class="day-row"><summary>${head}</summary><ul class="note">
-<li>${esc(d.start_label)} → ${esc(d.end_label)}, loss ${feet(d.loss_ft)}.</li>${r ? ratingDetails(r) : ""}</ul></details>`;
+<li>${esc(d.start_label)} → ${esc(d.end_label)}, loss ${feet(d.loss_ft)}.</li>${r ? ratingDetails(r, d.start_m, d.end_m) : ""}</ul></details>`;
 }
 
 function daysHtml(c: Candidate, editable: boolean): string {

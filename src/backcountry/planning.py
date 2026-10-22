@@ -101,7 +101,11 @@ class DayTarget:
         return {"day": self.day, "level": self.level, "miles": [float(m) for m in miles] if miles else None,
                 "max_gain_ft": float(gain) if gain is not None else None,
                 "max_grade_pct": float(grade) if grade is not None else None, "targeted": True,
-                "explicit": [k for k in ("miles", "max_gain_ft", "max_grade_pct") if getattr(self, k) is not None]}
+                "explicit": [k for k in ("miles", "max_gain_ft", "max_grade_pct") if getattr(self, k) is not None],
+                # numbers that came from the trip-wide settings (no number of the day's own, no level): still checked
+                "from_trip": [k for k, own, tab in (("miles", self.miles, table.get("miles")),
+                                                    ("max_gain_ft", self.max_gain_ft, table.get("max_gain_ft")))
+                              if own is None and tab is None]}
 
 
 def _day_targets(data: dict, nights, daily, total) -> list[DayTarget]:
@@ -194,7 +198,8 @@ class GenerateRequest:
         by_day = {t.day: t for t in self.days}
         return [by_day[i].resolved("backpacking", self) if i in by_day else
                 {"day": i, "level": None, "miles": [float(m) for m in self.daily] if self.daily else None,
-                 "max_gain_ft": self.max_gain_day, "max_grade_pct": None, "targeted": False, "explicit": []}
+                 "max_gain_ft": self.max_gain_day, "max_grade_pct": None, "targeted": False, "explicit": [],
+                 "from_trip": ["miles", "max_gain_ft"]}
                 for i in range(1, ndays + 1)]
 
     @property

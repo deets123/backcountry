@@ -44,6 +44,8 @@ CASES = [  # (name, pieces, terrain, nights, camps_m, missing sample)
      2, [5000.0, 11000.0], None),
     ("no elevation", [(5000, 5)], [], 1, [2000.0], 40),
     ("strenuous long climb (day hike)", [(19300, 4.7)], [], None, None, None),
+    ("a camp just inside a scramble: the next day only grazes it", [(6000, 1)], [_tag(1000, 3000.5, "scramble (tagged)")],
+     1, [3000.0], None),
 ]
 
 

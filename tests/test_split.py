@@ -252,3 +252,17 @@ def test_grade_at_the_cap_after_rounding_is_not_a_miss():
           "explicit": ["miles", "max_grade_pct"]} for i in (1, 2)]
     plan = split_route(route, 1, 2 * M, 4 * M, targets=t)
     assert not any("grade" in v for v in plan.violations)
+
+
+def test_explicit_numbers_never_relax_the_trip_checks_they_dont_set():
+    from backcountry.planning import GenerateRequest
+
+    route = long_route(30_000, grade_pct=3)  # 18.64 mi, ~2,950 ft
+    req = GenerateRequest.from_dict({"trailhead": "x", "total": "15-25", "nights": 1, "daily": "6-11", "max_gain_day": 1000,
+                                     "days": [{"day": 2, "miles": [8, 12]}]})
+    plan = split_route(route, 1, 6 * M, 11 * M, 1000, targets=req.targets_for(2))
+    assert any(v.startswith("Day 2: ") and "over the 1,000 ft daily gain cap" in v for v in plan.violations)
+    req = GenerateRequest.from_dict({"trailhead": "x", "total": "15-25", "nights": 1, "daily": "6-8",
+                                     "days": [{"day": 1, "max_gain_ft": 3000}]})
+    plan = split_route(route, 1, 6 * M, 8 * M, None, targets=req.targets_for(2))
+    assert any(v.startswith("Day 1: ") and "daily max" in v for v in plan.violations)

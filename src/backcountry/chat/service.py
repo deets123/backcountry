@@ -43,7 +43,8 @@ def chat_turn(model: ChatModel, run: dict, n: int, message: str, history: list[d
                 note = "That wouldn't change any setting."
         except ProposalError as e:
             note = str(e)
-    ok, reasons = check_reply(reply, f"{facts}\n{json.dumps(changes)}")  # numbers in the proposal may be quoted
+    ok, reasons = check_reply(reply, f"{facts}\n{json.dumps(changes)}",  # numbers in the proposal may be quoted
+                              check_levels=kind != "change")  # a change reply names target levels, not computed ones
     withheld = None
     if not ok:
         withheld = reasons[0]

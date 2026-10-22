@@ -95,3 +95,16 @@ def test_level_claims_must_match_the_computed_levels():
     assert check_reply("Day 3 is hard to say.", LEVEL_FACTS)[0]  # "hard to" isn't a level
     ok, reasons = check_reply("Day 3 is strenuous.", LEVEL_FACTS)
     assert not ok and reasons == ["says day 3 is strenuous, but its level is unknown"]
+
+
+def test_plural_day_references_are_checked_too():
+    ok, reasons = check_reply("Days 1 and 2 are easy.", LEVEL_FACTS)
+    assert not ok and reasons == ["says day 1 is easy, but it is moderate", "says day 2 is easy, but it is hard"]
+    assert check_reply("Days 1 and 2 are moderate and hard.", LEVEL_FACTS)[0] is False  # can't tell which is which: checked as both
+    assert check_reply("Day 2 is hard; days 1, 2 or 3 could change.", LEVEL_FACTS)[0]
+
+
+def test_a_change_reply_names_the_requested_levels_without_being_withheld():
+    reply = "I've set day 1 to easy and days 2 and 3 to hard."
+    assert not check_reply(reply, LEVEL_FACTS)[0]
+    assert check_reply(reply, LEVEL_FACTS, check_levels=False) == (True, [])
