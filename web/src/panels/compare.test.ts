@@ -48,3 +48,11 @@ describe("compare heading", () => {
     expect(renderCompare({ ...INITIAL, run, trailheads: [th] })).toContain("Map point 39.04000,-79.38000, 18–26 mi");
   });
 });
+
+describe("levels on cards", () => {
+  it("cards show the trip level", () => {
+    expect(cardHtml(cand({ level: "hard" }), false)).toContain('<span class="lvl lvl-hard">Hard</span>');
+    expect(cardHtml(cand({ level: null }), false)).toContain("Level unknown");
+    expect(cardHtml(cand({}), false)).not.toContain("lvl");  // a run saved before levels existed shows none
+  });
+});

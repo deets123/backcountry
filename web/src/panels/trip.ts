@@ -8,17 +8,40 @@ import { estimate, megabytes, tileList, tripBox } from "../offline/tiles";
 import { profileSvg } from "../profile";
 import { currentCandidate } from "../selectors";
 import type { State, Store } from "../store";
-import type { Candidate, Run } from "../types";
+import type { Candidate, Day, Rating, Run } from "../types";
 import { renderChat } from "./chat";
-import { esc, knownGapsHtml, notesHtml } from "./common";
+import { esc, knownGapsHtml, levelChip, notesHtml } from "./common";
 import { segmentNames } from "./compare";
 
 const NEAR = feet(500 * FT_PER_M);
 
+const mileAt = (m: number) => (m / M_PER_MI).toFixed(1);
+
+/** What's behind a level, for the tap-to-open details: effort, the steep stretch, tagged terrain, what's unknown. */
+function ratingDetails(r: Rating): string {
+  if (r.level === null) return `<li>Level unknown: no elevation data for this day.</li>`;
+  const out = [`<li>Effort score ${Math.round(r.effort ?? 0)} (Shenandoah National Park's formula: the square root of 2 × feet climbed × miles).</li>`];
+  if (r.steep) out.push(`<li>Steepest climb: ${Math.round(r.steep.grade_pct)}% for ${((r.steep.end_m - r.steep.start_m) / M_PER_MI).toFixed(1)} mi at mile ${mileAt(r.steep.start_m)}.</li>`);
+  for (const t of r.tagged) out.push(`<li>Tagged in OpenStreetMap: ${esc((t.reason ?? "").replace(" (tagged)", ""))} from mile ${mileAt(t.start_m)} to ${mileAt(t.end_m)}.</li>`);
+  if (r.untagged_share > 0) out.push(`<li>Terrain unknown for ${Math.round(r.untagged_share * 100)}% of this day (no OpenStreetMap terrain tags there).</li>`);
+  return out.join("");
+}
+
+/** "Day 1 · [Easy] · 4.60 mi · +720 ft · steep", opening to the details behind the level. */
+function dayRow(d: Day): string {
+  const r = d.rating;
+  const head = `<span class="swatch" style="background:${dayColor(d.index)}"></span>Day ${d.index}${r ? ` · ${levelChip(r.level)}` : ""} · ${miles(d.length_m)} · ${d.gain_ft == null ? "gain unknown" : `+${feet(d.gain_ft)}`}${r && r.reasons.length ? ` · ${esc(r.reasons.join(", "))}` : ""}`;
+  return `<details class="day-row"><summary>${head}</summary><ul class="note">
+<li>${esc(d.start_label)} → ${esc(d.end_label)}, loss ${feet(d.loss_ft)}.</li>${r ? ratingDetails(r) : ""}</ul></details>`;
+}
+
 function daysHtml(c: Candidate, editable: boolean): string {
   const p = c.plan;
-  if (!p) return `<p class="note">Days weren't planned (no nights given). Change the settings to split this loop into days.</p>`;
-  const rows = p.days.map((d) => `<tr><td><span class="swatch" style="background:${dayColor(d.index)}"></span>Day ${d.index}</td><td>${esc(d.start_label)} → ${esc(d.end_label)}</td><td>${miles(d.length_m)}</td><td>${feet(d.gain_ft)}</td><td>${feet(d.loss_ft)}</td></tr>`).join("");
+  if (!p) {
+    const level = c.rating ? `<p>Level: ${levelChip(c.rating.level)}${c.rating.reasons.length ? ` · ${esc(c.rating.reasons.join(", "))}` : ""}</p><details class="day-row"><summary>What's behind the level</summary><ul class="note">${ratingDetails(c.rating)}</ul></details>` : "";
+    return `${level}<p class="note">Days weren't planned (no nights given). Change the settings to split this loop into days.</p>`;
+  }
+  const rows = p.days.map(dayRow).join("");
   const moved = p.camps.some((cp) => cp.moved);
   const camps = p.camps.map((cp) => {
     const how = cp.moved ? "moved by you" : cp.pinned ? "pinned by you" : cp.site ? "at a known campsite" : "placed for mileage";
@@ -32,8 +55,9 @@ function daysHtml(c: Candidate, editable: boolean): string {
   const edit = editable && p.camps.length
     ? `<p class="note">Drag a camp marker along the route to move it, or tap Camp here at your location.</p>${moved ? `<button class="link" id="reset-camps">Reset camps to the engine's plan</button>` : ""}`
     : "";
-  return `${notesHtml(p.notes)}${notesHtml(p.violations.map((v) => `Constraint not met: ${v}`), "note error")}
-<table><thead><tr><th>day</th><th>from → to</th><th>distance</th><th>gain</th><th>loss</th></tr></thead><tbody>${rows}</tbody></table>
+  const level = "level" in c ? `<p>Trip level: ${levelChip(c.level ?? null)} <span class="note">(its hardest day)</span></p>` : "";
+  return `${level}${notesHtml(p.notes)}${notesHtml(p.violations.map((v) => `Constraint not met: ${v}`), "note error")}
+<div class="days">${rows}</div>${c.suggestion ? `<p class="note" id="suggestion">${esc(c.suggestion.text)}</p>` : ""}
 <h2>Camps</h2><p class="note">Camps are points on the route chosen for mileage, not known campsites. Legality and water: unknown.</p>${edit}<ul>${camps}</ul>`;
 }
 

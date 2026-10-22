@@ -35,3 +35,19 @@ table { border-collapse: collapse; width: 100%; font-size: 13px; } td, th { text
 .chat-msg { margin: 6px 0; padding: 8px 10px; border-radius: 10px; font-size: 14px; }
 .chat-user { background: #e8f5e9; margin-left: 15%; } .chat-assistant { background: #f5f5f5; margin-right: 10%; }
 .proposal { margin-top: 6px; background: #fff; } .proposal ul { margin: 6px 0; padding-left: 18px; }
+/* Difficulty levels: one color per level, the same on chips, the day strip and the editor's buttons. */
+:root { --easy: #2e7d32; --moderate: #1565c0; --hard: #e65100; --strenuous: #b71c1c; }
+.lvl { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 12px; font-weight: 600; background: #eee; color: var(--muted); }
+.lvl-easy { background: #e8f5e9; color: var(--easy); } .lvl-moderate { background: #e3f2fd; color: var(--moderate); }
+.lvl-hard { background: #fff3e0; color: var(--hard); } .lvl-strenuous { background: #ffebee; color: var(--strenuous); }
+.day-strip { display: flex; gap: 4px; margin-top: 8px; }
+.day-block { flex: 1 1 0; min-width: 64px; padding: 6px 4px; border: 2px solid var(--line); border-radius: 8px; background: #fafafa;
+  font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.day-block.lvl-easy { border-color: var(--easy); } .day-block.lvl-moderate { border-color: var(--moderate); }
+.day-block.lvl-hard { border-color: var(--hard); } .day-block.lvl-strenuous { border-color: var(--strenuous); }
+.day-block.open { box-shadow: 0 0 0 2px var(--ink); } .day-block span { display: block; font-weight: 400; font-size: 12px; }
+.day-editor { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-top: 6px; }
+.day-editor .levels button { padding: 8px 4px; border: 1px solid var(--line); cursor: pointer; }
+.day-editor .levels button.on { outline: 2px solid currentColor; }
+.day-row { border-bottom: 1px solid var(--line); padding: 6px 0; font-size: 14px; } .day-row summary { cursor: pointer; }
+.day-row ul { margin: 4px 0 0; }

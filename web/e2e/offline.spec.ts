@@ -53,10 +53,10 @@ test("save a trip, go offline, reopen it, see where I am, move a camp, delete it
   await expect(page.locator("#gps-line")).toContainText(/mile \d+\.\d of \d+\.\d · Day 1 · .* to Camp 1/);
 
   // Move tonight's camp to here; the days table and the saved record follow.
-  const before = await page.locator("table").first().innerText();
+  const before = await page.locator(".days").innerText();
   await page.click("#camp-here");
   await expect(page.locator("#reset-camps")).toBeVisible();
-  expect(await page.locator("table").first().innerText()).not.toBe(before);
+  expect(await page.locator(".days").innerText()).not.toBe(before);
   await expect(page.locator(".note").filter({ hasText: "Camps moved by you on this phone" })).toHaveCount(1);
   await page.reload();
   await expect(page.locator(".saved-trip")).toContainText("camps moved by you");

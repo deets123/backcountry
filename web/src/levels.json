@@ -1,0 +1,117 @@
+{
+ "levels": [
+  "easy",
+  "moderate",
+  "hard",
+  "strenuous"
+ ],
+ "level_targets": {
+  "backpacking": {
+   "easy": {
+    "miles": [
+     2,
+     5
+    ],
+    "max_gain_ft": 250,
+    "max_grade_pct": 10
+   },
+   "moderate": {
+    "miles": [
+     4,
+     8
+    ],
+    "max_gain_ft": 1200,
+    "max_grade_pct": 15
+   },
+   "hard": {
+    "miles": [
+     7,
+     12
+    ],
+    "max_gain_ft": 2000,
+    "max_grade_pct": 25
+   },
+   "strenuous": {
+    "miles": [
+     9,
+     16
+    ],
+    "max_gain_ft": 4500,
+    "max_grade_pct": null
+   }
+  },
+  "day_hike": {
+   "easy": {
+    "miles": [
+     1,
+     4
+    ],
+    "max_gain_ft": 400,
+    "max_grade_pct": 10
+   },
+   "moderate": {
+    "miles": [
+     3,
+     8
+    ],
+    "max_gain_ft": 1400,
+    "max_grade_pct": 15
+   },
+   "hard": {
+    "miles": [
+     5,
+     12
+    ],
+    "max_gain_ft": 2600,
+    "max_grade_pct": 25
+   },
+   "strenuous": {
+    "miles": [
+     8,
+     18
+    ],
+    "max_gain_ft": 6000,
+    "max_grade_pct": null
+   }
+  }
+ },
+ "rules": {
+  "version": 1,
+  "scales": {
+   "day_hike": {
+    "cutoffs": [
+     60,
+     150,
+     250
+    ]
+   },
+   "backpacking": {
+    "cutoffs": [
+     50,
+     140,
+     225
+    ]
+   }
+  },
+  "steep": {
+   "window_m": 400,
+   "tag_pct": 15,
+   "raise_pct": 25
+  },
+  "terrain": {
+   "min_m": 100,
+   "sac_scale": {
+    "demanding_mountain_hiking": "demanding trail (tagged)",
+    "alpine_hiking": "scramble (tagged)",
+    "demanding_alpine_hiking": "scramble (tagged)",
+    "difficult_alpine_hiking": "scramble (tagged)"
+   },
+   "trail_visibility": {
+    "bad": "hard to follow (tagged)",
+    "very_bad": "hard to follow (tagged)",
+    "horrible": "hard to follow (tagged)",
+    "no": "hard to follow (tagged)"
+   }
+  }
+ }
+}
