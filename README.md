@@ -110,7 +110,7 @@ Every day and every trip is labeled **easy**, **moderate**, **hard** or **strenu
 data (`src/backcountry/difficulty.py`):
 
 - **Effort**: Shenandoah National Park's formula, √(2 × feet climbed × miles). Descent doesn't count.
-- **Steep**: a sustained climb of 15%+ over 400 m is tagged "steep"; 25%+ raises the level by one, never into
+- **Steep**: a sustained climb of 15%+ over 400 m is tagged "steep"; 30%+ raises the level by one, never into
   strenuous.
 - **Terrain**: OpenStreetMap `sac_scale` and `trail_visibility` tags ("scramble (tagged)", "demanding trail
   (tagged)", "hard to follow (tagged)") make a day at least hard. Where OSM has no terrain tags, the details say

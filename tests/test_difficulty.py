@@ -44,12 +44,12 @@ def test_descent_does_not_count():
 
 
 def test_long_steep_climb_raises_by_one_level_only():
-    d, z = profile([(700, 0), (600, 28), (700, 0)])
+    d, z = profile([(700, 0), (600, 33), (700, 0)])
     flat = RULES | {"steep": RULES["steep"] | {"tag_pct": 99, "raise_pct": 99}}
     assert rate_stretch(d, z, [], 0.0, d[-1], gain_ft(z), "backpacking", flat).level == "easy"
     r = rate(d, z)
     assert r.level == "moderate" and r.reasons == ["steep"]
-    assert r.steep["grade_pct"] == pytest.approx(28, abs=0.5)
+    assert r.steep["grade_pct"] == pytest.approx(33, abs=0.5)
 
 
 def test_moderately_steep_climb_is_tagged_without_raising():
@@ -59,7 +59,7 @@ def test_moderately_steep_climb_is_tagged_without_raising():
 
 
 def test_steepness_never_raises_into_strenuous():
-    d, z = profile([(9000, 9), (600, 30), (2000, 0)])
+    d, z = profile([(9000, 9), (600, 34), (2000, 0)])
     r = rate(d, z)
     assert r.effort < RULES["scales"]["backpacking"]["cutoffs"][2]
     assert r.level == "hard" and "steep" in r.reasons
@@ -142,7 +142,7 @@ def test_a_day_that_only_grazes_a_tagged_stretch_keeps_its_effort_level():
     assert grazed.level == "easy" and grazed.reasons == [] and grazed.tagged == []
     inside = rate_stretch(d, z, tag, 4800.0, d[-1], 0.0, "backpacking")  # 200 m of it: counts
     assert inside.level == "hard"
-    assert RULES["version"] == 2
+    assert RULES["version"] == 3
 
 
 def test_the_split_ignores_a_graze_too():

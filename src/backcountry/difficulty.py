@@ -33,14 +33,14 @@ LEVELS = ("easy", "moderate", "hard", "strenuous")
 SCRAMBLE, DEMANDING, HARD_TO_FOLLOW = "scramble (tagged)", "demanding trail (tagged)", "hard to follow (tagged)"
 
 RULES = {
-    "version": 2,  # bump on any change here: saved trips re-fetch their levels when it rises
+    "version": 3,  # bump on any change here: saved trips re-fetch their levels when it rises
     # effort below cutoffs[0] is easy, below cutoffs[1] moderate, below cutoffs[2] hard, else strenuous.
     # Tuned against the user's trips (tests/calibration/cases.yaml): Old Rag 217 (day hike) is hard,
-    # Mount Tammany ~94 (day hike) moderate, Zion West Rim (backpacking) moderate for any camp from mile 6 to 10.
+    # Mount Tammany 93 (day hike) moderate, Zion West Rim (backpacking) moderate for any camp from mile 6 to 10.
     "scales": {"day_hike": {"cutoffs": [60, 150, 250]}, "backpacking": {"cutoffs": [50, 140, 225]}},
     # tag_pct: shown as "steep"; raise_pct: also raises the level by one (not into strenuous).
-    # Zion West Rim's 16% climb doesn't make its day hard; Old Rag's 25% is in a day already hard.
-    "steep": {"window_m": 400, "tag_pct": 15, "raise_pct": 25},
+    # Zion West Rim's 16% climb doesn't make its day hard, nor Mount Tammany's 25% ("moderate at best").
+    "steep": {"window_m": 400, "tag_pct": 15, "raise_pct": 30},
     "terrain": {
         "min_m": 100,  # a tagged stretch shorter than this doesn't count, nor a day with less of it than this
         "sac_scale": {"demanding_mountain_hiking": DEMANDING, "alpine_hiking": SCRAMBLE,
@@ -56,13 +56,13 @@ LEVEL_TARGETS = {
     "backpacking": {
         "easy": {"miles": [2, 5], "max_gain_ft": 250, "max_grade_pct": 10},
         "moderate": {"miles": [4, 8], "max_gain_ft": 1200, "max_grade_pct": 15},
-        "hard": {"miles": [7, 12], "max_gain_ft": 2000, "max_grade_pct": 25},
+        "hard": {"miles": [7, 12], "max_gain_ft": 2000, "max_grade_pct": 30},
         "strenuous": {"miles": [9, 16], "max_gain_ft": 4500, "max_grade_pct": None},
     },
     "day_hike": {
         "easy": {"miles": [1, 4], "max_gain_ft": 400, "max_grade_pct": 10},
         "moderate": {"miles": [3, 8], "max_gain_ft": 1400, "max_grade_pct": 15},
-        "hard": {"miles": [5, 12], "max_gain_ft": 2600, "max_grade_pct": 25},
+        "hard": {"miles": [5, 12], "max_gain_ft": 2600, "max_grade_pct": 30},
         "strenuous": {"miles": [8, 18], "max_gain_ft": 6000, "max_grade_pct": None},
     },
 }

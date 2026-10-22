@@ -730,7 +730,7 @@ Spec: `docs/superpowers/specs/2026-10-21-per-day-difficulty-design.md`. Plan: `d
 
 **Built**
 - `difficulty.py`: easy / moderate / hard / strenuous per day and per trip, with short reasons. Effort is
-  Shenandoah NP's √(2 × ft climbed × miles); a 15%+ sustained climb (400 m) is tagged "steep", 25%+ raises one
+  Shenandoah NP's √(2 × ft climbed × miles); a 15%+ sustained climb (400 m) is tagged "steep", 30%+ raises one
   level (never into strenuous); OSM `sac_scale` / `trail_visibility` tags make a day at least hard. Day-hike and
   backpacking scales. Unknown elevation → "Level unknown".
 - Per-day targets (level or miles / climbing / grade) in the request, the day split (scored against each day's
@@ -751,9 +751,13 @@ rated Old Rag (effort 217) strenuous and a 7.4 mi, +890 ft Zion day hard.
 
 **Calibration** (`tests/calibration/`, your GPX files stay in `tests/reference/local/`):
 - Old Rag: 9.07 mi, +2,607 ft, effort 217 → **hard** (steep, demanding trail). Matches "hard, not strenuous".
-- Zion West Rim (top-down, 1 night): **moderate** for any camp from mile 6 to 10 (camping before mile 6 or after
-  10 makes one day hard). Matches "moderate".
-- Mount Tammany and the Needles: pending your routes.
+- Zion West Rim (top-down, 1 night at Campsite 6, from OSM, mile 6.94): 6.94 mi +823 ft and 7.8 mi +412 ft,
+  both **moderate**. Matches "moderate". (Any camp from mile 6 to 10 gives moderate.)
+- Mount Tammany (Red Dot up, Blue Dot down): 3.5 mi, +1,236 ft, effort 93 → **moderate** (steep: a 25% climb).
+  Matches "moderate at best". Its 25.1% climb is why a steep climb now raises a level only from 30% (rules v3).
+- Peekaboo and Spooky slot canyons (you first called them the Needles): 6.4 mi, +600 ft → **moderate**; you say
+  hard. Known data gap: OpenStreetMap has no scramble tags on the slots (only `sac_scale=hiking` on Lower Dry
+  Fork), and the app won't guess terrain. The test records it as an expected miss.
 
 **Pemi check** (API, Lincoln Woods, 3 nights, 26-36 mi, day 1 easy, days 2-3 hard, day 4 easy): best loop 28.2 mi:
 day 1 3.5 mi +341 ft easy; day 2 10.6 mi +2,081 ft hard (steep); day 3 9.6 mi +2,158 ft hard (steep, demanding

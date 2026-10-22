@@ -25,7 +25,7 @@ from backcountry.graph import build_graph
 from backcountry.region import REPO_ROOT, load_region
 from backcountry.route import Route, add_elevation, routing_graph, walk
 from backcountry.scoring import M_PER_MI
-from backcountry.split import split_route
+from backcountry.split import resolve_pins, split_route
 
 CALIBRATION_DIR = REPO_ROOT / "tests" / "calibration"
 LOCAL_TRACKS = REPO_ROOT / "tests" / "reference" / "local"
@@ -101,7 +101,12 @@ def rate_reference_trip(case: dict, regions_dir: Path = CALIBRATION_DIR / "regio
     nights = case.get("nights") or 0
     if nights:
         total = route.length_m
-        plan = split_route(route, nights, 0.2 * total / (nights + 1), total, pins_m=[m * M_PER_MI for m in case.get("camps_mi") or []])
+        pins = [m * M_PER_MI for m in case.get("camps_mi") or []]
+        if case.get("camps"):  # camps by OSM site id (where the user camped), placed from the data
+            pins, problems = resolve_pins(route, case["camps"], ingest.camp_sites(raw))
+            if problems:
+                raise ValueError(f"{case['id']}: {'; '.join(problems)}")
+        plan = split_route(route, nights, 0.2 * total / (nights + 1), total, pins_m=pins)
         stretches = [(day.start_m, day.end_m, day.gain_ft) for day in plan.days]
         scale = "backpacking"
     else:

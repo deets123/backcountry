@@ -34,9 +34,9 @@ def _tag(a, b, reason):
 
 CASES = [  # (name, pieces, terrain, nights, camps_m, missing sample)
     ("flat day hike", [(5000, 0)], [], None, None, None),
-    ("long steep climb raises one level", [(700, 0), (600, 28), (700, 0)], [], None, None, None),
+    ("long steep climb raises one level", [(700, 0), (600, 33), (700, 0)], [], None, None, None),
     ("moderately steep: tagged, not raised", [(700, 0), (600, 18), (700, 0)], [], None, None, None),
-    ("steep never into strenuous", [(9000, 9), (600, 30), (2000, 0)], [], 1, [6000.0], None),
+    ("steep never into strenuous", [(9000, 9), (600, 34), (2000, 0)], [], 1, [6000.0], None),
     ("tagged scramble and untagged share", [(3000, 4), (3000, -4)], [_tag(500, 800, "scramble (tagged)"),
                                                                     _tag(800, 2000, None)], 1, [2500.0], None),
     ("descent doesn't count", [(8000, -6), (4000, 1)], [], 2, [4000.0, 9000.0], None),

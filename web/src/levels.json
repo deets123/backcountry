@@ -29,7 +29,7 @@
      12
     ],
     "max_gain_ft": 2000,
-    "max_grade_pct": 25
+    "max_grade_pct": 30
    },
    "strenuous": {
     "miles": [
@@ -63,7 +63,7 @@
      12
     ],
     "max_gain_ft": 2600,
-    "max_grade_pct": 25
+    "max_grade_pct": 30
    },
    "strenuous": {
     "miles": [
@@ -76,7 +76,7 @@
   }
  },
  "rules": {
-  "version": 2,
+  "version": 3,
   "scales": {
    "day_hike": {
     "cutoffs": [
@@ -96,7 +96,7 @@
   "steep": {
    "window_m": 400,
    "tag_pct": 15,
-   "raise_pct": 25
+   "raise_pct": 30
   },
   "terrain": {
    "min_m": 100,
