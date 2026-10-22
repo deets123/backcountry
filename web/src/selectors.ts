@@ -17,7 +17,7 @@ export function currentCandidate(s: State): Candidate | null {
   if (!s.campsM || !c.plan) return c;
   if (memo && memo.run === s.run && memo.selected === s.selected && memo.campsM === s.campsM) return memo.out;
   let out: Candidate;
-  try { out = withCamps(c, s.campsM); } catch { out = c; } // stored camps that don't fit this trip: show the engine's
+  try { out = withCamps(c, s.campsM, undefined, s.run?.difficulty_rules); } catch { out = c; } // stored camps that don't fit this trip: show the engine's
   memo = { run: s.run, selected: s.selected, campsM: s.campsM, out };
   return out;
 }

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { rateSaved } from "./difficulty";
+import difficultyFixture from "./fixtures/difficulty-parity.json";
 import fixture from "./fixtures/resplit-parity.json";
 import { campHereIndex, campsOf, moveCamp, resplitDays, withCamps } from "./resplit";
-import type { Candidate, Plan } from "./types";
+import type { Candidate, DifficultyRules, Plan } from "./types";
 
 describe("resplitDays matches the engine's split_route", () => {
   for (const k of fixture.cases) {
@@ -113,3 +115,23 @@ describe("withCamps keeps camps the user didn't move", () => {
   });
 });
 
+
+describe("levels for moved camps", () => {
+  const rules = difficultyFixture.rules as unknown as DifficultyRules;
+  it("moved camps re-rate the two touched days", () => {
+    const c = { ...candidate(), terrain: [], level: "moderate" as const };
+    const out = withCamps(c, [2500], undefined, rules);
+    const want = rateSaved(c.profile!, [], 1, [2500], rules);
+    expect(out.plan!.days.map((d) => d.rating!.level)).toEqual(want.days.map((d) => d.rating.level));
+    expect(out.plan!.days[0]!.rating!.effort!).toBeCloseTo(want.days[0]!.rating.effort!, 6);
+    expect(out.level).toBe(want.level);
+  });
+  it("no rating without terrain and rules", () => {
+    const old = candidate();  // saved before levels existed: no terrain, no rules
+    const out = withCamps(old, [2500], undefined, rules);
+    expect(out.plan!.days.every((d) => d.rating == null)).toBe(true);
+    expect("level" in out).toBe(false);
+    const noRules = withCamps({ ...old, terrain: [] }, [2500]);
+    expect(noRules.plan!.days.every((d) => d.rating == null)).toBe(true);
+  });
+});

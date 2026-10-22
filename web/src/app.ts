@@ -1,9 +1,10 @@
-import { ApiError, chat, generate, getRegions, getTrailheads, getTrails } from "./api";
+import { ApiError, chat, difficulty, generate, getRegions, getTrailheads, getTrails } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
 import { locate, type Fix } from "./gps";
 import { createMap, type TripMap } from "./map";
 import { cleanOrphans, deleteTrip, getTrip, listTrips, putTrip, tilesPresent } from "./offline/db";
+import { refreshLevels } from "./offline/levels";
 import { saveTrip, tripId } from "./offline/save";
 import { coverageNote } from "./offline/tiles";
 import { bindChat } from "./panels/chat";
@@ -54,6 +55,12 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
 
   async function refreshSaved() {
     try { store.set({ saved: await listTrips() }); } catch { /* no IndexedDB here: no saved trips */ }
+  }
+
+  /** Online: give trips saved before levels existed their levels (offline/levels.ts), then show them. */
+  async function refreshTripLevels() {
+    const done = await refreshLevels(store.get().saved, { difficulty, put: putTrip, now: () => new Date().toISOString() });
+    if (done.length) await refreshSaved();
   }
 
   // Saved trips store the change first and show it after, so what's on screen is what's on the phone
@@ -326,6 +333,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     try {
       const regions = await getRegions(hasSaved ? BOOT_TIMEOUT_MS : undefined);
       store.set({ regions, offline: false });
+      void refreshTripLevels();
       const saved = store.get().region;
       const id = saved && regions.some((r) => r.id === saved) ? saved : regions[0]?.id;
       if (id) await actions.pickRegion(id);
@@ -335,7 +343,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       if (unreachable && hasSaved) {
         store.set({ offline: true, view: "saved", status: "", error: null });
         // If the server answers later (slow signal), planning comes back without leaving the saved trips.
-        getRegions().then((regions) => store.set({ regions, offline: false })).catch(() => { /* still offline */ });
+        getRegions().then((regions) => { store.set({ regions, offline: false }); void refreshTripLevels(); }).catch(() => { /* still offline */ });
       }
       else store.set({ offline: unreachable, error: (e as Error).message });
     }
