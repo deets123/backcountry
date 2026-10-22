@@ -134,11 +134,13 @@ Destination: web and phones, later the app stores, with offline use of saved tri
 3. **Offline** (built 2026-10-15; `docs/superpowers/specs/2026-10-14-phase2-offline-design.md`): saved trips with map tiles, elevation, camps, GPS position.
 4. **LLM layer** (built 2026-10-21; `docs/superpowers/specs/2026-10-20-phase2-chat-design.md`): turns "make day 2
    shorter" into constraint changes, never into geometry; explains a trip from its numbers.
+   **Per-day difficulty** (built 2026-10-22; `docs/superpowers/specs/2026-10-21-per-day-difficulty-design.md`):
+   easy–strenuous levels with reasons, per-day targets in the form and chat, trip-level filter, closest fit.
 5. **App-store packaging** (Capacitor), hosting, accounts.
 6. **Alerts and permit metadata** with provenance.
 
 Ideas from you (2026-10-21), not designed yet: "a backpacking version of AllTrails": name any park ("build me
 a loop in Shenandoah") and get a route; temperatures for the trip dates or climate averages, from a named source;
 a gear list derived from those numbers (sleeping-pad R-value, bag rating), labeled as guidance; difficulty levels
-(easy/moderate/hard/strenuous) to choose from; viewpoints along the route (OSM `tourism=viewpoint`) and ranking by
+(built, above); viewpoints along the route (OSM `tourism=viewpoint`) and ranking by
 reward for effort. Each gets its own design.

@@ -723,3 +723,50 @@ from chat; chat offline; history across sessions.
   sometimes; the card shows "Nights: 2 → none" before you run it).
 - **Your next idea, not built yet: a different difficulty per day** ("day 1 short for a late start, days 2–3 hard,
   day 4 light"). Today only camp pins can shape single days. Needs its own small design (see the chat).
+
+## Per-day difficulty (built 2026-10-22; awaiting your phone check)
+
+Spec: `docs/superpowers/specs/2026-10-21-per-day-difficulty-design.md`. Plan: `docs/superpowers/plans/2026-10-21-per-day-difficulty.md`.
+
+**Built**
+- `difficulty.py`: easy / moderate / hard / strenuous per day and per trip, with short reasons. Effort is
+  Shenandoah NP's √(2 × ft climbed × miles); a 15%+ sustained climb (400 m) is tagged "steep", 25%+ raises one
+  level (never into strenuous); OSM `sac_scale` / `trail_visibility` tags make a day at least hard. Day-hike and
+  backpacking scales. Unknown elevation → "Level unknown".
+- Per-day targets (level or miles / climbing / grade) in the request, the day split (scored against each day's
+  own targets, a level miss costs 5 per step), the payload (`level`, `rating`, `terrain`, `suggestion`,
+  `difficulty_rules`), and the trip-level filter (exact match; closest with a note when none match).
+- Closest fit: one suggestion per loop, re-checked by re-splitting ("Allowing day 1 up to 2 mi would fix it.").
+- `POST /api/difficulty`: levels for trips saved before this feature; terrain is rebuilt from the trail data
+  (tags inside a trail are placed by the route's own line).
+- Chat: "day 1 easy, days 2 and 3 hard", "we start late on day 1", "something hard" become proposals; the facts
+  carry each day's level and the hardest day; replies that call a day by the wrong level are withheld.
+- Web: the day strip under "Set days individually", a trip-level choice, level chips on cards and days, tap a
+  day for effort / steep stretch / tagged terrain / "terrain unknown" share, the suggestion under the days.
+- Offline: `difficulty.ts` (parity fixture with the engine) re-rates days for camps moved on the phone; saved
+  trips without levels are refreshed from the server on an online boot, and show no levels until then.
+
+**Tuned rules (v1) and why**: cutoffs day hike 60 / 150 / 250, backpacking 50 / 140 / 225. The starting values
+rated Old Rag (effort 217) strenuous and a 7.4 mi, +890 ft Zion day hard.
+
+**Calibration** (`tests/calibration/`, your GPX files stay in `tests/reference/local/`):
+- Old Rag: 9.07 mi, +2,607 ft, effort 217 → **hard** (steep, demanding trail). Matches "hard, not strenuous".
+- Zion West Rim (top-down, 1 night): **moderate** for any camp from mile 6 to 10 (camping before mile 6 or after
+  10 makes one day hard). Matches "moderate".
+- Mount Tammany and the Needles: pending your routes.
+
+**Pemi check** (API, Lincoln Woods, 3 nights, 26-36 mi, day 1 easy, days 2-3 hard, day 4 easy): best loop 28.2 mi:
+day 1 3.5 mi +341 ft easy; day 2 10.6 mi +2,081 ft hard (steep); day 3 9.6 mi +2,158 ft hard (steep, demanding
+trail, scramble); day 4 4.5 mi +18 ft easy; no misses. Loops 2 and 3 name their misses ("Day 3 came out
+strenuous, not hard") with "Setting day 3 to strenuous would fix it."
+
+**Tests**: pytest 400 (417 with real data); web 138 unit + 10 e2e. Chat eval (qwen3:14b) 34/40. The old cases
+fail as before this branch (shorter/longer days by camps, Breathed Mountain; "less climbing" is flaky), and the new
+"find me something hard" case gets a confirm question instead of a proposal.
+
+**Open / known**
+- Your routes for Mount Tammany and the Needles (and whether the Needles was a day hike), and where you camped on
+  Zion West Rim.
+- Terrain tags are sparse (Dolly Sods 2 of 261 trails), so most details say "terrain unknown".
+- On the phone, a moved camp re-rates its days but doesn't re-check that day's own miles / climbing targets.
+- The chat only checks "day N is <level>" claims, not claims about the whole trip.
