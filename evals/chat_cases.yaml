@@ -28,6 +28,9 @@
 - id: ignore-daily
   message: ignore the miles per day setting
   expect: {kind: change}
+- id: one-day-shorter
+  message: can you make this 1 day shorter
+  expect: {kind: change, request: {nights: 1}}
 - id: no-roads
   message: avoid roads completely
   expect: {kind: change, request: {no_roads: true}}
