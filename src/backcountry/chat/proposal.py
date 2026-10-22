@@ -7,7 +7,8 @@ chat can never ask for anything the form couldn't. The user sees the before/afte
 from difflib import get_close_matches
 
 from backcountry.chat.facts import place_text
-from backcountry.planning import GenerateRequest, RequestError
+from backcountry.difficulty import LEVEL_TARGETS, LEVELS
+from backcountry.planning import DayTarget, GenerateRequest, RequestError
 
 SYSTEM_PROMPT = """You help plan a backpacking trip in a trip-planning app. You can do two things:
 1. Change the trip's settings when the user asks (kind "change"). Put only the settings that should change in
@@ -16,7 +17,10 @@ SYSTEM_PROMPT = """You help plan a backpacking trip in a trip-planning app. You 
    (feet per day, or null for no cap); type (loop, lollipop or any); no_roads (true or false); direction (cw, ccw
    or null); must_visit_add, must_visit_remove, avoid_add, avoid_remove (trail names exactly as listed in the
    FACTS); camps (the mile along the route where each night's camp should be, one per night, in order, or [] to
-   let the app place them); camps_at_sites (true or false); trailhead (a trailhead name from the FACTS).
+   let the app place them); camps_at_sites (true or false); trailhead (a trailhead name from the FACTS);
+   days (per-day targets, a list of {day, level, miles, max_gain_ft, max_grade_pct}: level is easy, moderate,
+   hard or strenuous, miles a [low, high] range; leave out what the user didn't ask for; a day with everything
+   null clears it, and days [] clears all); level (the whole trip's level, or null for any).
    The app shows the change to the user, who decides whether to run it. You never run anything, and you never
    draw or describe new routes. When the user asks for a change, propose it now with kind "change"; don't ask
    whether to do it, because tapping Run is the user's yes.
@@ -33,6 +37,11 @@ SYSTEM_PROMPT = """You help plan a backpacking trip in a trip-planning app. You 
    day 2 is camps [10, 17]; longer day 1 is camps [13, 20]; shorter day 3 is camps [10, 23]. Use the real camp
    miles from the FACTS, never the example's. For a limit on miles per day ("at most 9 miles a day"), change
    daily, not camps.
+   A level for one day ("day 1 easy, days 2 and 3 hard", "keep the last day light") goes in days (not daily),
+   one entry per day: {"day": 1, "level": "easy"}. "We start late on day 1" is {"day": 1, "miles": [2, 5]}.
+   Light, chill or relaxed mean easy; brutal or punishing mean strenuous. Leave camps out when you set days.
+   When the user names a level for the whole trip ("find me something hard", "I want a moderate trip"), set
+   level to that word now. "Make it easier" or "make it harder" names no level and no day: ask which.
 2. Answer questions about this trip from the FACTS below only (kind "explain", changes {}).
 If a request is unclear, ask one short question (kind "unclear", changes {}).
 Rules:
@@ -40,6 +49,8 @@ Rules:
 - Water, campsites, permits, closures, trail conditions, weather and trailhead access are not known to this app.
   Say they are unknown or not checked. Never say water is there or reliable, never say anything is open, legal or
   permitted, and never say a route is safe.
+- Never call a day easy, moderate, hard or strenuous unless the FACTS give it that level. Which day is hardest is
+  the "Hardest day" line in the FACTS.
 - Keep replies to two or three sentences.
 Answer with JSON only: {"reply": "...", "kind": "change" | "explain" | "unclear", "changes": {...}}."""
 
@@ -57,6 +68,16 @@ CHANGE_FIELDS = {
     "camps": {"type": "array", "items": {"type": "number"}},
     "camps_at_sites": {"type": "boolean"},
     "trailhead": {"type": "string"},
+    "days": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["day"],
+        "properties": {
+            "day": {"type": "integer"},
+            "level": {"type": ["string", "null"], "enum": [*LEVELS, None]},
+            "miles": {**_RANGE, "type": ["array", "null"]},
+            "max_gain_ft": {"type": ["number", "null"]},
+            "max_grade_pct": {"type": ["number", "null"]},
+        }}},
+    "level": {"type": ["string", "null"], "enum": [*LEVELS, None]},
 }
 RESPONSE_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["reply", "kind", "changes"],
@@ -69,7 +90,8 @@ RESPONSE_SCHEMA = {
 
 LABELS = {"trailhead": "Start", "type": "Shape", "total": "Total miles", "nights": "Nights", "daily": "Miles per day",
           "max_gain_day": "Gain cap per day", "no_roads": "Roads", "direction": "Direction", "must_visit": "Must visit",
-          "avoid": "Avoid", "camps": "Camps", "camps_at_sites": "Camps at known sites only"}
+          "avoid": "Avoid", "camps": "Camps", "camps_at_sites": "Camps at known sites only", "level": "Trip level"}
+TARGET_FIELDS = ("level", "miles", "max_gain_ft", "max_grade_pct")
 
 
 class ProposalError(ValueError):
@@ -100,13 +122,20 @@ def apply_changes(request: dict, changes: dict, trails: list[str], starts: list[
                   current_camps: list[float] | None = None) -> tuple[dict, list[str]]:
     """`current_camps`: where the plan's camps are now (miles); pins at those same places change nothing."""
     new = {k: (list(v) if isinstance(v, list) else v) for k, v in request.items()}
-    for key in ("nights", "total", "daily", "max_gain_day", "type", "no_roads", "direction", "camps_at_sites"):
+    for key in ("nights", "total", "daily", "max_gain_day", "type", "no_roads", "direction", "camps_at_sites", "level"):
         if key in changes:
             new[key] = changes[key]
+    before_days = [dict(d) for d in request.get("days") or []]
+    if "days" in changes:
+        new["days"] = _merge_days(before_days, changes["days"])
+    if new.get("nights") is not None and new["nights"] != request.get("nights"):  # fewer days: their targets go too
+        new["days"] = [d for d in new.get("days") or [] if not isinstance(d.get("day"), int) or d["day"] <= new["nights"] + 1]
     if new.get("nights") == 0:
         new["nights"] = None  # "0 nights" is a one-day hike
     if new.get("nights") is None:
-        new["daily"], new["camps"] = None, []  # a one-day hike has no per-day range and no camps
+        new["daily"], new["camps"], new["days"] = None, [], []  # a one-day hike has no per-day range, camps or targets
+    elif "daily" in changes and changes["daily"] is None and isinstance(new.get("total"), list):
+        new["daily"] = [1, new["total"][1]]  # "no limit" on a trip with nights: the loosest range, as the prompt says
     for key, label, example in (("total", "Total miles need a low below the high, both above 0", "20-26"),
                                 ("daily", "Miles per day need a low below the high, both above 0", "6-11")):
         r = new.get(key)
@@ -133,6 +162,8 @@ def apply_changes(request: dict, changes: dict, trails: list[str], starts: list[
             new["camps"] = [f"{m:g}" for m in miles]
     elif len(new.get("camps") or []) > nights:
         new["camps"] = []  # fewer nights than pins: let the engine place the camps again
+    if "days" in changes and new.get("days") != before_days:
+        new["camps"] = []  # day targets place the camps; pins would fight them
     try:
         after = GenerateRequest.from_dict(new).to_dict()
         before = GenerateRequest.from_dict(request).to_dict()
@@ -163,6 +194,50 @@ def _show(key: str, v, starts: list[dict]) -> str:
     return str(v)
 
 
+def _merge_days(current: list[dict], entries: list[dict]) -> list[dict]:
+    """Per-day changes merged by day number: an entry replaces that day's target; all-null clears it; [] clears all."""
+    if not entries:
+        return []
+    by_day = {d["day"]: d for d in current}
+    for e in entries:
+        target = {k: e.get(k) for k in TARGET_FIELDS}
+        if all(v is None for v in target.values()):
+            by_day.pop(e.get("day"), None)
+        else:
+            by_day[e.get("day")] = {"day": e.get("day"), **target}
+    return [by_day[k] for k in sorted(by_day, key=lambda k: (not isinstance(k, int), k if isinstance(k, int) else 0))]
+
+
+def _day_text(t: dict | None, full: bool) -> str:
+    """'Easy (2-5 mi, ≤ 250 ft, ≤ 10%)': a level with the numbers it sets (numbers given override the level's)."""
+    if not t:
+        return "not set"
+    table = LEVEL_TARGETS["backpacking"][t["level"]] if t.get("level") else {}
+    miles = t.get("miles") or table.get("miles")
+    gain = t["max_gain_ft"] if t.get("max_gain_ft") is not None else table.get("max_gain_ft")
+    grade = t["max_grade_pct"] if t.get("max_grade_pct") is not None else table.get("max_grade_pct")
+    nums = [f"{miles[0]:g}-{miles[1]:g} mi" if miles else None, f"≤ {gain:,.0f} ft" if gain is not None else None,
+            f"≤ {grade:g}%" if grade is not None else None]
+    nums = ", ".join(n for n in nums if n)
+    if not t.get("level"):
+        return nums or "not set"
+    name = t["level"].capitalize()
+    return f"{name} ({nums})" if full and nums else name
+
+
 def describe_changes(before: dict, after: dict, starts: list[dict]) -> list[str]:
-    return [f"{label}: {_show(k, before.get(k), starts)} → {_show(k, after.get(k), starts)}"
-            for k, label in LABELS.items() if before.get(k) != after.get(k)]
+    lines = []
+    for k, label in LABELS.items():
+        if k == "level":
+            continue
+        if before.get(k) != after.get(k):
+            lines.append(f"{label}: {_show(k, before.get(k), starts)} → {_show(k, after.get(k), starts)}")
+    b_days = {d["day"]: d for d in before.get("days") or []}
+    a_days = {d["day"]: d for d in after.get("days") or []}
+    for day in sorted(set(b_days) | set(a_days)):
+        if b_days.get(day) != a_days.get(day):
+            lines.append(f"Day {day}: {_day_text(b_days.get(day), False)} → {_day_text(a_days.get(day), True)}")
+    if before.get("level") != after.get("level"):
+        show = lambda v: v.capitalize() if v else "any"  # noqa: E731
+        lines.append(f"Trip level: {show(before.get('level'))} → {show(after.get('level'))}")
+    return lines

@@ -19,7 +19,8 @@ from backcountry.scoring import M_PER_MI
 EVAL_REQUEST = {"trailhead": "bear_rocks", "total": "18-26", "nights": 2, "daily": "6-11", "max_gain_day": 2500}
 EXPECT_KEYS = {"kind", "request", "request_contains", "lower", "day_shorter", "day_longer", "no_proposal", "grounded",
                "reply_includes_any", "proposal_or_note_includes", "mentions_hardest_day", "mentions_longest_day",
-               "mentions_number"}
+               "mentions_number", "days_include", "mentions_hardest_level_day"}
+LEVEL_ORDER = ("easy", "moderate", "hard", "strenuous")
 
 
 def load_cases(path: Path) -> list[dict]:
@@ -71,7 +72,8 @@ def check_case(case: dict, result: dict | None, error: str | None, run: dict, n:
     reply = result.get("reply") or ""
     if "kind" in e and result["kind"] != e["kind"]:
         problems.append(f"kind is {result['kind']}, expected {e['kind']}")
-    needs_proposal = any(k in e for k in ("request", "request_contains", "lower", "day_shorter", "day_longer")) or e.get("kind") == "change"
+    needs_proposal = any(k in e for k in ("request", "request_contains", "lower", "day_shorter", "day_longer",
+                                          "days_include")) or e.get("kind") == "change"
     if needs_proposal and "proposal_or_note_includes" not in e and req is None:
         problems.append("no proposal")
     if req is not None:
@@ -88,6 +90,13 @@ def check_case(case: dict, result: dict | None, error: str | None, run: dict, n:
             before, after = current.get(key), req.get(key)
             if after is None or (before is not None and not after < before):
                 problems.append(f"{key} did not go down ({before} → {after})")
+        by_day = {d.get("day"): d for d in req.get("days") or []}
+        for want in e.get("days_include") or []:
+            got = by_day.get(want["day"])
+            if got is None:
+                problems.append(f"no target for day {want['day']}")
+            elif "level" in want and got.get("level") != want["level"]:
+                problems.append(f"day {want['day']} isn't set to {want['level']}")
         for key, sign in (("day_shorter", -1), ("day_longer", 1)):
             if key not in e:
                 continue
@@ -117,6 +126,12 @@ def check_case(case: dict, result: dict | None, error: str | None, run: dict, n:
         top = max(d[key] or 0 for d in days)
         tied = [d["index"] for d in days if top - (d[key] or 0) <= tol]  # days within rounding of the top one
         if not (any(_mentions_day(reply, i) for i in tied) or (len(tied) > 1 and _SAME.search(reply))):
+            problems.append(f"reply doesn't name day {_days_text(tied)}")
+    if e.get("mentions_hardest_level_day") and days:
+        rank = [LEVEL_ORDER.index(d["rating"]["level"]) if (d.get("rating") or {}).get("level") else -1 for d in days]
+        tied = [d["index"] for d, r in zip(days, rank) if r == max(rank)]
+        all_same = len(tied) == len(days) and re.search(r"\ball\b.*\bdays\b|\bevery day\b", reply, re.IGNORECASE)
+        if not (any(_mentions_day(reply, i) for i in tied) or (len(tied) > 1 and _SAME.search(reply)) or all_same):
             problems.append(f"reply doesn't name day {_days_text(tied)}")
     if "mentions_number" in e:
         key = e["mentions_number"]
