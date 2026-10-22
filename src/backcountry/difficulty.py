@@ -6,10 +6,11 @@ Computed only from sourced data, in the stretch's direction of travel:
    (nps.gov/shen, "How to Determine Hiking Difficulty"). Descent doesn't count.
    The cutoffs depend on the scale: a day hike, or a day of a backpacking trip
    (the same miles and climbing rate harder with a pack).
-2. A long sustained uphill (grade over a window along the smoothed profile)
-   raises the level by one, at most. Short steep pitches don't.
+2. A sustained uphill (grade over a window along the smoothed profile) is
+   tagged "steep"; a very steep one raises the level by one, at most, and never
+   into strenuous. Short steep pitches don't count.
 3. OSM terrain tags (sac_scale, trail_visibility) make a day at least hard,
-   never strenuous by themselves.
+   never strenuous by themselves: strenuous needs the effort.
 
 Levels only go up from the effort level. Unknown elevation gives an unknown
 level, never a guess. RULES carries a version so stored ratings can be
@@ -32,9 +33,13 @@ SCRAMBLE, DEMANDING, HARD_TO_FOLLOW = "scramble (tagged)", "demanding trail (tag
 
 RULES = {
     "version": 1,
-    # effort below cutoffs[0] is easy, below cutoffs[1] moderate, below cutoffs[2] hard, else strenuous
-    "scales": {"day_hike": {"cutoffs": [50, 100, 200]}, "backpacking": {"cutoffs": [35, 70, 140]}},
-    "steep": {"window_m": 400, "grade_pct": 15},
+    # effort below cutoffs[0] is easy, below cutoffs[1] moderate, below cutoffs[2] hard, else strenuous.
+    # Tuned against the user's trips (tests/calibration/cases.yaml): Old Rag 217 (day hike) is hard,
+    # Mount Tammany ~94 (day hike) moderate, Zion West Rim (backpacking) moderate for any camp from mile 6 to 10.
+    "scales": {"day_hike": {"cutoffs": [60, 150, 250]}, "backpacking": {"cutoffs": [50, 140, 225]}},
+    # tag_pct: shown as "steep"; raise_pct: also raises the level by one (not into strenuous).
+    # Zion West Rim's 16% climb doesn't make its day hard; Old Rag's 25% is in a day already hard.
+    "steep": {"window_m": 400, "tag_pct": 15, "raise_pct": 25},
     "terrain": {
         "min_m": 100,  # a tagged stretch shorter than this doesn't count
         "sac_scale": {"demanding_mountain_hiking": DEMANDING, "alpine_hiking": SCRAMBLE,
@@ -45,18 +50,19 @@ RULES = {
 }
 
 # What picking a level for a day sets: miles range, climbing cap (ft), steepness cap (% grade).
+# The climbing cap keeps the top of the miles range inside the level: cap ~ cutoff**2 / (2 * miles_hi).
 LEVEL_TARGETS = {
     "backpacking": {
-        "easy": {"miles": [2, 6], "max_gain_ft": 1000, "max_grade_pct": 12},
-        "moderate": {"miles": [5, 10], "max_gain_ft": 2000, "max_grade_pct": 15},
-        "hard": {"miles": [8, 13], "max_gain_ft": 3000, "max_grade_pct": 20},
-        "strenuous": {"miles": [10, 16], "max_gain_ft": 4500, "max_grade_pct": None},
+        "easy": {"miles": [2, 5], "max_gain_ft": 250, "max_grade_pct": 10},
+        "moderate": {"miles": [4, 8], "max_gain_ft": 1200, "max_grade_pct": 15},
+        "hard": {"miles": [7, 12], "max_gain_ft": 2000, "max_grade_pct": 25},
+        "strenuous": {"miles": [9, 16], "max_gain_ft": 4500, "max_grade_pct": None},
     },
     "day_hike": {
-        "easy": {"miles": [1, 4], "max_gain_ft": 500, "max_grade_pct": 10},
-        "moderate": {"miles": [3, 7], "max_gain_ft": 1500, "max_grade_pct": 15},
-        "hard": {"miles": [5, 10], "max_gain_ft": 3000, "max_grade_pct": 20},
-        "strenuous": {"miles": [7, 14], "max_gain_ft": 5000, "max_grade_pct": None},
+        "easy": {"miles": [1, 4], "max_gain_ft": 400, "max_grade_pct": 10},
+        "moderate": {"miles": [3, 8], "max_gain_ft": 1400, "max_grade_pct": 15},
+        "hard": {"miles": [5, 12], "max_gain_ft": 2600, "max_grade_pct": 25},
+        "strenuous": {"miles": [8, 18], "max_gain_ft": 6000, "max_grade_pct": None},
     },
 }
 
@@ -164,11 +170,13 @@ def rate_stretch(d_m, z_m, terrain: list[dict], start_m: float, end_m: float, ga
     level = bisect.bisect_right(rules["scales"][scale]["cutoffs"], effort)
     reasons = []
     steep = steepest_climb(d_m, z_m, start_m, end_m, rules["steep"]["window_m"])
-    if steep and steep["grade_pct"] >= rules["steep"]["grade_pct"]:
-        level = min(level + 1, len(LEVELS) - 1)
+    hard = level_index("hard")
+    if steep and steep["grade_pct"] >= rules["steep"]["tag_pct"]:
         reasons.append("steep")
+        if steep["grade_pct"] >= rules["steep"]["raise_pct"] and level < hard:
+            level += 1
     if tagged:
-        level = max(level, level_index("hard"))
+        level = max(level, hard)
         reasons += list(dict.fromkeys(t["reason"] for t in tagged))
     return Rating(LEVELS[level], reasons, effort, steep, tagged, untagged)
 

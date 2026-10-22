@@ -1,0 +1,28 @@
+# The user's known trips and the levels they gave them (2026-10-21). Tracks are the user's own GPX files in
+# tests/reference/local/ (AllTrails exports: never committed). `track: null` means the route is still to confirm
+# with the user. `camps_mi` pins camps (miles from the start); without it the engine places them.
+- id: old_rag
+  region: old_rag
+  type: day_hike
+  nights: 0
+  track: old_rag_mountain_loop.gpx
+  expected: hard            # "hard, not strenuous"
+- id: zion_west_rim
+  region: zion_west_rim
+  type: backpacking
+  nights: 1
+  track: zion_west_rim_top_down.gpx   # top-down from Lava Point, point to point
+  camps_mi: null                      # camp location to confirm with the user
+  expected: moderate        # "moderate as a backpacking trip since it's mostly downhill and 2 days"
+- id: mount_tammany
+  region: mount_tammany
+  type: day_hike
+  nights: 0
+  track: null               # route to confirm (Red Dot up, Blue Blaze down?)
+  expected: moderate        # "moderate at best"
+- id: needles
+  region: needles
+  type: null                # day hike or overnight: to confirm
+  nights: null
+  track: null               # route to confirm
+  expected: hard            # "hard, some technical scrambles"

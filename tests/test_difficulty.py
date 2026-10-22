@@ -44,12 +44,25 @@ def test_descent_does_not_count():
 
 
 def test_long_steep_climb_raises_by_one_level_only():
-    d, z = profile([(700, 0), (600, 20), (700, 0)])
-    base = rate_stretch(d, z, [], 0.0, d[-1], gain_ft(z), "backpacking", RULES | {"steep": RULES["steep"] | {"grade_pct": 99}})
+    d, z = profile([(700, 0), (600, 28), (700, 0)])
+    flat = RULES | {"steep": RULES["steep"] | {"tag_pct": 99, "raise_pct": 99}}
+    assert rate_stretch(d, z, [], 0.0, d[-1], gain_ft(z), "backpacking", flat).level == "easy"
     r = rate(d, z)
-    assert base.level == "easy"
-    assert r.level == "moderate" and "steep" in r.reasons
-    assert r.steep["grade_pct"] == pytest.approx(20, abs=0.5)
+    assert r.level == "moderate" and r.reasons == ["steep"]
+    assert r.steep["grade_pct"] == pytest.approx(28, abs=0.5)
+
+
+def test_moderately_steep_climb_is_tagged_without_raising():
+    d, z = profile([(700, 0), (600, 18), (700, 0)])
+    r = rate(d, z)
+    assert r.level == "easy" and r.reasons == ["steep"]
+
+
+def test_steepness_never_raises_into_strenuous():
+    d, z = profile([(9000, 9), (600, 30), (2000, 0)])
+    r = rate(d, z)
+    assert r.effort < RULES["scales"]["backpacking"]["cutoffs"][2]
+    assert r.level == "hard" and "steep" in r.reasons
 
 
 def test_short_steep_pitch_does_not_raise():
@@ -84,9 +97,9 @@ def test_rate_day_without_elevation_is_unknown():
 
 
 def test_scales_differ():
-    d, z = profile([(8 * M_PER_MI, 1800 / FT_PER_M / (8 * M_PER_MI) * 100)])
+    d, z = profile([(8 * M_PER_MI, 1314 / FT_PER_M / (8 * M_PER_MI) * 100)])
     day, pack = rate(d, z, scale="day_hike"), rate(d, z, scale="backpacking")
-    assert day.effort == pytest.approx(169.7, abs=1)
+    assert day.effort == pytest.approx(145, abs=1)
     assert RULES["scales"]["backpacking"]["cutoffs"] != RULES["scales"]["day_hike"]["cutoffs"]
     assert ["easy", "moderate", "hard", "strenuous"].index(pack.level) == ["easy", "moderate", "hard", "strenuous"].index(day.level) + 1
 

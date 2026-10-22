@@ -26,10 +26,12 @@ PROCESSED_DIR = REPO_ROOT / "data" / "processed"
 app = typer.Typer(help="Backcountry route engine (Phase 1: Dolly Sods, CLI only).", no_args_is_help=True)
 
 RegionOpt = typer.Option(..., "--region", help="Region id, e.g. dolly_sods")
+RegionsDirOpt = typer.Option(None, "--regions-dir", help="Directory of region files (default: regions/). "
+                             "Calibration areas live in tests/calibration/regions.")
 
 
-def _load(region_id: str):
-    region = load_region(region_id)
+def _load(region_id: str, regions_dir: Path | None = None):
+    region = load_region(region_id, regions_dir)
     try:
         raw = ingest.load_raw(region)
     except FileNotFoundError as e:
@@ -48,9 +50,10 @@ def _elevate(region, tg) -> dict | None:
 def ingest_cmd(
     region: str = RegionOpt,
     refresh: bool = typer.Option(False, help="Re-query Overpass even if a cached response exists."),
+    regions_dir: Path = RegionsDirOpt,
 ):
     """Fetch OSM trail data for a region and cache the raw response."""
-    r = load_region(region)
+    r = load_region(region, regions_dir)
     cached = ingest.latest_cache(r)
     try:
         path = ingest.fetch(r, refresh=refresh)
@@ -153,9 +156,10 @@ def verify_cmd(
 def dem(
     region: str = RegionOpt,
     refresh: bool = typer.Option(False, help="Re-download even if a cached DEM covers the graph."),
+    regions_dir: Path = RegionsDirOpt,
 ):
     """Fetch and cache the USGS 3DEP ~10 m DEM covering every edge in the graph."""
-    r, _, tg = _load(region)
+    r, _, tg = _load(region, regions_dir)
     bounds = graph_bounds_ll(tg)
     path = ingest.fetch_dem(r, bounds, refresh=refresh)
     d = ingest.load_dem(r)
