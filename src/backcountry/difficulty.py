@@ -21,6 +21,7 @@ rate_stretch held to this one by a parity fixture.
 import bisect
 import math
 from dataclasses import asdict, dataclass
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -201,3 +202,56 @@ def trip_level(ratings: list[Rating]) -> str | None:
     if not ratings or any(r.level is None for r in ratings):
         return None
     return max((r.level for r in ratings), key=level_index)
+
+
+def segments_terrain(tg, segments: list[dict], rules: dict = RULES) -> list[dict]:
+    """Terrain intervals for a saved route, rebuilt from the graph's tags by the way ids in its segments.
+
+    A segment counts only if every way in it is in the graph and gives the same terrain reason; a mixed or
+    unknown segment adds nothing (terrain unknown there), so a saved trip is never rated harder than its
+    data supports.
+    """
+    tags_by_source = {}
+    for *_, d in tg.graph.edges(data=True):
+        tags_by_source.setdefault(d["source"], d.get("tags") or {})
+    edges = []
+    for s in segments:
+        found = [tags_by_source.get(src) for src in s["sources"]]
+        results = {_edge_reason({"tags": t}, rules) for t in found if t is not None}
+        uniform = None not in found and len(results) == 1 and next(iter(results))[0]
+        tags = found[0] if uniform else {}
+        edges.append({"length_m": s["length_m"], "is_road": s.get("is_road", False), "tags": tags,
+                      "source": s["sources"][0] if s["sources"] else ""})
+    out = route_terrain(SimpleNamespace(edges=edges), rules["terrain"]["min_m"], rules)
+    for t in out:  # keep every way of the merged segments as provenance
+        t["sources"] = list(dict.fromkeys(src for s, (a, b) in zip(segments, _spans(segments))
+                                          if a < t["end_m"] and b > t["start_m"] for src in s["sources"]))
+    return out
+
+
+def _spans(segments):
+    at = 0.0
+    for s in segments:
+        yield at, at + s["length_m"]
+        at += s["length_m"]
+
+
+def rate_saved(profile: dict, terrain: list[dict], nights: int | None, camps_m: list[float] | None,
+               rules: dict = RULES) -> dict:
+    """Days and levels for a saved route with these camps (as the phone stores them), the way split_route rates."""
+    from backcountry.elevation import FT_PER_M, cumulative_gain_loss
+
+    d, z = profile["d_m"], profile["z_m"]
+    known = all(v is not None for v in z)
+    G = cumulative_gain_loss(smooth(np.array(z, dtype=float)))[0] * FT_PER_M if known else None
+    gain = (lambda a, b: float(np.interp(b, d, G) - np.interp(a, d, G))) if known else (lambda a, b: None)
+    if not nights:
+        r = rate_stretch(d, z, terrain, 0.0, d[-1], gain(0.0, d[-1]), "day_hike", rules)
+        return {"terrain": terrain, "days": [], "level": r.level, "rating": r.to_dict(), "difficulty_rules": rules}
+    bounds = [0.0, *camps_m, float(d[-1])]
+    days = []
+    for a, b in zip(bounds, bounds[1:]):
+        r = rate_stretch(d, z, terrain, a, b, gain(a, b), "backpacking", rules)
+        days.append({"start_m": a, "end_m": b, "gain_ft": gain(a, b), "rating": r.to_dict()})
+    ratings = [Rating(**x["rating"]) for x in days]
+    return {"terrain": terrain, "days": days, "level": trip_level(ratings), "rating": None, "difficulty_rules": rules}

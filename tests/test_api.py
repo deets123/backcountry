@@ -327,3 +327,103 @@ def test_run_save_is_atomic_and_indexed(env, tmp_path):
     index = json.loads((tmp_path / "runs" / "index.json").read_text())
     assert index["20260101T000000Z-aaaa"] == {"region": "r", "trailhead": "t"}
     assert store.latest("r", "other") is None
+
+
+# --- POST /api/difficulty: re-rate a saved trip ---------------------------------------
+
+
+def _tagged_client(tmp_path, grid, with_dem=True):
+    from backcountry import ingest
+    from backcountry.region import load_region
+
+    for e in grid.elements:
+        if e.get("id") == 110:  # Col 0
+            e["tags"]["sac_scale"] = "alpine_hiking"
+    raw_dir = tmp_path / "raw" / "dolly_sods"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "overpass_20260101T000000Z.json").write_text(json.dumps(grid.doc()))
+    settings = Settings(raw_dir=tmp_path / "raw", runs_dir=tmp_path / "runs", regions_dir=None)
+    if with_dem:
+        dem = plane_dem(0.08, 0.05, 1000)
+        ingest.fetch_dem(load_region("dolly_sods"), (-180, -90, 180, 90), raw_dir=settings.raw_dir,
+                         searcher=lambda ds, b: [{"title": "USGS 1/3 Arc Second n40w080 20260101",
+                                                   "publicationDate": "2026-01-01", "downloadURL": "x"}],
+                         reader=lambda urls, b: (dem.array.astype("float32"), dem.transform, dem.crs))
+    return TestClient(create_app(settings, web_dist=settings.runs_dir / "no-web"))
+
+
+def _saved(c):
+    return {"region": "dolly_sods", "nights": 1, "profile": c["profile"], "segments": c["segments"]}
+
+
+def test_difficulty_rerates_a_saved_candidate(tmp_path, grid):
+    import numpy as np
+
+    from backcountry.difficulty import RULES, rate_stretch
+    from backcountry.elevation import FT_PER_M, cumulative_gain_loss, smooth
+
+    client = _tagged_client(tmp_path, grid)
+    run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1",
+                                                                 "nights": 1, "daily": "0.5-4", "type": "loop"}).json()
+    c = run["candidates"][0]
+    end = c["profile"]["d_m"][-1]
+    camp = round(end * 0.3, 1)  # moved on the phone
+    r = client.post("/api/difficulty", json=_saved(c) | {"camps_m": [camp]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["terrain"] == c["terrain"]  # rebuilt from the graph by way ids: same as the run's
+    assert body["difficulty_rules"] == RULES
+    d, z = c["profile"]["d_m"], c["profile"]["z_m"]
+    G, _ = cumulative_gain_loss(smooth(np.array(z, dtype=float)))
+    at = lambda m: float(np.interp(m, d, G)) * FT_PER_M  # noqa: E731
+    for (a, b), day in zip([(0.0, camp), (camp, end)], body["days"]):
+        want = rate_stretch(d, z, c["terrain"], a, b, at(b) - at(a), "backpacking")
+        assert day["rating"]["level"] == want.level and day["rating"]["effort"] == pytest.approx(want.effort)
+        assert (day["start_m"], day["end_m"]) == (a, b)
+    order = ["easy", "moderate", "hard", "strenuous"]
+    assert body["level"] == max((x["rating"]["level"] for x in body["days"]), key=order.index)
+    assert body["rating"] is None
+
+
+def test_difficulty_day_hike_rates_the_whole_route(tmp_path, grid):
+    client = _tagged_client(tmp_path, grid)
+    run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1",
+                                                                 "type": "loop"}).json()
+    c = run["candidates"][0]
+    body = client.post("/api/difficulty", json=_saved(c) | {"nights": None, "camps_m": None}).json()
+    assert body["days"] == [] and body["rating"] == c["rating"] and body["level"] == c["level"]
+
+
+def test_difficulty_mixed_segment_adds_no_terrain(tmp_path, grid):
+    client = _tagged_client(tmp_path, grid, with_dem=False)
+    prof = {"d_m": [0.0, 1000.0, 2000.0], "z_m": [None, None, None]}
+    seg = {"label": "x", "highway": "path", "is_road": False, "last_resort": False, "length_m": 2000.0}
+    mixed = client.post("/api/difficulty", json={"region": "dolly_sods", "nights": None, "camps_m": None, "profile": prof,
+                                                  "segments": [seg | {"sources": ["osm:way/110", "osm:way/100"]}]}).json()
+    assert mixed["terrain"] == [] and mixed["rating"]["untagged_share"] == 1.0
+    assert mixed["rating"]["level"] is None  # no elevation: unknown, never guessed
+    uniform = client.post("/api/difficulty", json={"region": "dolly_sods", "nights": None, "camps_m": None, "profile": prof,
+                                                    "segments": [seg | {"sources": ["osm:way/110"]}]}).json()
+    assert [t["reason"] for t in uniform["terrain"]] == ["scramble (tagged)"]
+
+
+@pytest.mark.parametrize("change, field", [
+    ({"profile": {"d_m": [0, 1], "z_m": [1]}}, "profile"),
+    ({"profile": "x"}, "profile"),
+    ({"segments": [{"length_m": "far", "sources": []}]}, "segments"),
+    ({"camps_m": [5000.0]}, "camps_m"),
+    ({"camps_m": [100.0, 200.0]}, "camps_m"),
+    ({"nights": 0}, "nights"),
+])
+def test_difficulty_bad_input_is_400(client, change, field):
+    body = {"region": "dolly_sods", "nights": 1, "camps_m": [500.0],
+            "profile": {"d_m": [0.0, 1000.0], "z_m": [1.0, 2.0]},
+            "segments": [{"label": "x", "is_road": False, "length_m": 1000.0, "sources": ["osm:way/100"]}]}
+    r = client.post("/api/difficulty", json=body | change)
+    assert r.status_code == 400 and r.json()["field"] == field
+
+
+def test_difficulty_unknown_region_is_404(client):
+    r = client.post("/api/difficulty", json={"region": "mars", "nights": None, "camps_m": None,
+                                             "profile": {"d_m": [0.0, 1.0], "z_m": [None, None]}, "segments": []})
+    assert r.status_code == 404
