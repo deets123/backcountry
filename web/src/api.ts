@@ -1,5 +1,6 @@
 // Typed client for the piece-1 API. All errors become ApiError with the server's wording.
 import type { DifficultyAnswer, DifficultyBody } from "./offline/levels";
+import type { UpdateAnswer, UpdateCheck } from "./panels/update";
 import type { ApiErrorBody, AreaOpened, AreaStatus, ChatAnswer, FeaturesInView, GenerateRequest, RecentArea, Region, Run, SearchResult,
   TrailFeatureCollection, Trailhead } from "./types";
 
@@ -50,6 +51,16 @@ export async function search(q: string): Promise<SearchResult[]> {
 
 export function openArea(body: { ref: string } | { box: [number, number, number, number] } | { point: [number, number] }): Promise<AreaOpened> {
   return request("/api/areas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+export function updateCheck(runId: string, n: number): Promise<UpdateCheck> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/update?candidate=${n}`);
+}
+
+export function updateTrip(runId: string, n: number): Promise<UpdateAnswer> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/update`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ candidate: n }),
+  });
 }
 
 export function areaStatus(id: string): Promise<AreaStatus> {

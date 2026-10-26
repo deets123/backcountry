@@ -3,6 +3,7 @@ import type { ChatMessage, RecentArea, Region, Run, SearchResult, Trailhead } fr
 import type { Fix, Where } from "./gps";
 import type { SavedTrip } from "./offline/db";
 import type { SaveProgress } from "./offline/save";
+import type { TripUpdate } from "./panels/update";
 
 export type View = "plan" | "compare" | "trip" | "saved";
 export type Basemap = "topo" | "hybrid" | "satellite";
@@ -16,6 +17,7 @@ export interface State {
   offline: boolean; updateReady: boolean; mapNote: string | null;
   chat: ChatMessage[]; chatBusy: boolean; chatError: string | null;
   searchQuery: string; searchResults: SearchResult[] | null; recentAreas: RecentArea[];
+  tripUpdate: TripUpdate | null;  // newer trail data offered for the open saved trip
 }
 
 export const INITIAL: State = {
@@ -23,7 +25,7 @@ export const INITIAL: State = {
   error: null, busy: false, basemap: "topo", sheet: "half",
   saved: [], savedId: null, campsM: null, gps: { mode: "off" }, saving: null, tilesMissing: false, junctions: false, offline: false, updateReady: false, mapNote: null,
   chat: [], chatBusy: false, chatError: null,
-  searchQuery: "", searchResults: null, recentAreas: [],
+  searchQuery: "", searchResults: null, recentAreas: [], tripUpdate: null,
 };
 
 type Listener = (next: State, prev: State) => void;

@@ -58,3 +58,7 @@ table { border-collapse: collapse; width: 100%; font-size: 13px; } td, th { text
 #search .result { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left;
   padding: 8px 10px; margin: 2px 0; background: none; border: 1px solid var(--line, #ccc); border-radius: 8px; color: inherit; }
 #search .r-meta { font-size: 0.85em; opacity: 0.75; }
+
+/* Newer trail data offer on a saved trip (panels/update.ts) */
+.update { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.update ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }

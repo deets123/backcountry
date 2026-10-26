@@ -1,4 +1,5 @@
-import { ApiError, areaStatus, chat, difficulty, generate, getRegions, getTrailheads, getTrails, openArea, search } from "./api";
+import { ApiError, areaStatus, chat, difficulty, generate, getRegions, getTrailheads, getTrails, openArea, search, updateCheck,
+  updateTrip } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
 import { locate, type Fix } from "./gps";
@@ -13,6 +14,7 @@ import { esc } from "./panels/common";
 import { bindPlan, renderPlan, tapMessage } from "./panels/plan";
 import { bindSaved, renderSaved } from "./panels/saved";
 import { openSearchResult, type Target } from "./panels/search";
+import { acceptUpdate, checkForUpdate, declineUpdate, reviewUpdate } from "./panels/update";
 import { bindTrip, patchTrip, renderTrip } from "./panels/trip";
 import { fromRun, toRequest, type FormState } from "./request";
 import { campHereIndex, campsOf, moveCamp } from "./resplit";
@@ -28,7 +30,7 @@ const DRAG_SNAP_M = 150; // a dropped camp must land this close to the route lin
 // Changes to these re-render the panel. (Form edits typed in the panel don't; see editForm.)
 const RENDER_KEYS: (keyof State)[] = ["view", "status", "error", "busy", "run", "selected", "trailheads", "sheet", "regions", "recentAreas",
   "saved", "savedId", "campsM", "gps", "saving", "offline", "updateReady", "mapNote", "tilesMissing", "junctions",
-  "chat", "chatBusy", "chatError"];
+  "chat", "chatBusy", "chatError", "tripUpdate"];
 const LIVE_KEYS = new Set<keyof State>(["gps", "saving"]); // updated in place in the trip view (patchTrip)
 const BOOT_TIMEOUT_MS = 5000; // with saved trips on the phone, don't wait longer than this for the server
 
@@ -231,6 +233,41 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
         error: tilesGone ? "This trip's offline map was cleared by the browser. Tap Save again while online to get the map back." : null });
       map?.setTrails(rec.trails);
       map?.fitBounds(rec.box);
+      store.set({ tripUpdate: null });
+      const offer = await checkForUpdate(rec, { online: () => !store.get().offline && win?.navigator.onLine !== false, updateCheck });
+      if (offer && store.get().savedId === rec.id) store.set({ tripUpdate: offer });
+    },
+    // Newer trail data for the open saved trip: each step waits for the user's tap (panels/update.ts).
+    async reviewUpdate() {
+      const s = store.get(), u = s.tripUpdate, rec = s.saved.find((t) => t.id === s.savedId);
+      if (!rec || u?.phase !== "offer") return;
+      store.set({ tripUpdate: { id: rec.id, phase: "busy" } });
+      store.set({ tripUpdate: await reviewUpdate(rec, u.latest, { updateTrip }) });
+    },
+    async declineUpdate() {
+      const s = store.get(), u = s.tripUpdate, rec = s.saved.find((t) => t.id === s.savedId);
+      if (!rec || !u || (u.phase !== "offer" && u.phase !== "review")) return;
+      await declineUpdate(rec, u.latest, { put: putTrip });
+      await refreshSaved();
+      store.set({ tripUpdate: null, status: "Kept your trip as it was." });
+    },
+    async acceptUpdate() {
+      const s = store.get(), u = s.tripUpdate, rec = s.saved.find((t) => t.id === s.savedId);
+      if (!rec || u?.phase !== "review") return;
+      store.set({ tripUpdate: { id: rec.id, phase: "busy" }, error: null });
+      try {
+        const saved = await acceptUpdate(rec, u, {
+          save: (run, n, name, campsM) => saveTrip(run, n, name, (p) => store.set({ saving: { id: tripId(run, n), ...p } }),
+            new AbortController().signal, undefined, campsM),
+          remove: deleteTrip,
+        });
+        await refreshSaved();
+        store.set({ saving: null, tripUpdate: null });
+        await actions.openSaved(saved.id);
+        store.set({ status: "Updated to the newer trail data." });
+      } catch (e) {
+        store.set({ saving: null, tripUpdate: { id: rec.id, phase: "failed", message: `Couldn't save the updated trip: ${(e as Error).message} Your trip is unchanged.` } });
+      }
     },
     async deleteSaved(id: string) {
       if (!win?.confirm("Delete this saved trip and its offline map?")) return;
