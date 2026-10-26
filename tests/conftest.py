@@ -198,3 +198,29 @@ def build_grid() -> RawBuilder:
 @pytest.fixture
 def grid() -> RawBuilder:
     return build_grid()
+
+
+# --- a tiny local OSM index (tests/fixtures/mini.osm: made-up places in open ocean) -------------
+
+FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures"
+MINI_DATE = "2026-10-20"
+PARK_BBOX = (-149.95, 10.1, -149.6, 10.5)  # Testpark National Park's outer ring
+LONE_PEAK = (-149.8, 10.3)
+
+
+@pytest.fixture(scope="session")
+def index_path(tmp_path_factory):
+    from backcountry import osm_index
+
+    out = tmp_path_factory.mktemp("osm") / f"us-{MINI_DATE}.sqlite"
+    osm_index.build_index(FIXTURES / "mini.osm", out, MINI_DATE)
+    return out
+
+
+@pytest.fixture
+def index(index_path):
+    from backcountry import osm_index
+
+    con = osm_index.open_index(index_path)
+    yield con
+    con.close()

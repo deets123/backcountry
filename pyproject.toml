@@ -10,6 +10,7 @@ dependencies = [
     "gpxpy>=1.6.2",
     "networkx>=3.2",
     "numpy>=2.4.6",
+    "osmium>=4.3.2",
     "pyproj>=3.6",
     "pyyaml>=6.0",
     "rasterio>=1.4.4",
