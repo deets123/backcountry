@@ -7,12 +7,15 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from backcountry import ingest
+from backcountry import osm_index
+from backcountry.api.area_worker import NoIndex
 from backcountry.api.store import NotFound
 from backcountry.chat.service import chat_turn, start_names, trail_names
 from backcountry.difficulty import rate_saved, segments_terrain
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
 from backcountry.planning import GenerateRequest, RequestError, plan_trip
+from backcountry.region import load_region
 from backcountry.route import resolve_point
 from backcountry.serialize import build_gpx, day_gpx, run_payload
 from backcountry.trailheads import find_candidates
@@ -59,6 +62,58 @@ def trailheads(region_id: str, request: Request):
             "component": c["component"], "snap_m": c["snap_m"],
         })
     return {"region": region_id, "trailheads": out}
+
+
+# --- search and areas ------------------------------------------------------------------------
+
+
+_AREA_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
+
+
+@router.get("/search")
+def search(request: Request, q: str = ""):
+    """Hand-made regions first, then any US area or place in the local index."""
+    text = q.strip()
+    if not 1 <= len(text) <= 100:
+        raise RequestError("q", "Type 1 to 100 characters to search.")
+    store, worker = _regions(request), request.app.state.areas
+    regions = [load_region(rid, store.settings.regions_dir) for rid in store.ids()]
+    out = [{"kind": "region", "id": r.id, "name": r.name, "type_label": "Region", "state": None}
+           for r in regions if text.lower() in r.name.lower()]
+    try:
+        con = worker.index()
+    except NoIndex:
+        return {"results": out, "index": False}
+    try:
+        found = osm_index.search(con, text)
+    finally:
+        con.close()
+    curated = [re.compile(r.boundary_name_regex, re.I) for r in regions if r.boundary_name_regex]
+    for f in found:
+        if f["kind"] == "area" and any(c.search(f["name"]) for c in curated):
+            continue  # a hand-made region covers it (with its curated trailheads)
+        out.append({"kind": f["kind"], "ref": f["osm"], "name": f["name"], "type_label": f["type_label"],
+                    "state": f["state"], "bbox": f["bbox"], "center": f["center"]})
+    return {"results": out, "index": True}
+
+
+@router.post("/areas")
+def open_area(request: Request, body: dict):
+    """Start preparing an area (or find it ready). Returns its id and status; poll /areas/{id}/status."""
+    worker = request.app.state.areas
+    try:
+        spec = worker.spec_for(body)
+    except ValueError as e:
+        raise RequestError("area", str(e)) from e
+    st = worker.request(spec)
+    return {k: st[k] for k in ("area_id", "name", "status", "message", "bbox")}
+
+
+@router.get("/areas/{area_id}/status")
+def area_status(area_id: str, request: Request):
+    if not _AREA_ID.match(area_id):
+        raise RequestError("area_id", "Not an area id.")
+    return request.app.state.areas.status_of(area_id)
 
 
 # --- trails and features ------------------------------------------------------------

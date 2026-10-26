@@ -27,13 +27,17 @@ class Settings:
     areas_dir: Path | None = None  # generated areas; None (tests) means there are none
     osm_dir: Path | None = None    # the local US index; None means search finds hand-made regions only
     max_loaded: int = 4            # areas kept built in memory (least recently used goes first)
+    area_limits: dict | None = None  # {max_queue, per_hour, disk_gb}; defaults in api.area_worker
+    area_thread: bool = True       # prepare areas on a background thread (tests run them inline)
 
     @classmethod
     def default(cls) -> "Settings":
         from backcountry import usdata
 
+        env = {k: os.environ.get(f"BACKCOUNTRY_AREA_{k.upper()}") for k in ("max_queue", "per_hour", "disk_gb")}
+        limits = {k: (float(v) if k == "disk_gb" else int(v)) for k, v in env.items() if v}
         return cls(raw_dir=ingest.RAW_DIR, runs_dir=REPO_ROOT / "data" / "runs", regions_dir=REGIONS_DIR,
-                   areas_dir=AREAS_DIR, osm_dir=usdata.OSM_DIR)
+                   areas_dir=AREAS_DIR, osm_dir=usdata.OSM_DIR, area_limits=limits or None)
 
     @property
     def areas(self) -> Path:
@@ -96,6 +100,12 @@ class RegionStore:
             if len(out) == limit:
                 break
         return out
+
+    def forget(self, region_id: str) -> None:
+        """Drop a removed area's built graphs."""
+        with self._lock:
+            for key in [k for k in self._loaded if k[0] == region_id]:
+                del self._loaded[key]
 
     def _region(self, region_id: str):
         try:
