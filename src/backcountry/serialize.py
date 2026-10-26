@@ -103,7 +103,8 @@ def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str) -> dict
         "road_m": c.road_m, "last_resort_m": c.last_resort_m, "repeated_m": c.repeated_m, "penalty": c.penalty,
         "segments": route_segments(c.route),
         "geometry": mapping(c.route.line_wgs84),
-        "route": {"nodes": list(c.route.nodes), "keys": [e["key"] for e in c.route.edges]},  # to follow it on newer data
+        "route": {"nodes": list(c.route.nodes), "keys": [e["key"] for e in c.route.edges],  # to follow it on newer data
+                  "stem_keys": list(c.stem_keys)},
         "pieces": pieces,
         "waypoints": route_waypoints(c.route, start_text, f"{start_text} (loop)", c.plan),
         "plan": plan_payload(c.plan),

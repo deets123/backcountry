@@ -239,11 +239,13 @@ def area_env(tmp_path, index):
     return settings, spec
 
 
-def add_cut(settings, area_id: str, date: str) -> None:
-    """Copy an area's cut under a later extract date (same trails), as a refresh would leave it."""
+def add_cut(settings, area_id: str, date: str, mutate=None) -> None:
+    """Copy an area's cut under a later extract date, as a refresh would leave it; `mutate(elements)` edits it."""
     import json as _json
 
     d = settings.raw_dir / area_id
     doc = _json.loads(sorted(d.glob("extract_*.json"))[-1].read_text())
     doc["retrieved_at"], doc["osm_base"] = f"{date}T00:00:00Z", date
+    if mutate:
+        mutate(doc["response"]["elements"])
     (d / f"extract_{date.replace('-', '')}T000000Z.json").write_text(_json.dumps(doc))

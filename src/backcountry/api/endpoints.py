@@ -1,5 +1,6 @@
 """HTTP endpoints. Each one serializes engine results; none computes geometry."""
 
+import json
 import re
 from datetime import datetime, timezone
 
@@ -14,7 +15,9 @@ from backcountry.chat.service import chat_turn, start_names, trail_names
 from backcountry.difficulty import rate_saved, segments_terrain
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
-from backcountry.planning import GenerateRequest, RequestError, plan_trip
+from backcountry.planning import GenerateRequest, RequestError, plan_route, plan_trip
+from backcountry.retrace import changes as trip_changes
+from backcountry.retrace import retrace
 from backcountry.region import load_region
 from backcountry.route import resolve_point
 from backcountry.serialize import build_gpx, day_gpx, run_payload
@@ -218,6 +221,62 @@ def difficulty(request: Request, body: dict):
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, request: Request):
     return request.app.state.runs.load(run_id)
+
+
+# --- saved trips and newer data ---------------------------------------------------------------
+
+
+def _latest_of(loaded) -> str:
+    """The data version a region would plan on now: an area's extract date, or a hand-made region's retrieval time."""
+    return loaded.cut or loaded.raw["retrieved_at"]
+
+
+def _version_of(run: dict) -> str | None:
+    return run.get("data_cut") or (run.get("data_sources") or [{}])[0].get("retrieved_at")
+
+
+def _candidate_n(value) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise RequestError("candidate", "candidate must be a whole number")
+    return value
+
+
+@router.get("/runs/{run_id}/update")
+def update_check(run_id: str, request: Request, candidate: int = 1):
+    """Is there newer trail data for this saved trip's area? Changes nothing."""
+    run, c = _candidate(request, run_id, candidate)
+    loaded = _regions(request).get(run["region"])
+    have, latest = _version_of(run), _latest_of(loaded)
+    return {"newer": bool(have and latest > have), "cut": have, "latest": latest,
+            "approx_bytes": len(json.dumps(c))}
+
+
+@router.post("/runs/{run_id}/update")
+def update_trip(run_id: str, request: Request, body: dict):
+    """Follow the saved route on the newest data and plan it the same way; returns the new run and what changed.
+    The old run is never modified; the phone keeps the old trip unless the user accepts."""
+    run, c = _candidate(request, run_id, _candidate_n(body.get("candidate")))
+    loaded = _regions(request).get(run["region"])
+    if not (_version_of(run) and _latest_of(loaded) > _version_of(run)):
+        raise RequestError("update", "This trip already uses the newest trail data.")
+    followed = retrace(loaded.tg, c)
+    if not followed["ok"]:
+        if followed.get("reason"):
+            return {"ok": False, "message": "This trip was saved before routes were recorded, so it can't be followed "
+                                            "on newer data. Plan it again to use the newer data. Your trip is unchanged."}
+        names = ", ".join(m["name"] or "an unnamed trail" for m in followed["missing"])
+        return {"ok": False, "message": f"The route no longer follows the same trails in the newer data (missing: {names}). "
+                                        "Your trip is unchanged."}
+    req = GenerateRequest.from_dict(run["request"])
+    result = plan_route(loaded.region, loaded.raw, loaded.tg, req, followed["route"], c["kind"],
+                        (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
+                        raw_dir=request.app.state.settings.raw_dir)
+    result.start = run["start"]
+    runs = request.app.state.runs
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new = run_payload(runs.new_id(), loaded.region, result, loaded.raw, loaded.tg, now, diff=None)
+    runs.save(new)
+    return {"ok": True, "run": new, "changes": trip_changes(c, new["candidates"][0])}
 
 
 # --- downloads --------------------------------------------------------------------------

@@ -179,3 +179,101 @@ def test_no_trails_failure_says_so(api):
     run_worker(client)
     s = client.get(f"/api/areas/{a['area_id']}/status").json()
     assert s == {"status": "failed", "message": "No trails were found there.", "name": a["name"]}
+
+
+# --- saved trips and newer data ---------------------------------------------------------------------
+
+
+@pytest.fixture
+def planned(api):
+    client, _ = api
+    a = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    ths = client.get(f"/api/regions/{a}/trailheads").json()["trailheads"]
+    th = next(t for t in ths if "osm_trailhead" in (t.get("kinds") or []))
+    run = client.post(f"/api/regions/{a}/generate", json={"trailhead": th["id"], "total": "20-32", "nights": 1,
+                                                          "daily": "8-20", "type": "loop"}).json()
+    return client, a, run
+
+
+def _rename(old, new):
+    def mutate(elements):
+        for e in elements:
+            if e.get("tags", {}).get("name") == old:
+                e["tags"]["name"] = new
+    return mutate
+
+
+def test_update_check_newer_only_after_new_cut(planned):
+    from conftest import add_cut
+
+    client, a, run = planned
+    check = client.get(f"/api/runs/{run['run_id']}/update", params={"candidate": 1}).json()
+    assert check["newer"] is False and check["cut"] == MINI_DATE
+    add_cut(client.app.state.settings, a, "2026-11-20")
+    check = client.get(f"/api/runs/{run['run_id']}/update", params={"candidate": 1}).json()
+    assert check == {"newer": True, "cut": MINI_DATE, "latest": "2026-11-20", "approx_bytes": check["approx_bytes"]}
+    assert check["approx_bytes"] > 1000
+
+
+def test_update_never_runs_on_get(planned):
+    from conftest import add_cut
+
+    client, a, run = planned
+    add_cut(client.app.state.settings, a, "2026-11-20")
+    before = sorted((client.app.state.settings.runs_dir).glob("*.json"))
+    client.get(f"/api/runs/{run['run_id']}/update", params={"candidate": 1})
+    assert sorted((client.app.state.settings.runs_dir).glob("*.json")) == before
+
+
+def test_update_without_newer_data_refused(planned):
+    client, _, run = planned
+    r = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1})
+    assert r.status_code == 400 and "newest trail data" in r.json()["error"]
+
+
+def test_update_same_trails_has_no_changes(planned):
+    from conftest import add_cut
+
+    client, a, run = planned
+    add_cut(client.app.state.settings, a, "2026-11-20")
+    old_file = (client.app.state.settings.runs_dir / f"{run['run_id']}.json").read_text()
+    body = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
+    assert body["ok"] is True and body["changes"] == ["No changes to this trip."]
+    new = body["run"]
+    assert new["data_cut"] == "2026-11-20" and new["run_id"] != run["run_id"] and len(new["candidates"]) == 1
+    assert new["candidates"][0]["length_m"] == pytest.approx(run["candidates"][0]["length_m"], abs=0.01)
+    assert new["start"] == run["start"] and new["request"] == run["request"]
+    assert (client.app.state.settings.runs_dir / f"{run['run_id']}.json").read_text() == old_file  # old trip untouched
+    assert client.get(f"/api/runs/{new['run_id']}").status_code == 200  # the new one is saved
+
+
+def test_update_lists_renamed_trail(planned):
+    from conftest import add_cut
+
+    client, a, run = planned
+    add_cut(client.app.state.settings, a, "2026-11-20", _rename("Canyon Trail", "Canyon Rim Trail"))
+    body = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
+    assert "Trail renamed: Canyon Trail → Canyon Rim Trail" in body["changes"]
+    assert not any("osm:" in line or "way/" in line for line in body["changes"])  # no raw OSM ids in user text
+
+
+def test_update_missing_way_message(planned):
+    from conftest import add_cut
+
+    client, a, run = planned
+    add_cut(client.app.state.settings, a, "2026-11-20",
+            lambda els: els.__setitem__(slice(None), [e for e in els if e.get("tags", {}).get("name") != "Canyon Trail"]))
+    runs_before = len(list(client.app.state.settings.runs_dir.glob("*.json")))
+    body = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
+    assert body["ok"] is False
+    assert body["message"] == ("The route no longer follows the same trails in the newer data (missing: Canyon Trail). "
+                               "Your trip is unchanged.")
+    assert len(list(client.app.state.settings.runs_dir.glob("*.json"))) == runs_before
+
+
+def test_update_bad_candidate(planned):
+    client, _, run = planned
+    assert client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 9}).status_code == 404
+    assert client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": "1"}).status_code == 400
+    assert client.get("/api/runs/../update", params={"candidate": 1}).status_code == 404
