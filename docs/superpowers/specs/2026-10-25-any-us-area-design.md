@@ -124,6 +124,18 @@ same at the size of one server: download US trail data once, then cut any area o
   - After a refresh, new plans use a new cut, made lazily the next time the area is opened.
   - Old cuts are kept while any saved run references them, so level refreshes and chat on old trips use the
     data the trip was planned on.
+- **Saved trips can move to newer data, only with the user's say-so (the user's decision, 2026-10-25).**
+  - When a saved trip's area has a newer cut and the phone is online, the trip offers an update. It doesn't apply
+    one.
+  - The offer says roughly how much it would download (the trip's offline map and data), so the user can decide
+    whether to spend mobile data on it.
+  - If the user agrees, the server re-plans the same route on the new data. The user then sees what changed before
+    anything is kept: miles, climbing, each day's level, camps, water, and any trail that changed or disappeared.
+    If the route can no longer follow the same trails, the update says so plainly; it never draws a line to close
+    the gap (rule 1).
+  - The user accepts the edits, and the trip and its offline copy switch to the new cut. Or they decline, and the
+    trip stays exactly as it was on the old cut. Declining is remembered until a newer cut appears.
+  - Nothing updates in the background or without a tap.
 - **Disk limits never break saved trips.**
   - When the elevation or area budget is reached, the least-recently-used areas that no saved run references are
     removed first.
