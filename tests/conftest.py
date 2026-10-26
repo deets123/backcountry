@@ -224,3 +224,26 @@ def index(index_path):
     con = osm_index.open_index(index_path)
     yield con
     con.close()
+
+
+@pytest.fixture
+def area_env(tmp_path, index):
+    """Testpark National Park prepared as a generated area (no DEM), plus API settings that see it."""
+    from backcountry import areas
+    from backcountry.api.store import Settings
+
+    raw_dir, areas_dir = tmp_path / "raw", tmp_path / "areas"
+    spec = areas.area_from_ref(index, "relation/3003")
+    areas.prepare_area(spec, index, raw_dir=raw_dir, areas_dir=areas_dir, dem_fetch=lambda *a, **k: None)
+    settings = Settings(raw_dir=raw_dir, runs_dir=tmp_path / "runs", regions_dir=None, areas_dir=areas_dir)
+    return settings, spec
+
+
+def add_cut(settings, area_id: str, date: str) -> None:
+    """Copy an area's cut under a later extract date (same trails), as a refresh would leave it."""
+    import json as _json
+
+    d = settings.raw_dir / area_id
+    doc = _json.loads(sorted(d.glob("extract_*.json"))[-1].read_text())
+    doc["retrieved_at"], doc["osm_base"] = f"{date}T00:00:00Z", date
+    (d / f"extract_{date.replace('-', '')}T000000Z.json").write_text(_json.dumps(doc))

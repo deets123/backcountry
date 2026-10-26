@@ -252,11 +252,18 @@ def raw_prefix(region: Region) -> str:
     return CUT_PREFIX if region.generated else "overpass"
 
 
+_CUT_NAME = re.compile(rf"^{CUT_PREFIX}_(\d{{4}})(\d{{2}})(\d{{2}})T\d{{6}}Z\.json$")
+
+
 def cuts(region: Region, raw_dir: Path | None = None) -> list[str]:
-    """Extract dates of a generated area's cached cuts, oldest first."""
+    """Extract dates of a generated area's cached cuts, oldest first (read from the file names)."""
     if not region.generated:
         return []
-    return sorted({json.loads(p.read_text())["osm_base"] for p in region_raw_dir(region, raw_dir).glob(f"{CUT_PREFIX}_*.json")})
+    out = set()
+    for p in region_raw_dir(region, raw_dir).glob(f"{CUT_PREFIX}_*.json"):
+        if m := _CUT_NAME.match(p.name):
+            out.add(f"{m[1]}-{m[2]}-{m[3]}")
+    return sorted(out)
 
 
 def load_raw(region: Region, raw_dir: Path | None = None, cut: str | None = None) -> dict:

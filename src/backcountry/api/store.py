@@ -5,13 +5,14 @@ import logging
 import os
 import random
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from backcountry import ingest
 from backcountry.graph import build_graph, qa_summary
-from backcountry.region import REGIONS_DIR, REPO_ROOT, load_region
+from backcountry.region import AREAS_DIR, REGIONS_DIR, REPO_ROOT, load_region, region_path
 
 
 class NotFound(KeyError):
@@ -23,10 +24,20 @@ class Settings:
     raw_dir: Path | None = None
     runs_dir: Path | None = None
     regions_dir: Path | None = None
+    areas_dir: Path | None = None  # generated areas; None (tests) means there are none
+    osm_dir: Path | None = None    # the local US index; None means search finds hand-made regions only
+    max_loaded: int = 4            # areas kept built in memory (least recently used goes first)
 
     @classmethod
     def default(cls) -> "Settings":
-        return cls(raw_dir=ingest.RAW_DIR, runs_dir=REPO_ROOT / "data" / "runs", regions_dir=REGIONS_DIR)
+        from backcountry import usdata
+
+        return cls(raw_dir=ingest.RAW_DIR, runs_dir=REPO_ROOT / "data" / "runs", regions_dir=REGIONS_DIR,
+                   areas_dir=AREAS_DIR, osm_dir=usdata.OSM_DIR)
+
+    @property
+    def areas(self) -> Path:
+        return self.areas_dir or Path("/nonexistent-backcountry-areas")
 
 
 @dataclass
@@ -36,6 +47,7 @@ class LoadedRegion:
     tg: object
     summary: dict
     dem: object = None
+    cut: str | None = None  # extract date of a generated area's data; None for hand-made regions
     builds = 0  # class-level counter, for tests
 
     @property
@@ -46,10 +58,11 @@ class LoadedRegion:
 class RegionStore:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self._loaded: dict[str, LoadedRegion] = {}
+        self._loaded: OrderedDict[tuple, LoadedRegion] = OrderedDict()
         self._lock = threading.Lock()  # endpoints run in a threadpool; build each region once
 
     def ids(self) -> list[str]:
+        """Hand-made regions (regions/*.yaml). Generated areas are listed by recent_areas()."""
         return sorted(p.stem for p in (self.settings.regions_dir or REGIONS_DIR).glob("*.yaml"))
 
     def summaries(self) -> list[dict]:
@@ -66,24 +79,64 @@ class RegionStore:
             })
         return out
 
-    def get(self, region_id: str) -> LoadedRegion:
-        if region_id in self._loaded:
-            return self._loaded[region_id]
-        with self._lock:
-            if region_id in self._loaded:
-                return self._loaded[region_id]
-            if region_id not in self.ids():
-                raise NotFound(f"No region {region_id!r}")
-            region = load_region(region_id, self.settings.regions_dir)
+    def recent_areas(self, limit: int = 8) -> list[dict]:
+        """Generated areas that have trail data, most recently opened first."""
+        paths = sorted(self.settings.areas.glob("*.yaml"), key=lambda p: p.stat().st_mtime, reverse=True)
+        out = []
+        for p in paths:
             try:
-                raw = ingest.load_raw(region, self.settings.raw_dir)
+                region = load_region(p.stem, Path("/nonexistent"), self.settings.areas)
+            except (FileNotFoundError, ValueError, KeyError):
+                continue
+            if not ingest.cuts(region, self.settings.raw_dir):
+                continue  # still being prepared, or preparation failed
+            area = region.area or {}
+            out.append({"id": region.id, "name": region.name, "type_label": area.get("type_label"),
+                        "state": area.get("state"), "bbox": vars(region.bbox)})
+            if len(out) == limit:
+                break
+        return out
+
+    def _region(self, region_id: str):
+        try:
+            return load_region(region_id, self.settings.regions_dir, self.settings.areas)
+        except FileNotFoundError as e:
+            raise NotFound(f"No region {region_id!r}") from e
+
+    def get(self, region_id: str, cut: str | None = None) -> LoadedRegion:
+        """The region's built graph. For a generated area, `cut` picks an extract date (default: the newest);
+        hand-made regions have one cache and ignore it."""
+        region = self._region(region_id)
+        if region.generated:
+            cuts = ingest.cuts(region, self.settings.raw_dir)
+            if cut is None:
+                if not cuts:
+                    raise NotFound(f"Area {region_id!r} isn't ready yet.")
+                cut = cuts[-1]
+            elif cut not in cuts:
+                raise NotFound(f"Area {region_id!r} has no trail data from {cut}.")
+            try:
+                os.utime(region_path(region_id, self.settings.regions_dir, self.settings.areas))  # for recent_areas
+            except OSError:
+                pass
+        else:
+            cut = None
+        key = (region_id, cut)
+        with self._lock:
+            if key in self._loaded:
+                self._loaded.move_to_end(key)
+                return self._loaded[key]
+            try:
+                raw = ingest.load_raw(region, self.settings.raw_dir, cut)
             except FileNotFoundError as e:  # names `backcountry ingest`
                 raise NotFound(str(e)) from e
             tg = build_graph(raw, region.crs)
             loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=qa_summary(tg),
-                                  dem=ingest.load_dem(region, raw_dir=self.settings.raw_dir))
+                                  dem=ingest.load_dem(region, raw_dir=self.settings.raw_dir), cut=cut)
             LoadedRegion.builds += 1
-            self._loaded[region_id] = loaded
+            self._loaded[key] = loaded
+            while len(self._loaded) > max(1, self.settings.max_loaded):
+                self._loaded.popitem(last=False)
             return loaded
 
 
@@ -117,7 +170,8 @@ class RunStore:
         with self._lock:
             self._write_atomic(path, json.dumps(run))
             index = self._index()
-            index[run["run_id"]] = {"region": run["region"], "trailhead": run["request"]["trailhead"]}
+            index[run["run_id"]] = {"region": run["region"], "trailhead": run["request"]["trailhead"],
+                                    "cut": run.get("data_cut")}
             self._write_atomic(self.runs_dir / "index.json", json.dumps(index))
         return path
 

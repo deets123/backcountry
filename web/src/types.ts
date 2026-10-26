@@ -68,6 +68,7 @@ export interface Candidate {
   index: number; kind: "loop" | "lollipop"; length_m: number; gain_ft: number | null; loss_ft: number | null; road_m: number;
   last_resort_m: number; repeated_m: number; penalty: number; segments: Segment[];
   geometry: { type: "LineString"; coordinates: [number, number][] }; pieces: Piece[]; waypoints: Waypoint[];
+  route?: { nodes: number[]; keys: string[] };  // OSM nodes and graph edges walked: to follow it on newer data
   plan: Plan | null; features: RouteFeature[]; profile: { d_m: number[]; z_m: (number | null)[] } | null;
   title: string; description: string; notes: string[];
   /** Runs saved before levels existed have none of these. */
@@ -80,6 +81,7 @@ export interface Run {
     seconds: number; widened: boolean; truncated: boolean; avoided_edges: number; notes: string[]; must_visit_notes: string[] };
   candidates: Candidate[];
   data_sources: { name: string; retrieved_at: string | null; attribution: string }[];
+  data_cut?: string | null;  // generated areas: the extract date the trip was planned on
   known_gaps: string[]; diff: string | null;
   difficulty_rules?: DifficultyRules;
 }

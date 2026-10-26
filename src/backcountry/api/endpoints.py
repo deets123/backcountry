@@ -1,5 +1,6 @@
 """HTTP endpoints. Each one serializes engine results; none computes geometry."""
 
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
@@ -17,6 +18,7 @@ from backcountry.serialize import build_gpx, day_gpx, run_payload
 from backcountry.trailheads import find_candidates
 
 router = APIRouter(prefix="/api")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _regions(request: Request):
@@ -25,7 +27,7 @@ def _regions(request: Request):
 
 @router.get("/regions")
 def regions(request: Request):
-    return {"regions": _regions(request).summaries()}
+    return {"regions": _regions(request).summaries(), "recent_areas": _regions(request).recent_areas()}
 
 
 @router.get("/regions/{region_id}/trailheads")
@@ -128,7 +130,10 @@ def _is_number(v) -> bool:
 def difficulty(request: Request, body: dict):
     """Re-rate a saved trip's days from its stored route (camps moved on the phone included), with the
     terrain rebuilt from this region's graph. For trips saved before levels existed, and after rule changes."""
-    loaded = _regions(request).get(str(body.get("region")))
+    cut = body.get("cut")
+    if cut is not None and (not isinstance(cut, str) or not _DATE.match(cut)):
+        raise RequestError("cut", "cut must be an extract date like 2026-10-20, or null")
+    loaded = _regions(request).get(str(body.get("region")), cut)
     prof = body.get("profile")
     if (not isinstance(prof, dict) or not isinstance(prof.get("d_m"), list) or not isinstance(prof.get("z_m"), list)
             or len(prof["d_m"]) != len(prof["z_m"]) or len(prof["d_m"]) < 2
@@ -217,5 +222,5 @@ def chat(request: Request, body: dict):
     if not isinstance(history, list):
         raise RequestError("history", "history must be a list of messages")
     run, _ = _candidate(request, run_id, n)
-    loaded = _regions(request).get(run["region"])
+    loaded = _regions(request).get(run["region"], run.get("data_cut"))
     return chat_turn(request.app.state.chat_model(), run, n, message, history, trail_names(loaded.tg), start_names(loaded.region))
