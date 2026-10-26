@@ -389,6 +389,10 @@ def select_dem_items(kind: str, items: list[dict]) -> list[dict]:
 
 def _read_merged(urls: list[str], bounds: tuple):
     """Read just `bounds` (lon/lat) from remote cloud-optimized GeoTIFFs and merge them (first valid wins)."""
+    for url in urls:
+        u = urllib.parse.urlparse(url)
+        if u.scheme != "https" or u.hostname not in ALLOWED_DEM_HOSTS:
+            raise FetchError(f"USGS listed a DEM at an unexpected host ({u.hostname}); nothing was downloaded.")
     import numpy as np
     import rasterio
     from rasterio.merge import merge
@@ -426,7 +430,7 @@ def fetch_dem(
 ) -> Path:
     """Cache a DEM covering bounds (lon/lat west, south, east, north). Returns the metadata JSON path.
 
-    Only https URLs on ALLOWED_DEM_HOSTS are opened, whatever the product search returns."""
+    The default reader opens only https URLs on ALLOWED_DEM_HOSTS, whatever the product search returns."""
     import rasterio
 
     searcher, reader = searcher or tnm_search, reader or _read_merged
@@ -440,10 +444,7 @@ def fetch_dem(
     items = select_dem_items(kind, searcher(DEM_DATASETS[kind], bounds))
     if not items:
         raise RuntimeError(f"USGS has no {DEM_DATASETS[kind]!r} products for bounds {bounds}")
-    for i in items:
-        u = urllib.parse.urlparse(i["downloadURL"])
-        if u.scheme != "https" or u.hostname not in ALLOWED_DEM_HOSTS:
-            raise FetchError(f"USGS listed a DEM at an unexpected host ({u.hostname}); nothing was downloaded.")
+
     array, transform, crs = reader([i["downloadURL"] for i in items], bounds)
 
     retrieved_at = _utc_now()

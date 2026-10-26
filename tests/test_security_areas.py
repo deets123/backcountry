@@ -45,16 +45,15 @@ def test_no_user_controlled_fetch_hosts(tmp_path, index_path, monkeypatch):
     assert opened and hosts <= {"tnmaccess.nationalmap.gov", "prd-tnm.s3.amazonaws.com"}
 
 
-def test_dem_urls_off_the_allowlist_are_refused(tmp_path, monkeypatch, index_path):
-    from backcountry.region import BBox, Region
+@pytest.mark.parametrize("url", ["http://prd-tnm.s3.amazonaws.com/x.tif", "https://evil.example/x.tif",
+                                 "https://prd-tnm.s3.amazonaws.com.evil.example/x.tif", "file:///etc/passwd", "/vsicurl/x"])
+def test_dem_urls_off_the_allowlist_are_refused(url, monkeypatch):
+    import rasterio
 
-    monkeypatch.setattr(ingest, "tnm_search", lambda dataset, bounds, fetcher=None: [
-        {"title": "USGS 1/3 Arc Second n11w150 20250101", "downloadURL": "http://evil.example/x.tif", "publicationDate": "2025-01-01"}])
     opened = []
-    monkeypatch.setattr(ingest, "_read_merged", lambda urls, bounds: opened.extend(urls))
-    region = Region(id="x", name="x", crs="EPSG:32606", bbox=BBox(10, -150, 11, -149))
+    monkeypatch.setattr(rasterio, "open", lambda *a, **k: opened.append(a))
     with pytest.raises(ingest.FetchError, match="unexpected host"):
-        ingest.fetch_dem(region, (-150, 10, -149, 11), raw_dir=tmp_path)
+        ingest._read_merged([url], (-150, 10, -149, 11))
     assert opened == []
 
 
