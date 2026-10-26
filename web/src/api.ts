@@ -1,6 +1,7 @@
 // Typed client for the piece-1 API. All errors become ApiError with the server's wording.
 import type { DifficultyAnswer, DifficultyBody } from "./offline/levels";
-import type { ApiErrorBody, ChatAnswer, FeaturesInView, GenerateRequest, Region, Run, TrailFeatureCollection, Trailhead } from "./types";
+import type { ApiErrorBody, AreaOpened, AreaStatus, ChatAnswer, FeaturesInView, GenerateRequest, RecentArea, Region, Run, SearchResult,
+  TrailFeatureCollection, Trailhead } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public field?: string) {
@@ -26,17 +27,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-/** With `timeoutMs`, a server that doesn't answer in time counts as unreachable (status 0). */
-export async function getRegions(timeoutMs?: number): Promise<Region[]> {
-  if (timeoutMs === undefined) return (await request<{ regions: Region[] }>("/api/regions")).regions;
+export interface RegionList { regions: Region[]; recent_areas: RecentArea[] }
+
+/** Hand-made regions and recently opened areas. With `timeoutMs`, a server that doesn't answer in time counts as
+ * unreachable (status 0). */
+export async function getRegions(timeoutMs?: number): Promise<RegionList> {
+  const list = (r: Partial<RegionList>): RegionList => ({ regions: r.regions ?? [], recent_areas: r.recent_areas ?? [] });
+  if (timeoutMs === undefined) return list(await request<RegionList>("/api/regions"));
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    return (await request<{ regions: Region[] }>("/api/regions", { signal: ctl.signal })).regions;
+    return list(await request<RegionList>("/api/regions", { signal: ctl.signal }));
   } catch (e) {
     if ((e as Error).name === "AbortError") throw new ApiError(`The Backcountry server didn't answer within ${Math.round(timeoutMs / 1000)} s.`, 0);
     throw e;
   } finally { clearTimeout(timer); }
+}
+
+export async function search(q: string): Promise<SearchResult[]> {
+  return (await request<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`)).results;
+}
+
+export function openArea(body: { ref: string } | { box: [number, number, number, number] } | { point: [number, number] }): Promise<AreaOpened> {
+  return request("/api/areas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+export function areaStatus(id: string): Promise<AreaStatus> {
+  return request(`/api/areas/${encodeURIComponent(id)}/status`);
 }
 
 export async function getTrailheads(region: string): Promise<Trailhead[]> {

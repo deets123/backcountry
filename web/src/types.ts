@@ -1,4 +1,14 @@
 // The piece-1 API's JSON shapes, field names as the API sends them.
+export type SearchResult =
+  | { kind: "region"; id: string; name: string; type_label: string; state: null }
+  | { kind: "area" | "place"; ref: string; name: string; type_label: string; state: string | null;
+      bbox: [number, number, number, number]; center: [number, number] };
+export interface RecentArea { id: string; name: string; type_label: string | null; state: string | null; bbox: Region["bbox"] }
+export interface AreaStatus {
+  status: "ready" | "preparing" | "queued" | "failed" | "unknown"; message: string | null; name?: string; bbox?: Region["bbox"];
+}
+export interface AreaOpened { area_id: string; name: string; status: AreaStatus["status"]; message: string; bbox: Region["bbox"] }
+
 export interface Region {
   id: string; name: string; crs: string;
   bbox: { south: number; west: number; north: number; east: number };
