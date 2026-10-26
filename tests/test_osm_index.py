@@ -3,7 +3,7 @@ from backcountry.graph import build_graph, qa_summary
 from backcountry.trailheads import find_candidates
 from conftest import LONE_PEAK, MINI_DATE, PARK_BBOX
 
-CRS = "EPSG:32605"  # UTM 5N covers the fixture's lon -150..-149
+CRS = "EPSG:32606"  # UTM 6N covers the fixture's lon -150..-149
 
 
 def test_build_counts(index_path, index):

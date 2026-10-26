@@ -245,14 +245,37 @@ def fetch(
     return _write_cache(region, raw_dir, "overpass", doc)
 
 
-def load_raw(region: Region, raw_dir: Path | None = None) -> dict:
-    path = latest_cache(region, raw_dir)
+CUT_PREFIX = "extract"  # generated areas: cut from the local US index (backcountry.osm_index)
+
+
+def raw_prefix(region: Region) -> str:
+    return CUT_PREFIX if region.generated else "overpass"
+
+
+def cuts(region: Region, raw_dir: Path | None = None) -> list[str]:
+    """Extract dates of a generated area's cached cuts, oldest first."""
+    if not region.generated:
+        return []
+    return sorted({json.loads(p.read_text())["osm_base"] for p in region_raw_dir(region, raw_dir).glob(f"{CUT_PREFIX}_*.json")})
+
+
+def load_raw(region: Region, raw_dir: Path | None = None, cut: str | None = None) -> dict:
+    """The newest cached raw data, or (generated areas) the cut from extract date `cut`."""
+    prefix = raw_prefix(region)
+    if cut is None:
+        path = latest_cache(region, raw_dir, prefix=prefix)
+    else:
+        files = sorted(region_raw_dir(region, raw_dir).glob(f"{prefix}_{cut.replace('-', '')}T*.json"))
+        path = files[-1] if files and region.generated else None
     if path is None:
+        if region.generated:
+            raise FileNotFoundError(f"Area {region.id!r} has no trail data{' from ' + cut if cut else ''} yet.")
         raise FileNotFoundError(
             f"No cached OSM data for region {region.id!r}. Run `backcountry ingest --region {region.id}` first."
         )
     doc = json.loads(path.read_text())
     doc["cache_path"] = str(path)
+    doc["cut"] = doc.get("osm_base") if region.generated else None
     return doc
 
 

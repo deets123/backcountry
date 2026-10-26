@@ -83,3 +83,20 @@ def test_trailhead_needs_a_node_or_verified_coordinates(tmp_path):
 def test_trailhead_ids_are_unique(tmp_path):
     with pytest.raises(ValueError, match="duplicate"):
         _region_with_trailheads(tmp_path, [{"id": "a", "name": "A", "node": 1}, {"id": "a", "name": "B", "node": 2}])
+
+
+def test_curated_region_wins_over_area_with_same_id(tmp_path):
+    regions, generated = tmp_path / "regions", tmp_path / "areas"
+    regions.mkdir(), generated.mkdir()
+    base = {"crs": "EPSG:32617", "bbox": {"south": 1, "west": 1, "north": 2, "east": 2}}
+    (regions / "same.yaml").write_text(yaml.safe_dump({"id": "same", "name": "Curated", **base}))
+    (generated / "same.yaml").write_text(yaml.safe_dump({"id": "same", "name": "Generated", "generated": True, **base}))
+    r = load_region("same", regions_dir=regions, areas_dir=generated)
+    assert r.name == "Curated" and not r.generated
+
+
+def test_region_id_cannot_escape_dirs(tmp_path):
+    (tmp_path / "secret.yaml").write_text("id: secret")
+    for bad in ("../secret", "a/b", "", "x" * 200, "with space"):
+        with pytest.raises(FileNotFoundError):
+            load_region(bad, regions_dir=tmp_path / "regions", areas_dir=tmp_path / "areas")

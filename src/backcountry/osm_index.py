@@ -52,6 +52,7 @@ CREATE TABLE areas(id INTEGER PRIMARY KEY, osm TEXT, name TEXT, type_label TEXT,
 CREATE VIRTUAL TABLE areas_rt USING rtree(id, minlon, maxlon, minlat, maxlat);
 CREATE TABLE places(id INTEGER PRIMARY KEY, osm TEXT, name TEXT, type_label TEXT, lon REAL, lat REAL,
                     minlon REAL, minlat REAL, maxlon REAL, maxlat REAL);
+CREATE INDEX places_lon ON places(lon);
 CREATE VIRTUAL TABLE names USING fts5(name, ref UNINDEXED);
 """
 
@@ -232,6 +233,24 @@ def state_at(con, lon: float, lat: float) -> str | None:
     """The US state boundary containing this point, or None (outside the US, as far as the index knows)."""
     rows = _areas_at(con, lon, lat, states=True)
     return rows[0]["name"] if rows else None
+
+
+def touches_us(con, bbox: tuple) -> bool:
+    """Whether any part of bbox (west, south, east, north) lies inside a US state boundary in the index."""
+    w, s, e, n = bbox
+    rows = con.execute("SELECT a.wkb FROM areas a JOIN areas_rt r ON a.id = r.id WHERE a.is_state = 1 "
+                       "AND r.maxlon >= ? AND r.minlon <= ? AND r.maxlat >= ? AND r.minlat <= ?", (w, e, s, n))
+    b = box(w, s, e, n)
+    return any(wkb.loads(r["wkb"]).intersects(b) for r in rows)
+
+
+def nearest_place(con, bbox: tuple, lon: float, lat: float) -> str | None:
+    """Name of the indexed place inside bbox nearest (lon, lat), preferring peaks and places over trails."""
+    w, s, e, n = bbox
+    row = con.execute("SELECT name FROM places WHERE lon BETWEEN ? AND ? AND lat BETWEEN ? AND ? "
+                      "ORDER BY type_label = 'Trail', (lon - ?) * (lon - ?) + (lat - ?) * (lat - ?) LIMIT 1",
+                      (w, e, s, n, lon, lon, lat, lat)).fetchone()
+    return row["name"] if row else None
 
 
 def _area_record(r: sqlite3.Row) -> dict:
