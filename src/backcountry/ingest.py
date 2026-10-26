@@ -364,6 +364,10 @@ DEM_ATTRIBUTION = "USGS 3D Elevation Program (3DEP) (public domain)"
 _TILE_13 = re.compile(r"1/3 Arc Second (n\d+w\d+) \d{8}$")
 
 
+# Where USGS serves 3DEP GeoTIFFs (the TNM API's downloadURLs). Anything else is refused, never opened.
+ALLOWED_DEM_HOSTS = ("prd-tnm.s3.amazonaws.com",)
+
+
 def tnm_search(dataset: str, bounds: tuple, fetcher: Callable[[str], dict] = _http_json) -> list[dict]:
     """Products from the USGS National Map API intersecting bounds (west, south, east, north)."""
     params = {"datasets": dataset, "bbox": ",".join(str(b) for b in bounds), "prodFormats": "GeoTIFF",
@@ -417,12 +421,15 @@ def fetch_dem(
     name: str | None = None,
     raw_dir: Path | None = None,
     refresh: bool = False,
-    searcher: Callable[[str, tuple], list[dict]] = tnm_search,
-    reader: Callable = _read_merged,
+    searcher: Callable[[str, tuple], list[dict]] | None = None,
+    reader: Callable | None = None,
 ) -> Path:
-    """Cache a DEM covering bounds (lon/lat west, south, east, north). Returns the metadata JSON path."""
+    """Cache a DEM covering bounds (lon/lat west, south, east, north). Returns the metadata JSON path.
+
+    Only https URLs on ALLOWED_DEM_HOSTS are opened, whatever the product search returns."""
     import rasterio
 
+    searcher, reader = searcher or tnm_search, reader or _read_merged
     prefix = _dem_prefix(kind, name)
     cached = latest_cache(region, raw_dir, prefix=prefix)
     if cached and not refresh:
@@ -433,6 +440,10 @@ def fetch_dem(
     items = select_dem_items(kind, searcher(DEM_DATASETS[kind], bounds))
     if not items:
         raise RuntimeError(f"USGS has no {DEM_DATASETS[kind]!r} products for bounds {bounds}")
+    for i in items:
+        u = urllib.parse.urlparse(i["downloadURL"])
+        if u.scheme != "https" or u.hostname not in ALLOWED_DEM_HOSTS:
+            raise FetchError(f"USGS listed a DEM at an unexpected host ({u.hostname}); nothing was downloaded.")
     array, transform, crs = reader([i["downloadURL"] for i in items], bounds)
 
     retrieved_at = _utc_now()
