@@ -96,3 +96,14 @@ def test_build_without_extract_says_to_download(tmp_path, monkeypatch):
 def test_cli_has_no_url_option(cmd):
     out = CliRunner().invoke(app, ["usdata", cmd, "--help"]).output
     assert "--url" not in out and "http" not in out.lower()
+
+
+def test_build_uses_a_disk_node_store_and_removes_it(tmp_path):
+    from conftest import FIXTURES
+
+    src = tmp_path / "us-2026-10-20.osm"
+    src.write_bytes((FIXTURES / "mini.osm").read_bytes())
+    out, counts = usdata.build(src, osm_dir=tmp_path)
+    assert out.exists() and counts["ways"] > 0
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["us-2026-10-20.osm", "us-2026-10-20.sqlite"]
+    assert usdata.DEFAULT_LOCATIONS.startswith("sparse_file_array")

@@ -374,8 +374,9 @@ def generate(
 usdata_app = typer.Typer(help="The US OpenStreetMap extract and local index (operator setup; never run by users).",
                          no_args_is_help=True)
 app.add_typer(usdata_app, name="usdata")
-LocationsOpt = typer.Option("flex_mem", "--locations", help="osmium node-location store, e.g. "
-                            "sparse_file_array,data/osm/nodes.bin when RAM is short")
+LocationsOpt = typer.Option("sparse_file_array,{dir}/.nodes.tmp", "--locations",
+                            help="osmium node-location store while building ({dir} = the index folder; "
+                                 "flex_mem keeps them in RAM, fine for one state, not for the US)")
 
 
 @usdata_app.command("download")

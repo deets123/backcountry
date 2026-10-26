@@ -24,6 +24,9 @@ from backcountry.region import REPO_ROOT
 GEOFABRIK_US_URL = "https://download.geofabrik.de/north-america/us-latest.osm.pbf"
 OSM_DIR = Path(os.environ.get("BACKCOUNTRY_OSM_DIR") or REPO_ROOT / "data" / "osm")
 CHUNK = 8 * 1024 * 1024
+# Node coordinates while building: the US has ~1.3 billion nodes, too many for RAM on a laptop, so they go in a
+# disk file (~16 bytes per node) next to the index, deleted afterwards. "{dir}" is the index folder.
+DEFAULT_LOCATIONS = "sparse_file_array,{dir}/.nodes.tmp"
 _DATED = re.compile(r"^us-(\d{4}-\d{2}-\d{2})\.")
 
 
@@ -105,13 +108,19 @@ def newest_extract(osm_dir: Path | None = None) -> Path | None:
     return _newest(osm_dir or OSM_DIR, ".osm.pbf")
 
 
-def build(pbf: Path, osm_dir: Path | None = None, locations: str = "flex_mem") -> tuple[Path, dict]:
+def build(pbf: Path, osm_dir: Path | None = None, locations: str = DEFAULT_LOCATIONS) -> tuple[Path, dict]:
     from backcountry import osm_index
 
     date = extract_date(pbf)
-    out = (osm_dir or OSM_DIR) / f"us-{date}.sqlite"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    return out, osm_index.build_index(pbf, out, date, source_url=GEOFABRIK_US_URL, locations=locations)
+    d = osm_dir or OSM_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"us-{date}.sqlite"
+    store = locations.format(dir=d)
+    try:
+        return out, osm_index.build_index(pbf, out, date, source_url=GEOFABRIK_US_URL, locations=store)
+    finally:
+        if "," in store:
+            Path(store.split(",", 1)[1]).unlink(missing_ok=True)
 
 
 def disk_free_gb(path: Path) -> float:
