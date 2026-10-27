@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 import networkx as nx
 
-from backcountry.route import Route, routing_graph, walk
+from backcountry.route import Route, edge_weight, routing_graph, walk
 from backcountry.scoring import Weights, overlap, penalty
 
 MAX_SECONDS = 60.0  # search time budget; the report says when it was hit
@@ -477,8 +477,8 @@ def _one_way_candidate(tg, start, finish, keys, nodes) -> Candidate:
 
 def one_ways(tg, start: int, finish: int, lo: float, hi: float, no_roads: bool = False, exclude_keys=frozenset(),
              through: int | None = None, deadline=None, report=None) -> list[Candidate]:
-    """From start to finish, length in [lo, hi]: the preferred route, and other ways through one junction (the
-    second leg avoids the first leg's trails). With `through`: start -> through -> finish; a `through` on a spur
+    """From start to finish, length in [lo, hi]: the preferred route, the next best way round each stretch of it,
+    and other ways through one junction (the second leg avoids the first leg's trails). With `through`: start -> through -> finish; a `through` on a spur
     is walked out and back (those edges are the candidate's detour_keys)."""
     R = routing_graph(tg, no_roads, exclude_keys=exclude_keys)
     if start not in R or finish not in R:
@@ -501,7 +501,36 @@ def one_ways(tg, start: int, finish: int, lo: float, hi: float, no_roads: bool =
     out, seen = [], set()
     if lo <= real(best) <= hi:
         out.append(_one_way_candidate(tg, start, finish, _path_keys(R, best), best))
-        seen.add(tuple(best))
+    seen.add(tuple(_path_keys(R, best)))
+    # Other ways round: block one stretch of the best route at a time and take the next best way (spread along
+    # the route when it has many stretches).
+    stretches = list(zip(best, best[1:]))
+    step = max(1, len(stretches) // MAX_ONE_WAY_VIAS)
+    for a, b in stretches[::step]:
+        if deadline and time.time() > deadline:
+            if report is not None:
+                report["truncated"] = True
+            return out
+        R2 = R.copy()
+        # another trail joining the same two junctions takes the blocked one's place (the routing graph keeps
+        # only the lightest of parallel trails)
+        others = [(edge_weight(d), k) for k, d in G[a][b].items() if k != R[a][b]["key"] and k not in exclude_keys
+                  and not (no_roads and d["is_road"])]
+        if others:
+            w, k = min(others)
+            R2[a][b].update(w=w, key=k)
+        else:
+            R2.remove_edge(a, b)
+        try:
+            alt = nx.shortest_path(R2, start, finish, weight="w")
+        except nx.NetworkXNoPath:
+            continue
+        keys = _path_keys(R2, alt)
+        if tuple(keys) in seen:
+            continue
+        seen.add(tuple(keys))
+        if lo <= sum(G[x][y][k]["length_m"] for (x, y), k in zip(zip(alt, alt[1:]), keys)) <= hi:
+            out.append(_one_way_candidate(tg, start, finish, keys, alt))
     dist_s, paths_s = nx.single_source_dijkstra(R, start, weight="w")
     dist_f = nx.single_source_dijkstra_path_length(R, finish, weight="w")
     mid = (lo + hi) / 2
@@ -520,10 +549,10 @@ def one_ways(tg, start: int, finish: int, lo: float, hi: float, no_roads: bool =
         except nx.NetworkXNoPath:
             continue
         nodes = leg1 + leg2[1:]
-        if tuple(nodes) in seen or len(set(nodes)) != len(nodes):  # no repeats: a walk that crosses itself isn't one
-            continue
-        seen.add(tuple(nodes))
         keys = _path_keys(R, leg1) + [R2[x][y]["key"] for x, y in zip(leg2, leg2[1:])]
+        if tuple(keys) in seen or len(set(nodes)) != len(nodes):  # no repeats: a walk that crosses itself isn't one
+            continue
+        seen.add(tuple(keys))
         if lo <= real(leg1) + sum(G[x][y][R2[x][y]["key"]]["length_m"] for x, y in zip(leg2, leg2[1:])) <= hi:
             out.append(_one_way_candidate(tg, start, finish, keys, nodes))
     return out

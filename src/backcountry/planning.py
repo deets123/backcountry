@@ -483,13 +483,24 @@ def _resolve_finish(tg, region, req: "GenerateRequest", start: int) -> tuple[int
 
 
 MAX_FINISHES = 5
+ONE_WAY_OVERLAP = 0.9  # one-way trips may share this much of their trail with a better one and still be offered
+FINISH_SPREAD_M = 800.0  # suggested finishes closer than this (straight line) to a better one are left out
+_FINISH_RANK = {"osm_trailhead": 1, "parking_nearby": 2, "trail_road_junction": 3}
+
+
+def _finish_rank(th: dict) -> int:
+    """Region trailheads first, then tagged trailheads, then parking, then where a trail meets a road."""
+    if th.get("source") == "yaml":
+        return 0
+    return min((_FINISH_RANK.get(k, 4) for k in th.get("kinds") or []), default=4)
 
 
 def suggest_finishes(tg, trailheads: list[dict], start: int, lo: float, hi: float, through: int | None = None,
                      dem=None) -> list[dict]:
     """Up to MAX_FINISHES trailheads (from the region's list) a one-way trip from `start` can end at within
-    [lo, hi] meters (via `through` if given), closest to the range's middle first, each with its shortest
-    route's miles, gain and loss (None without elevation) and the straight line between the two trailheads."""
+    [lo, hi] meters (via `through` if given): real trailheads before road crossings, then closest to the range's
+    middle, leaving out any within FINISH_SPREAD_M of one already picked. Each has its shortest route's miles,
+    gain and loss (None without elevation) and the straight line between the two trailheads."""
     import math
 
     import networkx as nx
@@ -514,10 +525,18 @@ def suggest_finishes(tg, trailheads: list[dict], start: int, lo: float, hi: floa
         keys = [R[a][b]["key"] for a, b in zip(nodes, nodes[1:])]
         length = sum(G[a][b][k]["length_m"] for (a, b), k in zip(zip(nodes, nodes[1:]), keys))
         if lo <= length <= hi:
-            found.append((abs(length - (lo + hi) / 2), th.get("name") or th["id"], th, nodes, keys, length))
-    found.sort(key=lambda f: (f[0], f[1]))
+            found.append((_finish_rank(th), abs(length - (lo + hi) / 2), th.get("name") or th["id"], th, nodes, keys, length))
+    found.sort(key=lambda f: f[:3])
+    picked = []
+    for f in found:
+        n = f[3]["node"]
+        if all(math.hypot(G.nodes[n]["x"] - G.nodes[p[3]["node"]]["x"], G.nodes[n]["y"] - G.nodes[p[3]["node"]]["y"])
+               >= FINISH_SPREAD_M for p in picked):
+            picked.append(f)
+        if len(picked) == MAX_FINISHES:
+            break
     out = []
-    for _, _, th, nodes, keys, length in found[:MAX_FINISHES]:
+    for _, _, _, th, nodes, keys, length in picked:
         route = walk(tg, keys, nodes)
         if dem is not None:
             add_elevation(route, dem, tg.crs)
@@ -608,6 +627,9 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
             musts = musts + [kw.pop("must")]
             lo = kw.pop("min_m")
         # the level filter drops loops after the search, so it asks for more to choose from
+        if req.type == "one_way":
+            # ways between the same two trailheads share most of their trail: let close variants through
+            kw.setdefault("max_overlap", ONE_WAY_OVERLAP)
         report = search(tg, start["node"], lo, hi, kinds=req.kinds, count=req.count * 4 if req.level else req.count,
                         no_roads=req.no_roads, weights=steps.weights, evaluate=evaluate, avoid=req.avoid,
                         must_visit=musts, direction=req.direction, on_snapshot=snapshot if on_snapshot else None,

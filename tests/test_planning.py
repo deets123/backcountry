@@ -331,3 +331,41 @@ def test_suggest_finishes_fit_the_range_and_skip_the_start(grid):
     assert len(suggest_finishes(tg, ths * 3, ids["T"], 2.0 * KM, 4.6 * KM)) <= 5
     for f in got:
         assert 2.0 * KM <= f["length_m"] <= 4.6 * KM and f["straight_line_m"] > 0 and f["gain_ft"] is None
+
+
+def test_suggested_finishes_prefer_trailheads_and_spread_out(grid):
+    from backcountry.planning import suggest_finishes
+
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids, G = grid.ids, tg.graph
+
+    def th(name, node, kinds):
+        return {"id": name, "name": name, "node": ids[node], "in_graph": True, "source": "data", "verified": False,
+                "lat": G.nodes[ids[node]]["lat"], "lon": G.nodes[ids[node]]["lon"], "kinds": kinds}
+
+    ths = [th("junction m", "m", ["trail_road_junction"]), th("junction g11", "g11", ["trail_road_junction"]),
+           th("Tagged g12", "g12", ["osm_trailhead"]), th("junction g01", "g01", ["trail_road_junction"])]
+    got = [f["id"] for f in suggest_finishes(tg, ths, ids["T"], 1.0 * KM, 6.0 * KM)]
+    assert got[0] == "Tagged g12"  # a tagged trailhead before road crossings
+    assert not ({"junction m", "junction g11"} <= set(got))  # 500 m apart: one of them is enough
+
+
+def test_one_way_offers_variants_that_share_most_of_their_trail():
+    from conftest import RawBuilder
+
+    # A to D along a long shared trail, with two ways round the middle: a short cut and a longer bend
+    b = RawBuilder()
+    for name, x, y in [("A", 0, 0), ("B", 4000, 0), ("C", 5000, 0), ("D", 9000, 0), ("E", 4500, 600)]:
+        b.node(name, x, y)
+    b.way(1, ["A", "B"], highway="path", name="Long Trail")
+    b.way(2, ["B", "C"], highway="path", name="Short Cut")
+    b.way(3, ["B", "E", "C"], highway="path", name="Rim Bend")
+    b.way(4, ["C", "D"], highway="path", name="Long Trail")
+    raw = b.doc()
+    tg = build_graph(raw, crs=CRS)
+    req = GenerateRequest.from_dict({"trailhead": str(b.ids["A"]), "total": "5-7", "type": "one_way",
+                                     "finish": str(b.ids["D"]), "count": 3})
+    cands = plan_trip(REGION, raw, tg, req).report["candidates"]
+    names = [{e["name"] for e in c.route.edges} for c in cands]
+    assert any("Short Cut" in n for n in names) and any("Rim Bend" in n for n in names)
