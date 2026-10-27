@@ -904,8 +904,17 @@ it counts on being prepared ahead (spec). The prepare-ahead run hasn't been done
    is yours: 14.71 mi against your 14.57 mi track, every track point within 100 m (the others take Telephone
    Canyon). Your track starts and ends about 900 m from the Lava Point and Grotto trailheads the spec named.
 5. "Zion" → Zion National Park + Zion Wilderness; "Zion National Park" and "Zion NP" → the park alone.
-6. Tests: pytest 650 passed, 30 skipped; `scripts/heavy-tests` 674 passed, 6 skipped; real-area checks 9 passed,
-   1 skipped; web 191 unit, 12 end-to-end. Chat eval not re-run (the chat's prompt and parsing didn't change).
+6. Tests: pytest 659 passed, 30 skipped; `scripts/heavy-tests` 683 passed, 6 skipped; real-area checks 9 passed,
+   1 skipped; web 195 unit, 12 end-to-end. Chat eval not re-run (the chat's prompt and parsing didn't change).
+
+**Review fixes** (a fresh reviewer read the whole branch; each fix has a test that failed first)
+- One-way and out-and-back trips ignore Direction (it walked one-way trips backwards); detours keep the finish.
+- A destination cut off by avoided trails says it can't be reached; the fallback respects avoid.
+- No hidden must-visit wording (raw ids, CLI flags) on destination trips.
+- A plan that fails after its first trips showed goes back to the plan with the error.
+- A group of areas must touch, with a capped box (a crafted request could have cut half the country).
+- An updated one-way trip keeps its finish's name; the phone cancels plans it gave up on (freeing the slot);
+  a cell with no USGS tile is left empty instead of failing the whole area.
 
 **Known gaps and next steps**
 - Run `caffeinate -i uv run backcountry areas prepare-popular` overnight; it hasn't been run on the real index.
