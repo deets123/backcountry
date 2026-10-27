@@ -16,7 +16,7 @@ from backcountry.difficulty import LEVEL_TARGETS, LEVELS, level_index, rate_stre
 from backcountry.elevation import densify
 from backcountry.features import FeatureIndex, along_route
 from backcountry.loops import Candidate, avoided_keys, search
-from backcountry.route import add_elevation, resolve_point
+from backcountry.route import _LATLON, add_elevation, resolve_point
 from backcountry.scoring import M_PER_MI, Weights
 from backcountry.split import resolve_pins, split_route
 
@@ -336,7 +336,7 @@ def _empty_report() -> dict:
 
 def _destination_notes(tg, report: dict, dest, req: "GenerateRequest", evaluate, start: int) -> None:
     """Side-trip notes; if nothing fits the range, the shortest out and back to the destination instead."""
-    from backcountry.loops import out_and_backs
+    from backcountry.loops import out_and_back_to
     from backcountry.scoring import penalty
 
     for c in report["candidates"]:
@@ -347,13 +347,11 @@ def _destination_notes(tg, report: dict, dest, req: "GenerateRequest", evaluate,
         return
     lo, hi = req.total
     excluded = avoided_keys(tg, req.avoid) if req.avoid else frozenset()
-    obs = [c for c in out_and_backs(tg, start, 0.0, math.inf, req.no_roads, excluded, through=dest.node)
-           if c.turnaround == dest.node]
-    if not obs:
+    short = out_and_back_to(tg, start, dest.node, req.no_roads, excluded)
+    if short is None:
         report["notes"].append(f"The search ran out of time before finding a trip to {dest.name}." if report.get("truncated")
                                else f"No trip from this start reaches {dest.name} within {_mi(lo)}–{_mi(hi)} mi.")
         return
-    short = min(obs, key=lambda c: c.length_m)
     short.penalty = penalty(short.length_m, short.road_m, short.last_resort_m, short.repeated_m, *req.total_m, Weights())
     if evaluate is not None:
         short.penalty += evaluate(short)
@@ -456,7 +454,7 @@ def feature_index(region, raw, tg, raw_dir=None) -> FeatureIndex:
 
 
 def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_keys=(), dem="auto",
-               raw_dir=None, feature_index=None) -> PlanResult:
+               raw_dir=None, feature_index=None, names: dict | None = None) -> PlanResult:
     """Plan one given route (e.g. a saved trip followed on newer data) the way plan_trip plans a found loop."""
     lengths = {e["key"]: e["length_m"] for e in route.edges}
     c = Candidate(kind=kind, start=route.nodes[0], keys=[e["key"] for e in route.edges], nodes=list(route.nodes),
@@ -475,8 +473,27 @@ def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_k
               "scored": 1, "seconds": 0.0, "widened": False, "truncated": False, "avoided_edges": 0, "notes": [],
               "must_visit_notes": [], "followed": True}
     if kind == "one_way":
-        report["finish"] = {"node": c.finish, "how": f"osm:node/{c.finish}"}
-    return PlanResult(report=report, start={"node": c.start, "how": f"osm:node/{c.start}", "snap_m": 0.0}, request=req)
+        report["finish"] = {"node": c.finish, "how": f"osm:node/{c.finish}",
+                            "name": display_name("", c.finish, str(c.finish), names)}
+    return PlanResult(report=report, start={"node": c.start, "how": f"osm:node/{c.start}", "snap_m": 0.0,
+                                            "name": display_name("", c.start, str(c.start), names)}, request=req)
+
+
+_TRAILHEAD_HOW = re.compile(r"^trailhead \S+ \((.+?)\)")
+
+
+def display_name(how: str, node: int, text: str, names: dict | None) -> str:
+    """What the user sees for a start or finish: the trailhead's name, a start point's name from the data, the
+    point they tapped, or plain words. Never an OSM id (that stays in `how`, as provenance)."""
+    m = _TRAILHEAD_HOW.match(how)
+    if m:
+        return m[1]
+    if names and names.get(node):
+        return names[node]
+    if _LATLON.match(text):
+        lat, lon = (float(x) for x in text.split(","))
+        return f"map point {lat:.4f}, {lon:.4f}"
+    return "an unnamed start point"
 
 
 def _resolve_finish(tg, region, req: "GenerateRequest", start: int) -> tuple[int | None, str | None]:
@@ -587,20 +604,21 @@ def _destination_search(tg, start: int, req: "GenerateRequest", index) -> tuple:
 
 
 def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, on_snapshot=None, index=None,
-              feature_index=None, **search_kw) -> PlanResult:
+              feature_index=None, names: dict | None = None, **search_kw) -> PlanResult:
     """Resolve the start, search, and attach elevation/days/features.
 
     `dem="auto"` loads the cached DEM from `raw_dir` (default: the repo's data/raw); pass a DEM or None to override.
     `on_snapshot(PlanResult)`: the first trips found, planned like the final ones, while the search goes on
     (see loops.search; `search_kw` passes its `first_s` and `clock`). `index`: the US index connection, needed
     for a destination (its place is looked up there). `feature_index`: the area's FeatureIndex (built once per
-    loaded area; built here when not given).
+    loaded area; built here when not given). `names`: node -> name for start points found in the data.
     """
     t0 = time.perf_counter()
     try:
         start = resolve_point(tg, region, req.trailhead)
     except ValueError as e:
         raise RequestError("trailhead", str(e))
+    start["name"] = display_name(start["how"], start["node"], req.trailhead, names)
     musts = [must_spec(tg, region, m) for m in req.must_visit]
     if req.avoid:
         try:
@@ -653,7 +671,8 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
                         must_visit=musts, direction=req.direction, on_snapshot=snapshot if on_snapshot else None,
                         finish=finish_node, **kw, **search_kw)
     if finish_node is not None:
-        report["finish"] = {"node": finish_node, "how": finish_how}
+        report["finish"] = {"node": finish_node, "how": finish_how,
+                            "name": display_name(finish_how, finish_node, req.finish, names)}
     if dest is not None:
         report["destination"] = dest.summary()
         report["notes"] += dest_notes

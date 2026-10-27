@@ -65,6 +65,21 @@ class LoadedRegion:
     def node_component(self) -> dict:
         return self.summary["node_component"]
 
+    _trailheads: list | None = None
+
+    def trailheads(self) -> list[dict]:
+        """The area's trailheads (yaml entries, then start points found in the data), found once per loaded area."""
+        if self._trailheads is None:
+            from backcountry.trailheads import trailhead_list
+
+            self._trailheads = trailhead_list(self.region, self.tg, self.raw, self.node_component)
+        return self._trailheads
+
+    def names(self) -> dict[int, str]:
+        from backcountry.trailheads import trailhead_names
+
+        return trailhead_names(self.trailheads())
+
     def feature_index(self, raw_dir=None):
         """The area's features in a spatial tree, built on first use and kept with the loaded area."""
         if self._features is None:

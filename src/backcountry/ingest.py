@@ -46,7 +46,8 @@ FOOT_ALLOWED = ("yes", "designated", "permissive")
 BLOCKED = ("no", "private")
 
 # Way tags carried onto graph edges. The raw cache keeps every tag.
-KEEP_TAGS = ("highway", "name", "ref", "sac_scale", "trail_visibility", "access", "foot", "informal", "service")
+KEEP_TAGS = ("highway", "name", "ref", "sac_scale", "trail_visibility", "access", "foot", "informal", "service",
+             "oneway", "oneway:foot")
 
 
 def way_class(tags: dict) -> str | None:

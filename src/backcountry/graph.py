@@ -105,6 +105,13 @@ def build_graph(raw: dict, crs: str) -> TrailGraph:
     return TrailGraph(G, crs, retrieved_at, excluded, overrides, other)
 
 
+def oneway_sense(tags: dict) -> int:
+    """1 when OpenStreetMap signs the way one-way in its drawn direction, -1 against it, 0 otherwise.
+    `oneway:foot` wins over `oneway` (a road one-way for cars can be two-way on foot)."""
+    value = tags.get("oneway:foot", tags.get("oneway"))
+    return 1 if value in ("yes", "true", "1") else -1 if value == "-1" else 0
+
+
 def _add_edge(G, way, seg_nodes, seg, coords, to_crs, retrieved_at):
     tags = way["tags"]
     lonlat = [coords[n] for n in seg_nodes]
@@ -123,6 +130,7 @@ def _add_edge(G, way, seg_nodes, seg, coords, to_crs, retrieved_at):
         name=tags.get("name"),
         is_road=way_class(tags) == "road",
         last_resort=is_last_resort(tags),
+        oneway=oneway_sense(tags),
         tags={k: tags[k] for k in KEEP_TAGS if k in tags},
         length_m=geom_utm.length,
         geom_wgs84=LineString(lonlat),

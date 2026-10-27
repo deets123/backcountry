@@ -118,17 +118,34 @@ def walk(tg, keys: list[str], nodes: list[int]) -> Route:
         coords_ll += ll if not coords_ll else ll[1:]
         coords_utm += utm if not coords_utm else utm[1:]
         edges.append({key: d[key] for key in ("source", "way_id", "name", "highway", "is_road", "last_resort",
-                                                "length_m", "retrieved_at", "tags")} | {"key": k, "reversed": rev, "u": u, "v": v})
+                                                "length_m", "retrieved_at", "tags")}
+                     | {"key": k, "reversed": rev, "u": u, "v": v, "oneway": d.get("oneway", 0)})
     if len(nodes) == 1:  # start == end: a zero-length route
         n = G.nodes[nodes[0]]
         coords_ll, coords_utm = [(n["lon"], n["lat"])] * 2, [(n["x"], n["y"])] * 2
     line_utm = LineString(coords_utm)
-    return Route(
+    route = Route(
         nodes=list(nodes), edges=edges, line_wgs84=LineString(coords_ll), line_utm=line_utm, crs=tg.crs,
         length_m=sum(e["length_m"] for e in edges),
         road_m=sum(e["length_m"] for e in edges if e["is_road"]),
         last_resort_m=sum(e["length_m"] for e in edges if e["last_resort"]),
     )
+    for name in against_one_way(route):
+        route.notes.append(f"{name} is tagged one-way in OpenStreetMap and this trip walks it the other way; the tag "
+                           "says nothing about whether walking it is allowed.")
+    return route
+
+
+def against_one_way(route: Route) -> list[str]:
+    """Names of trails this route walks against their OpenStreetMap one-way tag, in walking order, once each."""
+    names = []
+    for e in route.edges:
+        sense = e.get("oneway", 0)
+        if sense and (sense == 1) == e["reversed"]:
+            name = e["name"] or f"an unnamed {e['highway']}"
+            if name not in names:
+                names.append(name)
+    return names
 
 
 def add_elevation(route: Route, dem, crs: str) -> Route:

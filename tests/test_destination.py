@@ -154,3 +154,18 @@ def test_a_search_that_ran_out_of_time_never_claims_nothing_reaches_the_destinat
     assert "No trip from this start reaches" not in notes
     assert "ran out of time" in notes and "shortest out and back to it is" in notes
     assert r.report["candidates"] and r.report["candidates"][0].turnaround == 1029
+
+
+def test_the_fallback_is_one_shortest_path_not_every_turnaround(index, park, monkeypatch):
+    from backcountry import loops
+
+    calls = []
+    real = loops.out_and_backs
+
+    def spy(tg, start, lo, hi, *a, **k):
+        calls.append((lo, hi))
+        return real(tg, start, lo, hi, *a, **k)
+    monkeypatch.setattr(loops, "out_and_backs", spy)
+    r = plan(index, park, total="40-50", destination="node/1060")
+    assert r.report["candidates"] and r.report["candidates"][0].turnaround == 1029
+    assert calls and all(hi != float("inf") for lo, hi in calls)  # no "every turnaround" sweep

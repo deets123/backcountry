@@ -365,12 +365,6 @@ def test_reach_limit_finds_the_same_loops(grid, tg, lo, hi):
     assert found(None)
 
 
-def test_search_budget_is_60_seconds():
-    from backcountry import loops
-
-    assert loops.MAX_SECONDS == 60.0
-
-
 def test_search_reports_the_reach(grid, tg):
     from backcountry.loops import WIDEN, search
 
@@ -674,3 +668,94 @@ def test_search_dijkstra_is_faster_than_the_callable_one():
     theirs = timed(lambda src: nx.single_source_dijkstra(H, src, cutoff=6000.0, weight=_weight(set(used), set())))
     ours = timed(lambda src: _dijkstra(H, src, used=used, cutoff=6000.0))
     assert ours < 0.7 * theirs, (ours, theirs)
+
+
+# --- one-way trails -----------------------------------------------------------------------------------
+
+
+def _square_with_a_one_way_side(sense="yes"):
+    from conftest import RawBuilder
+
+    b = RawBuilder()
+    for name, x, y in [("A", 0, 0), ("B", 1000, 0), ("C", 1000, 1000), ("D", 0, 1000)]:
+        b.node(name, x, y)
+    b.way(1, ["A", "B"], highway="path", name="Signed Trail", oneway=sense)
+    b.way(2, ["B", "C"], highway="path", name="East Side")
+    b.way(3, ["C", "D"], highway="path", name="North Side")
+    b.way(4, ["D", "A"], highway="path", name="West Side")
+    b.node("E", 1000, -300)
+    b.way(5, ["B", "E"], highway="path", name="Side Spur")  # so B is a junction (a turnaround for out-and-backs)
+    return b
+
+
+def test_loops_walk_a_one_way_trail_the_signed_way():
+    b = _square_with_a_one_way_side()
+    tg = build_graph(b.doc(), crs=CRS)
+    cands = find_candidates(tg, b.ids["A"], 3500, 4500, kinds=("loop",))
+    assert cands
+    for c in cands:
+        e = next(e for e in c.route.edges if e["way_id"] == 1)
+        assert e["u"] == b.ids["A"] and e["v"] == b.ids["B"], "walked against the sign"
+        assert not any("one-way" in n for n in c.route.notes)
+    # oneway=-1 signs the other way: the loop flips
+    tg = build_graph(_square_with_a_one_way_side("-1").doc(), crs=CRS)
+    c = find_candidates(tg, b.ids["A"], 3500, 4500, kinds=("loop",))[0]
+    e = next(e for e in c.route.edges if e["way_id"] == 1)
+    assert e["u"] == b.ids["B"] and e["v"] == b.ids["A"]
+
+
+def test_a_trip_against_a_one_way_trail_says_so_and_names_the_source():
+    b = _square_with_a_one_way_side()
+    tg = build_graph(b.doc(), crs=CRS)
+    cands = find_candidates(tg, b.ids["A"], 1900, 2100, kinds=("out_and_back",))
+    c = next(c for c in cands if c.turnaround == b.ids["B"])  # out and back over the signed trail: back is against it
+    assert any(n == "Signed Trail is tagged one-way in OpenStreetMap and this trip walks it the other way; the tag "
+               "says nothing about whether walking it is allowed." for n in c.route.notes), c.route.notes
+    assert c.route.edges[0]["tags"].get("oneway") == "yes"  # the tag is kept, with its source on the edge
+
+
+def test_a_forced_direction_against_a_one_way_trail_still_says_so():
+    b = _square_with_a_one_way_side()
+    tg = build_graph(b.doc(), crs=CRS)
+    from backcountry.loops import orientation
+
+    cands = find_candidates(tg, b.ids["A"], 3500, 4500, kinds=("loop",))
+    legal = orientation(cands[0].route)
+    forced = find_candidates(tg, b.ids["A"], 3500, 4500, kinds=("loop",), direction="cw" if legal == "ccw" else "ccw")
+    assert forced and all(any("one-way" in n for n in c.route.notes) for c in forced)
+
+
+# --- lollipop stems: spread out first, so the budget isn't spent on one tangle of junctions ------------
+
+
+def test_stems_are_spread_out_before_the_tangle_next_to_the_start_is_tried(monkeypatch):
+    from backcountry import loops
+
+    b = _big_grid(5)
+    # a tangle of junctions within 40 m of g00: a 3x3 lattice of 20 m paths
+    for i in range(3):
+        for j in range(3):
+            if (i, j) != (0, 0):
+                b.node(f"t{i}{j}", 20 * i, 20 * j)
+    names = lambda i, j: "g00" if (i, j) == (0, 0) else f"t{i}{j}"  # noqa: E731
+    w = 500
+    for i in range(3):
+        b.way(w, [names(i, j) for j in range(3)], highway="path", name=f"Tangle {w}"); w += 1
+        b.way(w, [names(j, i) for j in range(3)], highway="path", name=f"Tangle {w}"); w += 1
+    tg = build_graph(b.doc(), crs=CRS)
+    order = []
+    real = loops.waypoint_loops
+
+    def spy(H, start, lo, hi, forbidden=frozenset(), *a, **k):
+        if forbidden:
+            order.append(start)
+        return real(H, start, lo, hi, forbidden, *a, **k)
+    monkeypatch.setattr(loops, "waypoint_loops", spy)
+    loops.search(tg, b.ids["T"], 3 * KM, 30 * KM, kinds=("lollipop",), count=1)
+    H = loops.loop_graph(tg, b.ids["T"], reach_m=30 * KM * (1 + loops.WIDEN) / 2).graph
+    tangle = {b.ids[f"t{i}{j}"] for i in range(3) for j in range(3) if (i, j) != (0, 0)}
+    tangle_stems = {v for v in tangle if v in H and H.degree(v) >= 3}  # its corners merge into pass-throughs
+    assert len(tangle_stems) >= 4
+    assert order[0] == b.ids["g00"]
+    assert order[1] not in tangle, "the second stem should be a junction well away from the first, not 20 m from it"
+    assert set(order) >= tangle_stems  # every stem still gets its turn

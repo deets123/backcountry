@@ -56,43 +56,13 @@ def _index_for(app, req_destination):
         con.close()
 
 
-def _trailhead_list(loaded) -> list[dict]:
-    """The region's trailheads (yaml entries first), then start points found in the data."""
-    G = loaded.tg.graph
-    out = []
-    for th in loaded.region.trailheads:
-        node = th.get("node")
-        if node is None and th.get("lat") is not None:  # verified lat/lon entry: snap to the nearest graph node
-            try:
-                node = resolve_point(loaded.tg, loaded.region, f"{th['lat']},{th['lon']}")["node"]
-            except ValueError:
-                node = None
-        in_graph = node in G
-        out.append({
-            "id": th["id"], "name": th.get("name"), "node": node, "source": "yaml", "verified": bool(th.get("verified")),
-            "in_graph": in_graph, "usfs": th.get("usfs"), "note": th.get("note"),
-            "lat": G.nodes[node]["lat"] if in_graph else None, "lon": G.nodes[node]["lon"] if in_graph else None,
-            "component": loaded.node_component.get(node),
-        })
-    known = {t["node"] for t in out if t["node"] is not None}
-    for c in find_candidates(loaded.tg, loaded.raw, loaded.node_component)["candidates"]:
-        if c["id"] in known:
-            continue
-        out.append({
-            "id": str(c["id"]), "name": " | ".join(c["names"]) or None, "node": c["id"], "source": "data",
-            "verified": False, "in_graph": True, "kinds": c["kinds"], "lat": c["lat"], "lon": c["lon"],
-            "component": c["component"], "snap_m": c["snap_m"],
-        })
-    return out
-
-
 @router.get("/regions/{region_id}/trailheads")
 def trailheads(region_id: str, request: Request, destination: str | None = None):
     """Trailheads; with `destination` (a search result's ref), each gets its trail distance to it, nearest first."""
     if destination is not None:
         check_ref(destination)
     loaded = _regions(request).get(region_id)
-    out = _trailhead_list(loaded)
+    out = [dict(t) for t in loaded.trailheads()]  # a copy: the list is kept with the loaded area
     if destination is not None:
         with _index_for(request.app, destination) as con:
             dist = trail_distances(loaded.tg, resolve_destination(con, loaded.tg, destination))
@@ -118,7 +88,7 @@ def finishes(region_id: str, request: Request, trailhead: str, total: str, desti
     if destination is not None:
         with _index_for(request.app, destination) as con:
             through = resolve_destination(con, loaded.tg, destination).node
-    return {"finishes": suggest_finishes(loaded.tg, _trailhead_list(loaded), start, lo * M_PER_MI, hi * M_PER_MI,
+    return {"finishes": suggest_finishes(loaded.tg, loaded.trailheads(), start, lo * M_PER_MI, hi * M_PER_MI,
                                          through=through, dem=loaded.dem)}
 
 
@@ -240,7 +210,7 @@ def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None) -> dict:
     with _index_for(app, req.destination) as con:
         result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=app.state.settings.raw_dir,
                            on_snapshot=snapshot if on_snapshot else None, index=con,
-                           feature_index=loaded.feature_index(app.state.settings.raw_dir))
+                           feature_index=loaded.feature_index(app.state.settings.raw_dir), names=loaded.names())
     runs = app.state.runs
     previous = runs.latest(region_id, req.trailhead) if runs else None
     run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, _now(),
@@ -373,7 +343,7 @@ def update_trip(run_id: str, request: Request, body: dict):
     result = plan_route(loaded.region, loaded.raw, loaded.tg, req, followed["route"], c["kind"],
                         (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
                         raw_dir=request.app.state.settings.raw_dir,
-                        feature_index=loaded.feature_index(request.app.state.settings.raw_dir))
+                        feature_index=loaded.feature_index(request.app.state.settings.raw_dir), names=loaded.names())
     result.start = run["start"]
     if (run.get("search") or {}).get("finish") and "finish" in result.report:  # keep how the finish was named
         result.report["finish"] = run["search"]["finish"] | {"node": result.report["finish"]["node"]}

@@ -316,8 +316,11 @@ def generate(
         typer.echo(f"--{e.field.replace('_', '-')}: {e}", err=True)
         raise typer.Exit(code=1)
     r, raw, tg = _load(region)
+    from backcountry.trailheads import trailhead_list, trailhead_names
+
+    names = trailhead_names(trailhead_list(r, tg, raw, qa_summary(tg)["node_component"]))
     try:
-        result = plan_trip(r, raw, tg, req)
+        result = plan_trip(r, raw, tg, req, names=names)
     except RequestError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
@@ -329,7 +332,7 @@ def generate(
                "direction": direction}  # the CLI's own record format, unchanged from before the API
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
     try:
-        paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,
+        paths = write_candidates(report, r, out_dir, start["name"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,
                                  basemap=basemap, request=request)
     except ValueError as e:
         typer.echo(str(e), err=True)

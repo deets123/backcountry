@@ -150,7 +150,8 @@ def run_payload(run_id: str, region, result, raw, tg, generated_at: str, diff: s
         "run_id": run_id, "region": region.id, "request": result.request.to_dict(), "generated_at": generated_at,
         "start": result.start,
         "search": {k: v for k, v in report.items() if k != "candidates"},
-        "candidates": [candidate_payload(i, c, result.start["how"], tg.retrieved_at, (report.get("finish") or {}).get("how"))
+        "candidates": [candidate_payload(i, c, result.start.get("name") or result.start["how"], tg.retrieved_at,
+                                         (report.get("finish") or {}).get("name") or (report.get("finish") or {}).get("how"))
                        for i, c in enumerate(report["candidates"], 1)],
         "data_sources": data_sources(region, raw, result),
         "data_cut": raw.get("cut"),

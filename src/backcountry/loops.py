@@ -26,7 +26,7 @@ from heapq import heappop, heappush
 
 import networkx as nx
 
-from backcountry.route import Route, edge_weight, routing_graph, walk
+from backcountry.route import Route, against_one_way, edge_weight, routing_graph, shortest_route, walk
 from backcountry.scoring import Weights, overlap, penalty
 
 MAX_SECONDS = 60.0  # search time budget; the report says when it was hit
@@ -386,6 +386,8 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
         if direction:  # only trips that come back to the start have a way round; one way and out and back don't
             cands = [c if c.kind not in ("loop", "lollipop") or orientation(c.route) == direction else _reversed(tg, c)
                      for c in cands]
+        else:  # a loop walked against a one-way trail is walked the other way round when that helps
+            cands = [_signed_way_round(tg, c) if c.kind in ("loop", "lollipop") else c for c in cands]
         if register:
             totals["kept"] += len(cands)
             totals["detoured"] += sum(1 for c in cands if c.detour_keys)
@@ -465,7 +467,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
         if "lollipop" in kinds and (loops_n < count or "loop" not in kinds):
             dist, paths = _dijkstra(H, start)
             stems = [v for v in sorted(dist, key=dist.get) if v != start and 2 * dist[v] < hi and H.degree(v) >= 3]
-            for v in stems:  # every junction in reach, nearest first; only the clock stops it
+            for v in _spread_out(tg, stems):  # every junction in reach, spread out first; only the clock stops it
                 if deadline and clock() > deadline:
                     report["truncated"] = True
                     break
@@ -504,6 +506,39 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     report.update(candidates=pick(evaluated), evaluated=len(evaluated) if evaluate is not None else 0,
                   scored=totals["kept"], seconds=clock() - t0)
     return report
+
+
+STEM_SPACING_M = 400.0  # a first pass over stems at least this far apart (straight line), then the rest
+
+
+def _spread_out(tg, nodes: list[int]) -> list[int]:
+    """`nodes` (nearest first) reordered so a first pass visits ones at least STEM_SPACING_M apart, then the rest
+    in their old order: a tangle of junctions by the trailhead no longer eats the whole time budget before a
+    junction up the trail gets its turn. Nothing is dropped."""
+    G = tg.graph
+    first, rest = [], []
+    for v in nodes:
+        x, y = G.nodes[v]["x"], G.nodes[v]["y"]
+        if all(math.hypot(x - G.nodes[u]["x"], y - G.nodes[u]["y"]) >= STEM_SPACING_M for u in first):
+            first.append(v)
+        else:
+            rest.append(v)
+    return first + rest
+
+
+def out_and_back_to(tg, start: int, node: int, no_roads: bool = False, exclude_keys=frozenset()) -> Candidate | None:
+    """The shortest out and back from start to one node (one shortest path, doubled), or None if unreachable."""
+    try:
+        out = shortest_route(tg, start, node, no_roads, exclude_keys=exclude_keys)
+    except ValueError:
+        return None
+    keys, path = [e["key"] for e in out.edges], list(out.nodes)
+    route = walk(tg, keys + keys[::-1], path + path[::-1][1:])
+    route.notes.append(f"Out and back, {out.length_m / 1609.344:.1f} mi each way.")
+    lengths = {e["key"]: e["length_m"] for e in route.edges}
+    return Candidate(kind="out_and_back", start=start, keys=keys + keys[::-1], nodes=path + path[::-1][1:],
+                     stem_keys=list(keys), route=route, length_m=route.length_m, road_m=route.road_m,
+                     last_resort_m=route.last_resort_m, repeated_m=out.length_m, lengths=lengths, turnaround=node)
 
 
 # --- out-and-back ---------------------------------------------------------------------------------------
@@ -673,6 +708,15 @@ def _candidate(tg, H, kind, start, super_steps, stem_steps) -> Candidate:
     return Candidate(kind=kind, start=start, keys=keys, nodes=nodes, stem_keys=stem_keys, route=route,
                      length_m=route.length_m, road_m=route.road_m, last_resort_m=route.last_resort_m,
                      repeated_m=sum(lengths[k] for k in stem_keys), lengths=lengths)
+
+
+def _signed_way_round(tg, c: Candidate) -> Candidate:
+    """The same loop, turned round if that walks fewer one-way trails against their sign."""
+    wrong = len(against_one_way(c.route))
+    if not wrong:
+        return c
+    other = _reversed(tg, c)
+    return other if len(against_one_way(other.route)) < wrong else c
 
 
 def _reversed(tg, c: Candidate) -> Candidate:
