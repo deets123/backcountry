@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 import zlib
 from array import array
 from datetime import datetime, timezone
@@ -111,10 +112,80 @@ def _area_kind(tags: dict) -> tuple[str, bool, bool] | None:
 # --- build ----------------------------------------------------------------------------------------------
 
 
+STAGES = {"node": "Reading nodes", "way": "Reading ways", "area": "Building areas"}  # in file order
+
+
+def _mins(s: float) -> str:
+    return "under a minute" if s < 60 else f"{s / 60:.0f} min"
+
+
+class Progress:
+    """Progress lines for the operator while building. A total is never guessed: it comes from the previous
+    build's own counts and stage times, so a first build shows counts and time only, later builds also a
+    percentage and time left. Stages only move forward (areas from closed ways arrive mixed in with the ways)."""
+
+    def __init__(self, report, previous: dict | None = None, every_s: float = 30.0, clock=time.monotonic):
+        self.report, self.every_s, self.clock = report, every_s, clock
+        self.prev_seen = (previous or {}).get("seen") or {}
+        self.prev_s = (previous or {}).get("stage_s") or {}
+        self.seen = {k: 0 for k in STAGES}
+        self.stage_s = {k: 0.0 for k in STAGES}
+        self.start = self.stage_start = self.last = clock()
+        self.stage = None
+
+    def tick(self, kind: str) -> None:
+        order = list(STAGES)
+        now = self.clock()
+        if self.stage is None or order.index(kind) > order.index(self.stage):
+            self._end_stage(now)
+            self.stage, self.stage_start = kind, now
+            self.seen[kind] += 1
+            return self._line(now)
+        self.seen[self.stage] += 1
+        if now - self.last >= self.every_s:
+            self._line(now)
+
+    def saving(self) -> None:
+        now = self.clock()
+        self._end_stage(now)
+        self.stage = None
+        self.report(f"Saving the index · {_mins(now - self.start)} so far")
+
+    def totals(self) -> dict:
+        return {"seen": dict(self.seen), "stage_s": dict(self.stage_s)}
+
+    def _end_stage(self, now: float) -> None:
+        if self.stage:
+            self.stage_s[self.stage] += now - self.stage_start
+
+    def _fraction(self) -> float | None:
+        total = sum(self.prev_s.get(k, 0.0) for k in STAGES)
+        if not total or not self.prev_seen.get(self.stage):
+            return None
+        order = list(STAGES)
+        done = sum(self.prev_s.get(k, 0.0) for k in order[:order.index(self.stage)])
+        done += min(1.0, self.seen[self.stage] / self.prev_seen[self.stage]) * self.prev_s.get(self.stage, 0.0)
+        return min(0.99, done / total)
+
+    def _line(self, now: float) -> None:
+        self.last = now
+        n, elapsed, f = self.seen[self.stage], now - self.start, self._fraction()
+        if f is None:
+            return self.report(f"{STAGES[self.stage]}: {n:,} so far · {_mins(elapsed)} so far")
+        left = elapsed * (1 - f) / f if f > 0 else None
+        self.report(f"{STAGES[self.stage]}: {n:,} of about {self.prev_seen[self.stage]:,} · {f:.0%} overall"
+                    + (f", about {_mins(left)} left" if left is not None else ""))
+
+
 def build_index(pbf: Path, out: Path, extract_date: str, source_url: str | None = None,
-                locations: str = "flex_mem") -> dict:
-    """Filter an OSM extract into a SQLite index at `out` (written to a temp file, then renamed)."""
+                locations: str = "flex_mem", progress=None, previous: dict | None = None,
+                every_s: float = 30.0) -> dict:
+    """Filter an OSM extract into a SQLite index at `out` (written to a temp file, then renamed).
+
+    `progress` (optional) gets plain progress lines; `previous` is an earlier index's meta["progress"]."""
     import osmium
+
+    prog = Progress(progress or (lambda line: None), previous, every_s)
 
     tmp = out.with_name(out.name + ".tmp")
     tmp.unlink(missing_ok=True)
@@ -143,6 +214,7 @@ def build_index(pbf: Path, out: Path, extract_date: str, source_url: str | None 
           .with_areas(osmium.filter.KeyFilter("boundary", "leisure"))
           .with_filter(osmium.filter.KeyFilter(*FILTER_KEYS)))
     for obj in fp:
+        prog.tick("node" if obj.is_node() else "way" if obj.is_way() else "area")
         tags = dict(obj.tags)
         if obj.is_node():
             feature, place = _matches(tags, FEATURE_NODE_TAGS), _matches(tags, PLACE_NODE_TAGS) and tags.get("name")
@@ -196,9 +268,11 @@ def build_index(pbf: Path, out: Path, extract_date: str, source_url: str | None 
                 counts["names"] += 1
             counts["areas"] += 1
 
+    prog.saving()
     built_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     con.executemany("INSERT INTO meta VALUES (?, ?)", [("extract_date", extract_date), ("built_at", built_at),
-                                                       ("source_url", source_url or ""), ("counts", json.dumps(counts))])
+                                                       ("source_url", source_url or ""), ("counts", json.dumps(counts)),
+                                                       ("progress", json.dumps(prog.totals()))])
     con.commit()
     con.close()
     os.chmod(tmp, 0o644)
@@ -219,7 +293,8 @@ def open_index(path: Path) -> sqlite3.Connection:
 def index_meta(con) -> dict:
     meta = {r["key"]: r["value"] for r in con.execute("SELECT key, value FROM meta")}
     return {"extract_date": meta.get("extract_date"), "built_at": meta.get("built_at"),
-            "source_url": meta.get("source_url") or None, "counts": json.loads(meta.get("counts") or "{}")}
+            "source_url": meta.get("source_url") or None, "counts": json.loads(meta.get("counts") or "{}"),
+            "progress": json.loads(meta.get("progress") or "{}")}
 
 
 def _areas_at(con, lon: float, lat: float, states: bool) -> list[sqlite3.Row]:

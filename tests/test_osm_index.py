@@ -1,3 +1,5 @@
+import re
+
 from backcountry import ingest, osm_index
 from backcountry.graph import build_graph, qa_summary
 from backcountry.trailheads import find_candidates
@@ -101,3 +103,52 @@ def test_index_is_read_only(index):
 
     with pytest.raises(sqlite3.OperationalError):
         index.execute("DELETE FROM areas")
+
+
+# --- build progress ----------------------------------------------------------------------------------------
+
+
+def _build(tmp_path, name, **kw):
+    from conftest import FIXTURES
+
+    lines = []
+    osm_index.build_index(FIXTURES / "mini.osm", tmp_path / name, MINI_DATE, progress=lines.append, every_s=0, **kw)
+    return lines
+
+
+def test_first_build_reports_stages_without_a_guessed_total(tmp_path):
+    lines = _build(tmp_path, "a.sqlite")
+    for stage in ("Reading nodes", "Reading ways", "Building areas", "Saving"):
+        assert any(line.startswith(stage) for line in lines), stage
+    assert not any("%" in line for line in lines)  # no earlier build to compare with: counts only
+
+
+def test_build_records_totals_for_the_next_build(tmp_path):
+    _build(tmp_path, "a.sqlite")
+    con = osm_index.open_index(tmp_path / "a.sqlite")
+    seen = osm_index.index_meta(con)["progress"]["seen"]
+    con.close()
+    assert seen["node"] > 0 and seen["way"] > 0 and seen["area"] > 0
+
+
+def test_later_build_shows_percent_from_the_previous_build(tmp_path):
+    _build(tmp_path, "a.sqlite")
+    con = osm_index.open_index(tmp_path / "a.sqlite")
+    previous = osm_index.index_meta(con)["progress"]
+    con.close()
+    lines = _build(tmp_path, "b.sqlite", previous=previous)
+    assert any(re.search(r"\d+% overall", line) for line in lines)
+
+
+def test_progress_percent_weights_stages_by_previous_time():
+    t = [0.0]
+    lines = []
+    p = osm_index.Progress(lines.append, previous={"seen": {"node": 100, "way": 100, "area": 0},
+                                                   "stage_s": {"node": 10.0, "way": 30.0, "area": 0.0}},
+                           every_s=0, clock=lambda: t[0])
+    for _ in range(50):
+        p.tick("node")
+    t[0] = 5.0
+    p.tick("node")
+    assert "13% overall" in lines[-1]  # 51 of 100 nodes = 5.1 of 40 previous seconds
+    assert "of about 100" in lines[-1]

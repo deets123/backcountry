@@ -402,7 +402,8 @@ def usdata_build(pbf: Path = typer.Option(None, "--pbf", help="Extract to index 
     if pbf is None:
         typer.echo("No US extract downloaded yet. Run `backcountry usdata download` first.", err=True)
         raise typer.Exit(code=1)
-    out, counts = usdata.build(pbf, locations=locations)
+    typer.echo(f"Building the index from {pbf.name} (outlines of parks and other areas are read first)", err=True)
+    out, counts = usdata.build(pbf, locations=locations, progress=lambda line: typer.echo(line, err=True))
     typer.echo(f"built {out} ({out.stat().st_size / 1e9:.2f} GB): " + ", ".join(f"{v:,} {k}" for k, v in counts.items()))
 
 

@@ -107,3 +107,18 @@ def test_build_uses_a_disk_node_store_and_removes_it(tmp_path):
     assert out.exists() and counts["ways"] > 0
     assert sorted(p.name for p in tmp_path.iterdir()) == ["us-2026-10-20.osm", "us-2026-10-20.sqlite"]
     assert usdata.DEFAULT_LOCATIONS.startswith("sparse_file_array")
+
+
+def test_build_compares_with_the_previous_index(tmp_path):
+    import shutil
+
+    from conftest import FIXTURES
+
+    for date in ("2026-10-01", "2026-10-20"):
+        shutil.copy(FIXTURES / "mini.osm", tmp_path / f"us-{date}.osm")
+    lines = []
+    usdata.build(tmp_path / "us-2026-10-01.osm", tmp_path, locations="flex_mem", progress=lines.append, every_s=0)
+    assert not any("%" in line for line in lines)
+    lines.clear()
+    usdata.build(tmp_path / "us-2026-10-20.osm", tmp_path, locations="flex_mem", progress=lines.append, every_s=0)
+    assert any("% overall" in line for line in lines)

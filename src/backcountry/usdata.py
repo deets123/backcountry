@@ -108,7 +108,22 @@ def newest_extract(osm_dir: Path | None = None) -> Path | None:
     return _newest(osm_dir or OSM_DIR, ".osm.pbf")
 
 
-def build(pbf: Path, osm_dir: Path | None = None, locations: str = DEFAULT_LOCATIONS) -> tuple[Path, dict]:
+def _previous_progress(d: Path, out: Path) -> dict | None:
+    """The newest other index's build counts and times, for a percentage while building (None if there is none)."""
+    from backcountry import osm_index
+
+    older = sorted(p for p in d.glob("us-*.sqlite") if _DATED.match(p.name) and p != out)
+    if not older:
+        return None
+    con = osm_index.open_index(older[-1])
+    try:
+        return osm_index.index_meta(con)["progress"] or None
+    finally:
+        con.close()
+
+
+def build(pbf: Path, osm_dir: Path | None = None, locations: str = DEFAULT_LOCATIONS, progress=None,
+          every_s: float = 30.0) -> tuple[Path, dict]:
     from backcountry import osm_index
 
     date = extract_date(pbf)
@@ -117,7 +132,8 @@ def build(pbf: Path, osm_dir: Path | None = None, locations: str = DEFAULT_LOCAT
     out = d / f"us-{date}.sqlite"
     store = locations.format(dir=d)
     try:
-        return out, osm_index.build_index(pbf, out, date, source_url=GEOFABRIK_US_URL, locations=store)
+        return out, osm_index.build_index(pbf, out, date, source_url=GEOFABRIK_US_URL, locations=store,
+                                          progress=progress, previous=_previous_progress(d, out), every_s=every_s)
     finally:
         if "," in store:
             Path(store.split(",", 1)[1]).unlink(missing_ok=True)
