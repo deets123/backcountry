@@ -5,7 +5,7 @@ import { BASEMAPS, baseStyle, candidateColor, dayColor } from "./basemaps";
 import type { Fix } from "./gps";
 import type { Box } from "./offline/tiles";
 import type { Basemap } from "./store";
-import type { Candidate, RouteFeature, TrailFeatureCollection, Trailhead } from "./types";
+import type { Candidate, Destination, RouteFeature, TrailFeatureCollection, Trailhead } from "./types";
 
 const TRAILS = "trails", STARTS = "starts", CANDS = "candidates", TRIP = "trip", FEATS = "features", JCTS = "junctions", POS = "position";
 
@@ -14,6 +14,8 @@ export interface TripMap {
   fitBounds(bbox: [number, number, number, number]): void;
   setTrails(fc: TrailFeatureCollection | null): void;
   setTrailheads(ths: Trailhead[], onPick: (th: Trailhead) => void): void;
+  /** Mark a searched place the trips go to (null: none) and zoom to it. */
+  setDestination(d: Destination | null): void;
   onMapTap(fn: (lon: number, lat: number, trailName: string | null) => void): void;
   setCandidates(cands: Candidate[], selected: number, onSelect: (i: number) => void): void;
   clearCandidates(): void;
@@ -52,6 +54,7 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
   map.addControl(new maplibregl.AttributionControl(), "top-left");  // top-left: never under the bottom sheet
   const ready = new Promise<void>((resolve) => map.once("load", () => resolve()));
   const thMarkers: maplibregl.Marker[] = [];
+  const destMarkers: maplibregl.Marker[] = [];
   const tripMarkers: maplibregl.Marker[] = [];
   const popups: maplibregl.Popup[] = [];
   // What the delegated click handlers act on. They are registered once, below: MapLibre keeps a delegate
@@ -119,6 +122,15 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
           paint: { "line-color": "#6d4c41", "line-width": 1.5, "line-dasharray": [3, 2], "line-opacity": 0.7 } });
         map.addLayer({ id: `${TRAILS}-trail`, type: "line", source: TRAILS, filter: ["==", ["get", "is_road"], false],
           paint: { "line-color": "#5d4037", "line-width": 1.5, "line-opacity": 0.8 } });
+      });
+    },
+    setDestination(d) {
+      ready.then(() => {
+        clear(destMarkers);
+        if (!d) return;
+        destMarkers.push(new maplibregl.Marker({ element: badge("★", "#b71c1c", d.name) }).setLngLat(d.center).addTo(map));
+        const [lon, lat] = d.center, r = 0.04;  // about 3 mi around it
+        map.fitBounds([[lon - r, lat - r], [lon + r, lat + r]], { padding: 40, duration: 0 });
       });
     },
     setTrailheads(ths, onPick) {

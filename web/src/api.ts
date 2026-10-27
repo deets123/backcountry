@@ -1,7 +1,7 @@
 // Typed client for the piece-1 API. All errors become ApiError with the server's wording.
 import type { DifficultyAnswer, DifficultyBody } from "./offline/levels";
 import type { UpdateAnswer, UpdateCheck } from "./panels/update";
-import type { ApiErrorBody, AreaOpened, AreaStatus, ChatAnswer, FeaturesInView, GenerateRequest, PlanJob, RecentArea, Region, Run, SearchResult,
+import type { ApiErrorBody, AreaOpened, AreaStatus, ChatAnswer, FeaturesInView, Finish, GenerateRequest, PlanJob, RecentArea, Region, Run, SearchResult,
   TrailFeatureCollection, Trailhead } from "./types";
 
 export class ApiError extends Error {
@@ -67,8 +67,17 @@ export function areaStatus(id: string): Promise<AreaStatus> {
   return request(`/api/areas/${encodeURIComponent(id)}/status`);
 }
 
-export async function getTrailheads(region: string): Promise<Trailhead[]> {
-  return (await request<{ trailheads: Trailhead[] }>(`/api/regions/${region}/trailheads`)).trailheads;
+/** With `destination` (a search result's ref), each trailhead carries its trail distance to it, nearest first. */
+export async function getTrailheads(region: string, destination?: string | null): Promise<Trailhead[]> {
+  const q = destination ? `?destination=${encodeURIComponent(destination)}` : "";
+  return (await request<{ trailheads: Trailhead[] }>(`/api/regions/${region}/trailheads${q}`)).trailheads;
+}
+
+/** Trailheads a one-way trip from `trailhead` can finish at within `total` miles (via `destination`). */
+export async function getFinishes(region: string, trailhead: string, total: string, destination?: string | null): Promise<Finish[]> {
+  const q = new URLSearchParams({ trailhead, total });
+  if (destination) q.set("destination", destination);
+  return (await request<{ finishes: Finish[] }>(`/api/regions/${region}/finishes?${q}`)).finishes;
 }
 
 export function getTrails(region: string): Promise<TrailFeatureCollection> {

@@ -31,6 +31,7 @@ class Settings:
     area_limits: dict | None = None  # {max_queue, per_hour, disk_gb}; defaults in api.area_worker
     area_thread: bool = True       # prepare areas on a background thread (tests run them inline)
     prepared_gb: float = 8.0       # disk share reserved for areas prepared ahead (backcountry areas prepare-popular)
+    plan_jobs: int = 2             # plans running at once, for everyone (BACKCOUNTRY_PLAN_JOBS)
 
     @classmethod
     def default(cls) -> "Settings":
@@ -40,7 +41,8 @@ class Settings:
         limits = {k: (float(v) if k == "disk_gb" else int(v)) for k, v in env.items() if v}
         return cls(raw_dir=ingest.RAW_DIR, runs_dir=REPO_ROOT / "data" / "runs", regions_dir=REGIONS_DIR,
                    areas_dir=AREAS_DIR, osm_dir=usdata.OSM_DIR, area_limits=limits or None,
-                   prepared_gb=float(os.environ.get("BACKCOUNTRY_PREPARED_GB") or 8.0))
+                   prepared_gb=float(os.environ.get("BACKCOUNTRY_PREPARED_GB") or 8.0),
+                   plan_jobs=int(os.environ.get("BACKCOUNTRY_PLAN_JOBS") or 2))
 
     @property
     def areas(self) -> Path:

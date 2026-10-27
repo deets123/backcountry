@@ -76,3 +76,13 @@ def test_job_failures_say_what_went_wrong_in_plain_words():
 def test_job_ids_are_checked(bad):
     with pytest.raises(NotFound):
         PlanJobs(Settings(area_thread=False)).get(bad)
+
+
+def test_the_cap_is_a_setting():
+    release = threading.Event()
+    jobs = PlanJobs(Settings(area_thread=True, plan_jobs=3))
+    for _ in range(3):
+        jobs.start(lambda on_snapshot: release.wait(5) or {"run_id": "r"})
+    with pytest.raises(Busy):
+        jobs.start(lambda on_snapshot: {"run_id": "r"})
+    release.set()

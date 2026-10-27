@@ -1,4 +1,4 @@
-import { ApiError, areaStatus, chat, difficulty, getPlan, getRegions, getTrailheads, getTrails, openArea, search, startPlan, updateCheck,
+import { ApiError, areaStatus, chat, difficulty, getFinishes, getPlan, getRegions, getTrailheads, getTrails, openArea, search, startPlan, updateCheck,
   updateTrip } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
@@ -12,7 +12,7 @@ import { coverageNote } from "./offline/tiles";
 import { bindChat } from "./panels/chat";
 import { bindCompare, renderCompare, startLabel } from "./panels/compare";
 import { esc } from "./panels/common";
-import { bindPlan, renderPlan, tapMessage } from "./panels/plan";
+import { bindPlan, patchFinishes, renderPlan, tapMessage } from "./panels/plan";
 import { bindSaved, renderSaved } from "./panels/saved";
 import { openSearchResult, type Target } from "./panels/search";
 import { acceptUpdate, checkForUpdate, declineUpdate, reviewUpdate } from "./panels/update";
@@ -31,7 +31,7 @@ const DRAG_SNAP_M = 150; // a dropped camp must land this close to the route lin
 // Changes to these re-render the panel. (Form edits typed in the panel don't; see editForm.)
 const RENDER_KEYS: (keyof State)[] = ["view", "status", "error", "busy", "run", "selected", "trailheads", "sheet", "regions", "recentAreas",
   "saved", "savedId", "campsM", "gps", "saving", "offline", "updateReady", "mapNote", "tilesMissing", "junctions",
-  "chat", "chatBusy", "chatError", "tripUpdate"];
+  "chat", "chatBusy", "chatError", "tripUpdate", "elevationPending", "canRetryOpen", "destination"];
 const LIVE_KEYS = new Set<keyof State>(["gps", "saving"]); // updated in place in the trip view (patchTrip)
 const BOOT_TIMEOUT_MS = 5000; // with saved trips on the phone, don't wait longer than this for the server
 
@@ -56,6 +56,18 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     const offline = s.offline || win?.navigator.onLine === false;
     const note = rec && lastView && s.view === "trip" && offline ? coverageNote(rec.box, lastView.view, lastView.zoom, s.basemap) : null;
     if (note !== s.mapNote) store.set({ mapNote: note });
+  }
+
+  /** One way: the finishes that fit the current start and miles (the newest ask wins). */
+  let finishAsk = 0;
+  async function loadFinishes() {
+    const s = store.get(), f = s.form, ask = ++finishAsk;
+    if (!s.region || !f.trailhead || !/^\s*\d+(\.\d+)?\s*-\s*\d+(\.\d+)?\s*$/.test(f.total)) return store.set({ finishes: null });
+    store.set({ finishes: null });
+    try {
+      const finishes = await getFinishes(s.region, f.trailhead.trim(), f.total.trim(), s.destination?.ref);
+      if (ask === finishAsk) store.set({ finishes });
+    } catch (e) { if (ask === finishAsk) store.set({ finishes: [], error: (e as Error).message }); }
   }
 
   async function refreshSaved() {
@@ -105,10 +117,12 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
         searchQuery: "", searchResults: null, elevationPending: false, canRetryOpen: false });
       map?.fitBounds([b.west, b.south, b.east, b.north]);
       try {
-        const [ths, trails] = await Promise.all([getTrailheads(id), getTrails(id)]);
+        const dest = store.get().destination;
+        const [ths, trails] = await Promise.all([getTrailheads(id, dest?.ref), getTrails(id)]);
         store.set({ trailheads: ths, status: "" });
         map?.setTrails(trails);
         map?.setTrailheads(ths, (th) => actions.pickTrailhead(th));
+        map?.setDestination(dest);
       } catch (e) { store.set({ status: "", error: (e as Error).message }); }
     },
     setQuery(q: string) { store.set({ searchQuery: q }); },
@@ -129,6 +143,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
         setStatus: (message) => store.set({ status: message, error: null, busy: true }),
         setError: (message) => store.set({ error: message, status: "", busy: false, elevationPending: false, canRetryOpen: true }),
         setElevationPending: (on) => store.set({ elevationPending: on, status: "" }),
+        setDestination: (destination) => store.set({ destination, finishes: null }),
         addRecent: (a: RecentArea) => store.set((s) => ({ recentAreas: [a, ...s.recentAreas.filter((r) => r.id !== a.id)].slice(0, 8) })),
       });
     },
@@ -138,14 +153,17 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       if (!lastView) return Promise.resolve(store.set({ error: "Move the map to the area first." }));
       return actions.openTarget({ box: lastView.view });
     },
-    pickTrailhead(th: Trailhead) { store.set((s) => ({ form: { ...s.form, trailhead: th.id }, error: null, view: "plan" })); },
+    pickTrailhead(th: Trailhead) {
+      store.set((s) => ({ form: { ...s.form, trailhead: th.id }, error: null, view: "plan" }));
+      if (store.get().form.type === "one_way") void loadFinishes();
+    },
     tapPoint(lon: number, lat: number, trailName: string | null) {
       if (store.get().view !== "plan") return;
       store.set((s) => ({ form: { ...s.form, trailhead: `${lat.toFixed(5)},${lon.toFixed(5)}` }, error: null, status: tapMessage(trailName) }));
     },
     async generate(override?: GenerateRequest) {
       const s = store.get();
-      const built = override ? { request: override } : toRequest(s.form, s.trailheads);
+      const built = override ? { request: override } : toRequest(s.form, s.trailheads, s.destination?.ref ?? null);
       if ("error" in built) return store.set({ error: built.error });
       if (!s.region) return store.set({ error: "Pick a region first." });
       abort?.abort();
@@ -206,7 +224,14 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     sheet(gesture: "tap" | "up" | "down") { store.set((s) => ({ sheet: nextSheet(s.sheet, gesture) })); },
     // Edits typed into the plan panel: record them without re-rendering the panel (a re-render on blur
     // would replace the Generate button under the user's finger and lose the tap).
-    editForm(form: FormState) { editingInPanel = true; try { store.set({ form }); } finally { editingInPanel = false; } },
+    editForm(form: FormState, redraw = false) {
+      const before = store.get().form;
+      if (redraw) store.set({ form });
+      else { editingInPanel = true; try { store.set({ form }); } finally { editingInPanel = false; } }
+      if (form.type === "one_way" && (form.trailhead !== before.trailhead || form.total !== before.total || before.type !== "one_way")) {
+        void loadFinishes();
+      }
+    },
 
     async save() {
       const s = store.get();
@@ -381,6 +406,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     // don't touch other views, so buttons and form fields aren't replaced under the user's finger.
     if (live && (s.view !== "trip" || patchTrip(panel, prev, s))) { /* nothing else to redraw */ }
     else if (changed.length || formChanged) render();
+    if (s.finishes !== prev.finishes && s.view === "plan" && !(changed.length || formChanged)) patchFinishes(panel, s);  // in place
     if (s.run !== prev.run || s.selected !== prev.selected || s.view !== prev.view || s.campsM !== prev.campsM || s.savedId !== prev.savedId) syncMap(s);
   });
   // Tap cycles the sheet; a vertical drag of more than 30px on the handle moves it one step up or down.

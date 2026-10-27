@@ -9,7 +9,7 @@ describe("toRequest", () => {
     expect("request" in r && r.request).toEqual({
       trailhead: "bear_rocks", total: "18-26", nights: 2, daily: "6-11", max_gain_day: 2500, type: "loop", count: 3,
       no_roads: false, camps: ["8.5"], camps_at_sites: false, must_visit: ["Rocky Point Trail"], avoid: [], direction: "cw",
-      days: [], level: null,
+      days: [], level: null, destination: null, finish: null,
     });
   });
   it("omits nights/daily/gain when blank", () => {
@@ -83,5 +83,32 @@ describe("per-day targets", () => {
     expect(toRequest({ ...base, perDay: true, days: [{ ...emptyDay(), miles: "9-3" }] })).toEqual({
       error: "Day 1: miles must look like 8-12 (low-high); got \"9-3\"", field: "days" });
     expect(toRequest({ ...base, perDay: true, days: [{ ...emptyDay(), maxGainFt: "-5" }] })).toMatchObject({ field: "days" });
+  });
+});
+
+describe("trip shapes", () => {
+  it("one way needs a finish", () => {
+    const r = toRequest({ ...DEFAULT_FORM, trailhead: "x", type: "one_way", finish: "" });
+    expect(r).toMatchObject({ field: "finish" });
+    const ok = toRequest({ ...DEFAULT_FORM, trailhead: "x", type: "one_way", finish: "y" });
+    expect("request" in ok && ok.request.finish).toBe("y");
+  });
+  it("day hike sends nights null", () => {
+    const r = toRequest({ ...DEFAULT_FORM, trailhead: "x", dayHike: true, nights: "2", perDay: true });
+    expect("request" in r && r.request).toMatchObject({ nights: null, daily: null, days: [] });
+  });
+  it("destination is sent", () => {
+    const r = toRequest({ ...DEFAULT_FORM, trailhead: "x" }, [], "node/5");
+    expect("request" in r && r.request.destination).toBe("node/5");
+    const none = toRequest({ ...DEFAULT_FORM, trailhead: "x" });
+    expect("request" in none && none.request.destination).toBeNull();
+  });
+  it("a finish only goes with a one-way trip", () => {
+    const r = toRequest({ ...DEFAULT_FORM, trailhead: "x", type: "loop", finish: "y" });
+    expect("request" in r && r.request.finish).toBeNull();
+  });
+  it("fromRun keeps the finish and the day hike", () => {
+    const run = { request: { ...DEFAULT_FORM, trailhead: "x", total: [5, 9], nights: null, daily: null, type: "one_way", finish: "y" } } as unknown as Run;
+    expect(fromRun(run)).toMatchObject({ type: "one_way", finish: "y", dayHike: true });
   });
 });

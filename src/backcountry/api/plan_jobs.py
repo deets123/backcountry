@@ -1,8 +1,9 @@
 """Plans that run in the background, so the phone can show the first trips while the search goes on.
 
 POST /regions/{id}/plans starts one and returns its id; GET /plans/{id} returns the trips found so far
-("searching", not saved) or the final run ("done", saved like /generate saves it). At most MAX_PLAN_JOBS run at a
-time for everyone (no accounts yet); finished jobs are forgotten JOB_TTL_S after they finish.
+("searching", not saved) or the final run ("done", saved like /generate saves it). At most Settings.plan_jobs
+(default MAX_PLAN_JOBS) run at a time for everyone (no accounts yet); finished jobs are forgotten JOB_TTL_S after
+they finish.
 """
 
 import logging
@@ -37,7 +38,7 @@ class PlanJobs:
         """Run `work(on_snapshot) -> run` and keep what it hands over. Raises Busy when too many are running."""
         with self._lock:
             self._expire()
-            if sum(1 for j in self._jobs.values() if j["status"] == "searching") >= MAX_PLAN_JOBS:
+            if sum(1 for j in self._jobs.values() if j["status"] == "searching") >= getattr(self.settings, "plan_jobs", MAX_PLAN_JOBS):
                 raise Busy("The server is busy planning other trips. Try again in a minute.")
             job_id = secrets.token_hex(8)
             self._jobs[job_id] = {"status": "searching", "run": None, "message": None, "field": None, "finished": None}

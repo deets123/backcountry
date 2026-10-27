@@ -1,5 +1,5 @@
 import levels from "./levels.json";
-import type { DayTarget, GenerateRequest, Level, Run, Trailhead } from "./types";
+import type { DayTarget, GenerateRequest, Level, Run, Trailhead, TripType } from "./types";
 
 export type Scale = "day_hike" | "backpacking";
 interface LevelRow { miles: [number, number]; max_gain_ft: number | null; max_grade_pct: number | null }
@@ -13,15 +13,19 @@ export type DayNumber = "miles" | "maxGainFt" | "maxGradePct";
 
 export interface FormState {
   trailhead: string; total: string; nights: string; daily: string; maxGainDay: string;
-  type: "loop" | "lollipop" | "any"; count: string; noRoads: boolean; direction: "" | "cw" | "ccw";
+  type: TripType; count: string; noRoads: boolean; direction: "" | "cw" | "ccw";
   mustVisit: string[]; avoid: string[]; camps: string[]; campsAtSites: boolean;
   perDay: boolean; days: FormDay[]; tripLevel: Level | "";
+  /** One way: the finishing trailhead's id (or node id, or lat,lon). */
+  finish: string;
+  /** A day hike: no nights, no miles per day (a blank nights field means the same). */
+  dayHike: boolean;
 }
 
 export const DEFAULT_FORM: FormState = {
   trailhead: "", total: "18-26", nights: "2", daily: "6-11", maxGainDay: "2500", type: "any", count: "3",
   noRoads: false, direction: "", mustVisit: [], avoid: [], camps: [], campsAtSites: false,
-  perDay: false, days: [], tripLevel: "",
+  perDay: false, days: [], tripLevel: "", finish: "", dayHike: false,
 };
 
 export function emptyDay(): FormDay {
@@ -82,8 +86,10 @@ function whole(text: string, field: keyof FormState, min: number): number | Fail
   return n;
 }
 
-export function toRequest(form: FormState, trailheads: Trailhead[] = []): Result {
+export function toRequest(form: FormState, trailheads: Trailhead[] = [], destination: string | null = null): Result {
   if (!form.trailhead.trim()) return { error: "Pick a trailhead first.", field: "trailhead" };
+  if (form.type === "one_way" && !form.finish.trim()) return { error: "Pick where the one-way trip finishes.", field: "finish" };
+  if (form.dayHike) form = { ...form, nights: "", daily: "", perDay: false };
   const known = trailheads.find((t) => t.id === form.trailhead);
   if (known && !(known.in_graph && known.lat != null && known.lon != null)) {
     return { error: `${known.name ?? known.id} is not on the trail network; pick another start.`, field: "trailhead" };
@@ -133,7 +139,8 @@ export function toRequest(form: FormState, trailheads: Trailhead[] = []): Result
     request: {
       trailhead: form.trailhead.trim(), total: form.total.trim(), nights, daily, max_gain_day: maxGain, type: form.type, count,
       no_roads: form.noRoads, camps: form.camps, camps_at_sites: form.campsAtSites, must_visit: form.mustVisit, avoid: form.avoid,
-      direction: form.direction || null, days, level: form.tripLevel || null,
+      direction: form.direction || null, days, level: form.tripLevel || null, destination,
+      finish: form.type === "one_way" ? form.finish.trim() : null,
     },
   };
 }
@@ -149,7 +156,7 @@ export function fromRun(run: Run): FormState {
     maxGainDay: r.max_gain_day == null ? "" : String(r.max_gain_day), type: r.type ?? "any", count: String(r.count ?? 3),
     noRoads: !!r.no_roads, direction: r.direction ?? "", mustVisit: r.must_visit ?? [], avoid: r.avoid ?? [], camps: r.camps ?? [],
     campsAtSites: !!r.camps_at_sites,
-    perDay: (r.days ?? []).length > 0, tripLevel: r.level ?? "",
+    perDay: (r.days ?? []).length > 0, tripLevel: r.level ?? "", finish: r.finish ?? "", dayHike: r.nights == null,
     days: Array.from({ length: r.nights == null ? 0 : r.nights + 1 }, (_, i) => {
       const t = (r.days ?? []).find((d) => d.day === i + 1);
       return t ? { level: t.level ?? "", miles: t.miles ? `${t.miles[0]}-${t.miles[1]}` : "",

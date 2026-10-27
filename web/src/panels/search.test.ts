@@ -72,6 +72,7 @@ function deps(over: Partial<OpenDeps> = {}): OpenDeps & { calls: string[] } {
     setError: (m) => calls.push(`error ${m}`),
     addRecent: (a) => calls.push(`recent ${a.id}`),
     setElevationPending: (on) => calls.push(`elevation ${on ? "pending" : "ready"}`),
+    setDestination: (d) => calls.push(`destination ${d ? d.name : "none"}`),
     ...over,
   };
 }
@@ -80,12 +81,12 @@ describe("openSearchResult", () => {
   it("a hand-made region opens directly, with no area request", async () => {
     const d = deps();
     await openSearchResult(region, d);
-    expect(d.calls).toEqual(["pick dolly_sods"]);
+    expect(d.calls).toEqual(["destination none", "pick dolly_sods"]);
   });
   it("an area is prepared quietly, then opened and remembered", async () => {
     const d = deps();
     await openSearchResult(park, d);
-    expect(d.calls).toEqual(['open {"ref":"relation/3003"}', "status Finding trails in Testpark National Park…",
+    expect(d.calls).toEqual(["destination none", 'open {"ref":"relation/3003"}', "status Finding trails in Testpark National Park…",
       "recent testpark-national-park-r3003", "pick testpark-national-park-r3003"]);
   });
   it("a failed preparation shows its message", async () => {
@@ -97,12 +98,12 @@ describe("openSearchResult", () => {
   it("a busy server's message is shown as it is", async () => {
     const d = deps({ openArea: async () => { throw new ApiError("The server is busy setting up other areas. Try again in a few minutes.", 429); } });
     await openSearchResult(park, d);
-    expect(d.calls).toEqual(["error The server is busy setting up other areas. Try again in a few minutes."]);
+    expect(d.calls).toEqual(["destination none", "error The server is busy setting up other areas. Try again in a few minutes."]);
   });
   it("a box opens the same way", async () => {
     const d = deps();
     await openSearchResult({ box: [-149.75, 10.75, -149.65, 10.85] }, d);
-    expect(d.calls[0]).toBe('open {"box":[-149.75,10.75,-149.65,10.85]}');
+    expect(d.calls.slice(0, 2)).toEqual(["destination none", 'open {"box":[-149.75,10.75,-149.65,10.85]}']);
   });
 });
 
@@ -135,7 +136,7 @@ describe("opening in two steps", () => {
     const answers = [status("preparing"), status("trails", { message: "Adding elevation…" }), status("trails", { message: "Adding elevation…" }), status("ready")];
     const d = deps({ areaStatus: async () => answers.shift()! });
     await openSearchResult(park, d);
-    expect(d.calls).toEqual(['open {"ref":"relation/3003"}', "status Finding trails in Testpark National Park…",
+    expect(d.calls).toEqual(["destination none", 'open {"ref":"relation/3003"}', "status Finding trails in Testpark National Park…",
       "pick testpark-national-park-r3003", "elevation pending", "elevation ready", "recent testpark-national-park-r3003"]);
     expect(answers).toEqual([]);
   });
@@ -145,7 +146,7 @@ describe("opening in two steps", () => {
       areaStatus: async () => status("ready"),
     });
     await openSearchResult(park, d);
-    expect(d.calls.slice(0, 3)).toEqual(["status Adding elevation…", "pick a1", "elevation pending"]);
+    expect(d.calls.slice(0, 4)).toEqual(["destination none", "status Adding elevation…", "pick a1", "elevation pending"]);
   });
   it("elevation failing after the trails showed keeps the trails and says what happened", async () => {
     const answers = [status("trails"), status("failed")];
@@ -154,5 +155,21 @@ describe("opening in two steps", () => {
     expect(d.calls).toContain("pick testpark-national-park-r3003");
     expect(d.calls.at(-1)).toBe("error No trails were found there.");
     expect(d.calls.filter((c) => c.startsWith("pick")).length).toBe(1);
+  });
+});
+
+describe("destinations", () => {
+  it("opening a place sets the destination; opening an area clears it", async () => {
+    const place: SearchResult = { kind: "place", ref: "node/1060", name: "Spur Top", type_label: "Peak", state: "Statea",
+      bbox: [-149.7, 10.2, -149.69, 10.22], center: [-149.6995, 10.2195] };
+    const d = deps();
+    await openSearchResult(place, d);
+    expect(d.calls).toContain("destination Spur Top");
+    const a = deps();
+    await openSearchResult(park, a);
+    expect(a.calls).toContain("destination none");
+    const r = deps();
+    await openSearchResult(region, r);
+    expect(r.calls).toContain("destination none");
   });
 });

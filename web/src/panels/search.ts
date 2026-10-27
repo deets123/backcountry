@@ -2,7 +2,7 @@
 // prepared quietly on the server behind one line ("Finding trails in …"); the user never sees the data work.
 import { ApiError } from "../api";
 import type { State } from "../store";
-import type { AreaOpened, AreaStatus, RecentArea, Region, SearchResult } from "../types";
+import type { AreaOpened, AreaStatus, Destination, RecentArea, Region, SearchResult } from "../types";
 import { esc } from "./common";
 
 export const POLL_MS = 2000;
@@ -115,10 +115,13 @@ export interface OpenDeps extends WaitDeps {
   addRecent(a: RecentArea): void;
   /** Trails are on the map but elevation is still coming: planning waits for it. */
   setElevationPending(on: boolean): void;
+  /** A searched place becomes where every trip goes; an area or region clears it. */
+  setDestination(d: Destination | null): void;
 }
 
 /** Open a search result or map box: hand-made regions directly; anything else is prepared first. */
 export async function openSearchResult(t: Target, deps: OpenDeps): Promise<void> {
+  deps.setDestination("kind" in t && t.kind === "place" ? { ref: t.ref, name: t.name, center: t.center } : null);
   if ("kind" in t && t.kind === "region") return deps.pickRegion(t.id);
   try {
     const opened = await deps.openArea("box" in t ? { box: t.box } : { ref: t.ref });

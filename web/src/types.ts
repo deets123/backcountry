@@ -19,7 +19,17 @@ export interface Trailhead {
   id: string; name: string | null; node: number | null; source: "yaml" | "data"; verified: boolean;
   in_graph: boolean; lat: number | null; lon: number | null; component: string | null;
   usfs?: string | null; note?: string | null; kinds?: string[]; snap_m?: number;
+  /** With a destination: trail distance from here to it (null: can't reach it). */
+  to_destination_m?: number | null;
 }
+export type TripType = "loop" | "lollipop" | "out_and_back" | "one_way" | "any";
+/** A trailhead a one-way trip can finish at (GET /regions/{id}/finishes). */
+export interface Finish {
+  id: string; name: string | null; node: number; lat: number | null; lon: number | null; source: "yaml" | "data" | null;
+  verified: boolean; length_m: number; gain_ft: number | null; loss_ft: number | null; straight_line_m: number;
+}
+/** A searched place the trip goes to and through. */
+export interface Destination { ref: string; name: string; center: [number, number] }
 
 export interface TrailProps {
   name: string | null; highway: string; is_road: boolean; last_resort: boolean; source: string;
@@ -41,10 +51,10 @@ export interface FeaturesInView {
 
 export interface GenerateRequest {
   trailhead: string; total: string | [number, number]; nights?: number | null; daily?: string | [number, number] | null;
-  max_gain_day?: number | null; type?: "loop" | "lollipop" | "any"; count?: number; no_roads?: boolean;
+  max_gain_day?: number | null; type?: TripType; count?: number; no_roads?: boolean;
   road_weight?: number; repeat_weight?: number; camps?: string[]; camps_at_sites?: boolean;
   must_visit?: string[]; avoid?: string[]; direction?: "cw" | "ccw" | null;
-  days?: DayTarget[]; level?: Level | null;
+  days?: DayTarget[]; level?: Level | null; destination?: string | null; finish?: string | null;
 }
 
 export type Level = "easy" | "moderate" | "hard" | "strenuous";
@@ -75,7 +85,7 @@ export interface Plan {
 export interface Suggestion { text: string; days: DayTarget[] }
 export interface RouteFeature extends MapFeature { dist_m: number; off_m: number; day?: number | null }
 export interface Candidate {
-  index: number; kind: "loop" | "lollipop"; length_m: number; gain_ft: number | null; loss_ft: number | null; road_m: number;
+  index: number; kind: "loop" | "lollipop" | "out_and_back" | "one_way"; length_m: number; gain_ft: number | null; loss_ft: number | null; road_m: number;
   last_resort_m: number; repeated_m: number; penalty: number; segments: Segment[];
   geometry: { type: "LineString"; coordinates: [number, number][] }; pieces: Piece[]; waypoints: Waypoint[];
   route?: { nodes: number[]; keys: string[] };  // OSM nodes and graph edges walked: to follow it on newer data
@@ -83,6 +93,8 @@ export interface Candidate {
   title: string; description: string; notes: string[];
   /** Runs saved before levels existed have none of these. */
   level?: Level | null; rating?: Rating | null; terrain?: TerrainInterval[]; suggestion?: Suggestion | null;
+  /** One way: where it ends. Out and back: the node it turns at. (Runs before this piece have neither.) */
+  finish?: { node: number; lat: number; lon: number; name: string | null } | null; turnaround?: number | null;
 }
 export interface Run {
   run_id: string; region: string; request: GenerateRequest & { total: [number, number]; daily: [number, number] | null };
