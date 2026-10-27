@@ -120,3 +120,15 @@ def test_destination_needs_the_index(park):
         plan_trip(region, raw, tg, GenerateRequest.from_dict({"trailhead": "10.2495,-149.8505", "total": "18-24",
                                                               "destination": "node/1060"}), dem=None)
     assert e.value.field == "destination"
+
+
+def test_longer_out_and_back_takes_a_side_trip_to_a_spur_destination(index, park):
+    # Spur Top is at the end of a spur: the out-and-back to it is ~21.5 mi; a longer one goes past the spur's
+    # junction out East Spur (to ~17.7 mi) and takes the spur as a side trip (+8 mi): ~25.7 mi
+    r = plan(index, park, total="24-27", type="out_and_back", destination="node/1060")
+    cands = r.report["candidates"]
+    assert cands
+    side = [c for c in cands if c.turnaround != 1029]
+    assert side and all(1029 in c.route.nodes for c in side)
+    assert any(re.fullmatch(r"Side trip to Spur Top, \d+\.\d mi round trip\.", n) for c in side for n in c.route.notes)
+    assert all(24 * M_PER_MI <= c.length_m <= 27 * M_PER_MI for c in cands)

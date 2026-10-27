@@ -376,6 +376,12 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
             so_far.extend(ows)
         if "out_and_back" in kinds:
             obs = out_and_backs(tg, start, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report)
+            if through is not None and must_visit:
+                # a destination on a spur: a longer out-and-back can also go past the spur's junction and take
+                # the spur as a side trip (must_visit adds it)
+                walked = {tuple(c.keys) for c in obs}
+                obs += [c for c in out_and_backs(tg, start, lo, hi, no_roads, excluded, deadline=deadline, report=report)
+                        if tuple(c.keys) not in walked]
             report["out_and_backs_found"] += len(obs)
             found += obs
             so_far.extend(obs)
