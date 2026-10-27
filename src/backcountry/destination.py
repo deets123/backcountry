@@ -102,8 +102,12 @@ def reached(route, dest: Destination) -> bool:
     return near or (be > bw and bn > bs and route.line_utm.intersects(box(bw, bs, be, bn)))
 
 
-def reachable_from(tg, start: int, dest: Destination) -> bool:
-    return dest.node is not None and dest.node in nx.node_connected_component(tg.graph, start)
+def reachable_from(tg, start: int, dest: Destination, no_roads: bool = False, exclude_keys=frozenset()) -> bool:
+    """On the trails this trip may use (avoided trails and, with no_roads, roads left out)."""
+    from backcountry.route import routing_graph
+
+    R = routing_graph(tg, no_roads, exclude_keys=exclude_keys)
+    return dest.node is not None and start in R and dest.node in nx.node_connected_component(R, start)
 
 
 def spur_m(tg, node: int) -> float:

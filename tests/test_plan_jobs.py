@@ -86,3 +86,20 @@ def test_the_cap_is_a_setting():
     with pytest.raises(Busy):
         jobs.start(lambda on_snapshot: {"run_id": "r"})
     release.set()
+
+
+def test_a_cancelled_job_frees_its_slot():
+    release = threading.Event()
+    jobs = PlanJobs(Settings(area_thread=True, plan_jobs=2))
+    a = jobs.start(lambda on_snapshot: release.wait(5) or {"run_id": "a"})
+    jobs.start(lambda on_snapshot: release.wait(5) or {"run_id": "b"})
+    jobs.cancel(a)  # the phone gave up on it (a new plan, or its time limit)
+    c = jobs.start(lambda on_snapshot: {"run_id": "c"})
+    assert jobs.get(a)["status"] == "cancelled"
+    release.set()
+    assert wait_done(jobs, c)["status"] == "done"
+    for _ in range(200):
+        if jobs.get(a)["run"] is None and jobs.get(a)["status"] == "cancelled":
+            break
+    assert jobs.get(a)["status"] == "cancelled" and jobs.get(a)["run"] is None  # a late result is dropped
+

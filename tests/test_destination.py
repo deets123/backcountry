@@ -132,3 +132,16 @@ def test_longer_out_and_back_takes_a_side_trip_to_a_spur_destination(index, park
     assert side and all(1029 in c.route.nodes for c in side)
     assert any(re.fullmatch(r"Side trip to Spur Top, \d+\.\d mi round trip\.", n) for c in side for n in c.route.notes)
     assert all(24 * M_PER_MI <= c.length_m <= 27 * M_PER_MI for c in cands)
+
+
+def test_destination_cut_off_by_avoid_says_so(index, park):
+    r = plan(index, park, total="18-24", avoid=["Peak Spur"], destination="node/1060")
+    assert all(not any(e["name"] == "Peak Spur" for e in c.route.edges) for c in r.report["candidates"])
+    assert r.report["candidates"] == []
+    assert "Spur Top can't be reached from this start on the mapped trails." in r.report["notes"]
+
+
+def test_destination_adds_no_must_visit_wording(index, park):
+    for body in ({"total": "33-38", "nights": 1, "daily": "10-25", "type": "loop"}, {"total": "18-24", "avoid": ["Peak Spur"]}):
+        r = plan(index, park, destination="node/1060", **body)
+        assert r.report["must_visit_notes"] == [], r.report["must_visit_notes"]

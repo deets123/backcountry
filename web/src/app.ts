@@ -1,4 +1,4 @@
-import { ApiError, areaStatus, chat, difficulty, getFinishes, getPlan, getRegions, getTrailheads, getTrails, openArea, search, startPlan, updateCheck,
+import { ApiError, areaStatus, cancelPlan, chat, difficulty, getFinishes, getPlan, getRegions, getTrailheads, getTrails, openArea, search, startPlan, updateCheck,
   updateTrip } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
@@ -7,7 +7,7 @@ import { createMap, type TripMap } from "./map";
 import { cleanOrphans, deleteTrip, getTrip, listTrips, putTrip, tilesPresent } from "./offline/db";
 import { refreshLevels } from "./offline/levels";
 import { saveTrip, tripId } from "./offline/save";
-import { runPlanJob } from "./planjob";
+import { afterFailedPlan, runPlanJob } from "./planjob";
 import { coverageNote } from "./offline/tiles";
 import { bindChat } from "./panels/chat";
 import { bindCompare, renderCompare, startLabel } from "./panels/compare";
@@ -173,7 +173,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       try {
         const signal = abort.signal;
         const run = await runPlanJob({
-          startPlan, getPlan, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+          startPlan, getPlan, cancelPlan, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
           // the first trips found: shown while the search goes on (status stays busy; not saved)
           onPartial: (partial) => store.set({ run: partial, form: fromRun(partial), selected: 1, view: "compare", savedId: null, campsM: null }),
         }, s.region, built.request, signal);
@@ -182,7 +182,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
         const msg = (e as Error).name === "AbortError"
           ? "The search took longer than 2 minutes and was stopped. Try a narrower range or fewer must-visits."
           : e instanceof ApiError ? e.message : `Unexpected error: ${(e as Error).message}`;
-        store.set({ busy: false, status: "", error: msg }); // the previous run (if any) stays
+        store.set(afterFailedPlan(store.get().run, s.run, msg)); // the run from before this plan stays
       } finally { clearTimeout(timer); }
     },
     select(i: number) { store.set({ selected: i }); },

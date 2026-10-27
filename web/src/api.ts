@@ -104,6 +104,10 @@ export function getPlan(jobId: string, signal?: AbortSignal): Promise<PlanJob> {
   return request(`/api/plans/${encodeURIComponent(jobId)}`, { signal });
 }
 
+export function cancelPlan(jobId: string): Promise<{ ok: boolean }> {
+  return request(`/api/plans/${encodeURIComponent(jobId)}`, { method: "DELETE" });
+}
+
 export function getRun(runId: string): Promise<Run> {
   return request(`/api/runs/${runId}`);
 }

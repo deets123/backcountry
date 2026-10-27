@@ -346,17 +346,21 @@ def _destination_notes(tg, report: dict, dest, req: "GenerateRequest", evaluate,
     if report["candidates"]:
         return
     lo, hi = req.total
-    obs = [c for c in out_and_backs(tg, start, 0.0, math.inf, req.no_roads, through=dest.node)
+    excluded = avoided_keys(tg, req.avoid) if req.avoid else frozenset()
+    obs = [c for c in out_and_backs(tg, start, 0.0, math.inf, req.no_roads, excluded, through=dest.node)
            if c.turnaround == dest.node]
     if not obs:
+        report["notes"].append(f"No trip from this start reaches {dest.name} within {_mi(lo)}–{_mi(hi)} mi.")
         return
     short = min(obs, key=lambda c: c.length_m)
     short.penalty = penalty(short.length_m, short.road_m, short.last_resort_m, short.repeated_m, *req.total_m, Weights())
     if evaluate is not None:
         short.penalty += evaluate(short)
     report["candidates"] = [short]
-    report["notes"].append(f"No trip from this start reaches {dest.name} within {_mi(lo)}–{_mi(hi)} mi. "
-                           f"The shortest out and back to it is {short.length_m / M_PER_MI:.1f} mi.")
+    shortest = f"The shortest out and back to it is {short.length_m / M_PER_MI:.1f} mi."
+    lo_m, hi_m = req.total_m
+    report["notes"].append(shortest if lo_m <= short.length_m <= hi_m else
+                           f"No trip from this start reaches {dest.name} within {_mi(lo)}–{_mi(hi)} mi. {shortest}")
 
 
 @dataclass
@@ -558,10 +562,12 @@ def _destination_search(tg, start: int, req: "GenerateRequest", index) -> tuple:
         raise RequestError("destination", "Destinations need the trail index on this server.")
     dest = dmod.resolve(index, tg, req.destination)
     lo, hi = req.total_m
-    if not dmod.reachable_from(tg, start, dest):
+    excluded = avoided_keys(tg, req.avoid) if req.avoid else frozenset()
+    if not dmod.reachable_from(tg, start, dest, req.no_roads, excluded):
         return dest, None, [f"{dest.name} can't be reached from this start on the mapped trails."]
     spur = dmod.spur_m(tg, dest.node)
-    must = {"name": dest.trail_name} if dest.kind == "trail" else {"node": dest.node}
+    # the destination's own reach and side trips are described by its notes, not as a must-visit
+    must = ({"name": dest.trail_name} if dest.kind == "trail" else {"node": dest.node}) | {"internal": True}
     kw = {"keep": lambda c: lo <= c.length_m <= hi and dmod.reached(c.route, dest), "through": dest.node,
           "max_detour_m": hi, "must": must,
           # loops reach a spur's end by a side trip: look for loops that much shorter

@@ -50,8 +50,20 @@ class PlanJobs:
 
     def _set(self, job_id: str, **fields) -> None:
         with self._lock:
-            if job_id in self._jobs:
-                self._jobs[job_id].update(fields)
+            job = self._jobs.get(job_id)
+            if job is not None and job["status"] != "cancelled":  # a late result of a cancelled job is dropped
+                job.update(fields)
+
+    def cancel(self, job_id: str) -> None:
+        """The phone gave up on this plan: its slot is free at once (the search finishes on its own, unseen)."""
+        if not isinstance(job_id, str) or not _JOB_ID.match(job_id):
+            raise NotFound("No such plan.")
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise NotFound("No such plan (it may have expired).")
+            if job["status"] == "searching":
+                job.update(status="cancelled", run=None, finished=self.clock())
 
     def _run(self, job_id: str, work) -> None:
         try:

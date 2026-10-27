@@ -298,8 +298,9 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
             found = _apply_must_visit(tg, found, must_visit, no_roads, excluded, rep, max_detour_m)
         if keep is not None:
             found = [c for c in found if keep(c)]
-        if direction:
-            found = [c if orientation(c.route) == direction else _reversed(tg, c) for c in found]
+        if direction:  # only trips that come back to the start have a way round; one way and out and back don't
+            found = [c if c.kind not in ("loop", "lollipop") or orientation(c.route) == direction else _reversed(tg, c)
+                     for c in found]
         scored = len(found)
         mid = (min_m + max_m) / 2
         order = lambda c: (c.penalty, abs(c.length_m - mid), c.length_m)  # noqa: E731
@@ -573,7 +574,8 @@ def _reversed(tg, c: Candidate) -> Candidate:
     route = walk(tg, c.keys[::-1], c.nodes[::-1])
     return Candidate(kind=c.kind, start=c.start, keys=c.keys[::-1], nodes=c.nodes[::-1], stem_keys=c.stem_keys,
                      route=route, detour_keys=c.detour_keys, length_m=c.length_m, road_m=c.road_m,
-                     last_resort_m=c.last_resort_m, repeated_m=c.repeated_m, lengths=c.lengths)
+                     last_resort_m=c.last_resort_m, repeated_m=c.repeated_m, lengths=c.lengths,
+                     turnaround=c.turnaround, finish=c.finish)
 
 
 def _apply_must_visit(tg, found, must_visit, no_roads, excluded, report, max_detour_m=MAX_DETOUR_M) -> list[Candidate]:
@@ -612,6 +614,8 @@ def _apply_must_visit(tg, found, must_visit, no_roads, excluded, report, max_det
             kept.append(c)
     start = found[0].start if found else None
     for m in must_visit:
+        if m.get("internal"):
+            continue
         label = m.get("name") or f"node {m['node']}"
         if "node" in m and (m["node"] not in reach or (start is not None and start not in reach[m["node"]][0])):
             report["must_visit_notes"].append(f"must-visit {label}: not reachable from the start (not in the graph, "
@@ -633,7 +637,8 @@ def _with_detour(tg, c: Candidate, j: int, path_nodes: list[int], R) -> Candidat
     detour_m = sum(lengths[k] for k in keys_out)
     return Candidate(kind=c.kind, start=c.start, keys=keys, nodes=nodes, stem_keys=c.stem_keys, route=route,
                      detour_keys=c.detour_keys + keys_out, length_m=route.length_m, road_m=route.road_m,
-                     last_resort_m=route.last_resort_m, repeated_m=c.repeated_m + detour_m, lengths=lengths)
+                     last_resort_m=route.last_resort_m, repeated_m=c.repeated_m + detour_m, lengths=lengths,
+                     turnaround=c.turnaround, finish=c.finish)
 
 
 def find_candidates(tg, start: int, min_m: float, max_m: float, **kw) -> list[Candidate]:

@@ -485,12 +485,15 @@ def test_one_way_trip_updates_to_newer_data(api):
     a = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
     run_worker(client)
     run = client.post(f"/api/regions/{a}/generate", json={"trailhead": "10.2495,-149.8505", "total": "5-12",
-                                                          "type": "one_way", "finish": "1029"}).json()
+                                                          "type": "one_way", "finish": "10.22,-149.7"}).json()
     assert run["candidates"] and run["candidates"][0]["kind"] == "one_way"
     add_cut(client.app.state.settings, a, "2026-11-20")
     body = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
     assert body["ok"] is True and body["run"]["candidates"][0]["kind"] == "one_way"
     assert body["run"]["candidates"][0]["finish"]["node"] == 1029
+    before, after = run["candidates"][0], body["run"]["candidates"][0]
+    assert after["finish"]["name"] == before["finish"]["name"] and after["title"] == before["title"]
+    assert "osm:node" not in after["waypoints"][1]["desc"] or "osm:node" in before["waypoints"][1]["desc"]
 
 
 # --- short names ----------------------------------------------------------------------------------

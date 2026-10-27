@@ -359,3 +359,26 @@ def test_each_cell_reads_only_the_tiles_that_hold_it():
     assert ingest._urls_for(items, "13", (-79.5, 39.5, -79.45, 39.55)) == ["u/n40w080.tif"]
     assert ingest._urls_for(items, "13", (-79.5, 38.98, -79.45, 39.03)) == ["u/n39w080.tif", "u/n40w080.tif"]
     assert ingest._urls_for([_item("odd", "2023-01-01", "u/x.tif")], "13", (0, 0, 1, 1)) == ["u/x.tif"]
+
+
+def test_a_cell_with_no_usgs_tile_is_left_empty(tmp_path):
+    import math
+
+    import numpy as np
+    from rasterio.transform import from_origin
+
+    calls = []
+
+    def reader(urls, bounds):
+        assert urls, "a cell with no tile must not be read"
+        calls.append(bounds)
+        w, s, e, n = bounds
+        return np.full((round((n - s) / 0.01), round((e - w) / 0.01)), 700.0, dtype="float32"), from_origin(w, n, 0.01, 0.01), "EPSG:4269"
+
+    items = [_item("USGS 1/3 Arc Second n40w080 20230101", "2023-01-01", "u/n40w080.tif")]  # covers 39-40 N only
+    cells = [(-80.0, 39.0, -79.95, 39.05), (-80.0, 38.5, -79.95, 38.55)]  # the second has no tile (the coast, say)
+    path = ingest.fetch_dem(REGION, (-80.0, 38.5, -79.95, 39.05), raw_dir=tmp_path, cells=cells,
+                            searcher=lambda d, b: items, reader=reader)
+    assert calls == [cells[0]]
+    dem = ingest.load_dem(REGION, raw_dir=tmp_path)
+    assert dem.array[0, 0] == 700.0 and json.loads(path.read_text())["cells"] == 2

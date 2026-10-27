@@ -484,3 +484,8 @@ def test_finishes_endpoint(client, grid):
         assert {"id", "name", "length_m", "gain_ft", "loss_ft", "straight_line_m"} <= set(f) and f["node"] != grid.ids["T"]
     assert client.get("/api/regions/dolly_sods/finishes", params={"trailhead": "nowhere", "total": "1-4"}).status_code == 400
     assert client.get("/api/regions/dolly_sods/finishes", params={"trailhead": str(grid.ids["T"]), "total": "4-1"}).status_code == 400
+
+
+def test_cancel_endpoint(client):
+    assert client.delete("/api/plans/0123456789abcdef").status_code == 404
+    assert client.delete("/api/plans/..%2Fx").status_code in (400, 404)

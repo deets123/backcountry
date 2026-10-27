@@ -369,3 +369,30 @@ def test_one_way_offers_variants_that_share_most_of_their_trail():
     cands = plan_trip(REGION, raw, tg, req).report["candidates"]
     names = [{e["name"] for e in c.route.edges} for c in cands]
     assert any("Short Cut" in n for n in names) and any("Rim Bend" in n for n in names)
+
+
+# --- review fixes ------------------------------------------------------------------------------------------
+
+
+def test_one_way_ignores_direction_and_keeps_its_ends(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    for extra in ({"direction": "ccw"}, {"must_visit": [str(ids["D"])]}):
+        req = GenerateRequest.from_dict({"trailhead": str(ids["T"]), "total": "2.5-4.4", "type": "one_way",
+                                         "finish": str(ids["g22"])} | extra)
+        cands = plan_trip(REGION, raw, tg, req).report["candidates"]
+        assert cands, extra
+        for c in cands:
+            assert c.route.nodes[0] == ids["T"] and c.route.nodes[-1] == ids["g22"] and c.finish == ids["g22"], extra
+
+
+def test_out_and_back_with_a_detour_keeps_its_turnaround(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    req = GenerateRequest.from_dict({"trailhead": str(ids["T"]), "total": "1-6", "type": "out_and_back",
+                                     "must_visit": [str(ids["D"])], "direction": "cw"})
+    cands = plan_trip(REGION, raw, tg, req).report["candidates"]
+    assert cands and all(c.turnaround is not None and c.turnaround in c.route.nodes for c in cands)
+    assert all(c.route.nodes[0] == ids["T"] for c in cands)

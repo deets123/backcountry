@@ -502,9 +502,12 @@ def fetch_dem(
     if cells:
         from concurrent.futures import ThreadPoolExecutor
 
+        jobs = [(c, urls) for c in cells if (urls := _urls_for(items, kind, c))]  # no USGS tile: left empty (NaN)
+        if not jobs:
+            raise RuntimeError(f"USGS has no {DEM_DATASETS[kind]!r} products for these trails")
         with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
             # a failed cell fails the whole fetch: nothing half-read is cached
-            pieces = list(pool.map(lambda c: reader(_urls_for(items, kind, c), c), cells))
+            pieces = list(pool.map(lambda job: reader(job[1], job[0]), jobs))
         array, transform, crs = _mosaic(pieces)
     else:
         array, transform, crs = reader([i["downloadURL"] for i in items], bounds)

@@ -139,7 +139,8 @@ export function toRequest(form: FormState, trailheads: Trailhead[] = [], destina
     request: {
       trailhead: form.trailhead.trim(), total: form.total.trim(), nights, daily, max_gain_day: maxGain, type: form.type, count,
       no_roads: form.noRoads, camps: form.camps, camps_at_sites: form.campsAtSites, must_visit: form.mustVisit, avoid: form.avoid,
-      direction: form.direction || null, days, level: form.tripLevel || null, destination,
+      direction: (form.type === "one_way" || form.type === "out_and_back" ? "" : form.direction) || null, days,
+      level: form.tripLevel || null, destination,
       finish: form.type === "one_way" ? form.finish.trim() : null,
     },
   };

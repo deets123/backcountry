@@ -269,6 +269,12 @@ def plan_status(job_id: str, request: Request):
     return request.app.state.plans.get(job_id)
 
 
+@router.delete("/plans/{job_id}")
+def cancel_plan(job_id: str, request: Request):
+    request.app.state.plans.cancel(job_id)
+    return {"ok": True}
+
+
 def _is_number(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
@@ -367,6 +373,8 @@ def update_trip(run_id: str, request: Request, body: dict):
                         (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
                         raw_dir=request.app.state.settings.raw_dir)
     result.start = run["start"]
+    if (run.get("search") or {}).get("finish") and "finish" in result.report:  # keep how the finish was named
+        result.report["finish"] = run["search"]["finish"] | {"node": result.report["finish"]["node"]}
     runs = request.app.state.runs
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     new = run_payload(runs.new_id(), loaded.region, result, loaded.raw, loaded.tg, now, diff=None)

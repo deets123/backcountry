@@ -249,3 +249,15 @@ def test_prepare_area_limits_elevation_to_the_outline(index, dirs):
     areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)
     shape = osm_index.area_shape(index, "relation/3003").buffer(areas.ELEVATION_PAD_DEG)
     assert got[0] and all(box(*c).intersects(shape) for c in got[0])
+
+
+def test_group_of_areas_that_dont_touch_is_refused(index):
+    with pytest.raises(ValueError):
+        areas.area_from_refs(index, ["relation/3003", "relation/3005"])  # Testrock is ~20 km from the park
+    assert areas.area_from_refs(index, ["relation/3003", "relation/3004"]).members  # touching: fine
+
+
+def test_group_box_is_capped(index, monkeypatch):
+    monkeypatch.setattr(areas, "MAX_AREA_KM2", 10.0)  # the park's box is far bigger than this
+    with pytest.raises(ValueError):
+        areas.area_from_refs(index, ["relation/3003", "relation/3004"])

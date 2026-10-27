@@ -37,3 +37,31 @@ describe("runPlanJob", () => {
     await expect(p).rejects.toMatchObject({ name: "AbortError" });
   });
 });
+
+describe("afterFailedPlan", () => {
+  it("a failed plan after the first trips showed goes back to the plan with the error and the earlier run", async () => {
+    const { afterFailedPlan } = await import("./planjob");
+    const before = run("r0", false);
+    expect(afterFailedPlan(run("partial", true), before, "Couldn't plan this trip. Try again.")).toEqual({
+      run: before, view: "plan", busy: false, status: "", error: "Couldn't plan this trip. Try again." });
+    expect(afterFailedPlan(run("partial", true), null, "x")).toMatchObject({ run: null, view: "plan" });
+  });
+  it("without a partial run on screen only the error changes", async () => {
+    const { afterFailedPlan } = await import("./planjob");
+    expect(afterFailedPlan(run("r0", false), null, "x")).toEqual({ busy: false, status: "", error: "x" });
+  });
+});
+
+describe("giving up on a plan", () => {
+  it("tells the server, so the plan's slot is free for the next one", async () => {
+    const ctl = new AbortController();
+    const cancelled: string[] = [];
+    const p = runPlanJob({
+      startPlan: async () => ({ job_id: "0123456789abcdef" }),
+      getPlan: async () => { ctl.abort(); return { status: "searching", run: null } as never; },
+      sleep: async () => {}, onPartial: () => {}, cancelPlan: async (id) => { cancelled.push(id); },
+    }, "dolly_sods", { trailhead: "x", total: "18-26" }, ctl.signal);
+    await expect(p).rejects.toMatchObject({ name: "AbortError" });
+    expect(cancelled).toEqual(["0123456789abcdef"]);
+  });
+});

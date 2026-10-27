@@ -134,7 +134,7 @@ ${renderSearch(s)}
 </div>
 <div class="row">
   <label>Shape<select name="type">${types}</select></label>
-  <label>Direction<select name="direction"><option value=""${f.direction ? "" : " selected"}>either</option><option value="cw"${f.direction === "cw" ? " selected" : ""}>clockwise</option><option value="ccw"${f.direction === "ccw" ? " selected" : ""}>counterclockwise</option></select></label>
+  ${f.type === "one_way" || f.type === "out_and_back" ? "" : `<label>Direction<select name="direction"><option value=""${f.direction ? "" : " selected"}>either</option><option value="cw"${f.direction === "cw" ? " selected" : ""}>clockwise</option><option value="ccw"${f.direction === "ccw" ? " selected" : ""}>counterclockwise</option></select></label>`}
 </div>
 <div id="finishes-box">${finishesHtml(f, s.finishes)}</div>
 <div id="per-day">${renderPerDay(f, null)}</div>

@@ -215,3 +215,10 @@ describe("trip shapes and destinations", () => {
     expect(root.querySelector('input[name="daily"]')).toBeNull();
   });
 });
+
+describe("direction", () => {
+  it("is only offered for trips that come back round", () => {
+    for (const type of ["one_way", "out_and_back"] as const) expect(renderPlan({ ...INITIAL, form: { ...INITIAL.form, type } })).not.toContain('name="direction"');
+    expect(renderPlan({ ...INITIAL, form: { ...INITIAL.form, type: "loop" } })).toContain('name="direction"');
+  });
+});

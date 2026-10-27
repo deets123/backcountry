@@ -25,6 +25,7 @@ from backcountry.region import AREAS_DIR, BBox, load_region
 MAX_AREA_KM2 = 5000.0  # bigger areas open as a capped box. Measured 2026-10-27 (PROGRESS.md): Grand Canyon NP,
 #                        4,866 km2, opens in 4.4 min (elevation) and 1.4 GB; Yellowstone-size parks stay capped
 CAPPED_BOX_KM = 24.0   # side of the capped square
+GROUP_BOX_FACTOR = 3.0  # a group's box may be this many times MAX_AREA_KM2 (areas are rarely box-shaped)
 BBOX_PAD_DEG = 0.01    # around a boundary, so trails on its edge are whole
 _REF = re.compile(r"^(node|way|relation)/\d{1,12}$")
 
@@ -141,6 +142,16 @@ def area_from_refs(con, refs) -> AreaSpec:
         return _from_area(con, found[0])
     if sum(a["area_km2"] for a in found) > MAX_AREA_KM2:
         raise ValueError("Those areas are too big to open together; open one of them instead.")
+    # only areas that touch the first (as search groups them), and never a box much bigger than one area may be:
+    # a hand-made list of far-apart areas would otherwise cut half the country
+    near = osm_index.area_shape(con, found[0]["osm"]).buffer(osm_index.GROUP_TOUCH_DEG)
+    if not all(near.intersects(osm_index.area_shape(con, a["osm"])) for a in found[1:]):
+        raise ValueError("Those areas don't touch; open them one at a time.")
+    w, s_, e, n = (min(a["bbox"][0] for a in found), min(a["bbox"][1] for a in found),
+                   max(a["bbox"][2] for a in found), max(a["bbox"][3] for a in found))
+    box_km2 = (n - s_) * 110.574 * (e - w) * 111.320 * math.cos(math.radians((n + s_) / 2))
+    if box_km2 > GROUP_BOX_FACTOR * MAX_AREA_KM2:
+        raise ValueError("Those areas are too big to open together; open one of them instead.")
     words = [a["name"].split() for a in found]
     common = []
     for ws in zip(*words):
@@ -148,8 +159,6 @@ def area_from_refs(con, refs) -> AreaSpec:
             break
         common.append(ws[0])
     name = osm_index.group_name(" ".join(common) or found[0]["name"], found)
-    w, s_, e, n = (min(a["bbox"][0] for a in found), min(a["bbox"][1] for a in found),
-                   max(a["bbox"][2] for a in found), max(a["bbox"][3] for a in found))
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:60].strip("-") or "area"
     key = ",".join(sorted(a["osm"] for a in found))
     return AreaSpec(id=f"{slug}-{hashlib.sha1(key.encode()).hexdigest()[:8]}", name=name, type_label="Areas",
