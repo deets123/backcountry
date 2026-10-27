@@ -45,6 +45,18 @@ def test_retrace_way_split_by_new_junction():
     assert {e["way_id"] for e in out["route"].edges} == {1, 2, 3}  # never the new side trail
 
 
+def test_retrace_through_a_junction_that_went_away():
+    b = square()
+    b.way(5, ["M", "F"], highway="path", name="Side")  # M is a junction when the trip is saved
+    s = saved(b)
+    assert b.ids["M"] in s["route"]["nodes"]
+    b.elements = [e for e in b.elements if e.get("id") != 5]  # the side trail is deleted: M is just a vertex now
+    out = retrace(build_graph(b.doc(), crs=CRS), s)
+    assert out["ok"], out  # South Side is unchanged, so it isn't reported missing
+    assert out["route"].length_m == pytest.approx(s["length_m"], abs=0.01)
+    assert {e["way_id"] for e in out["route"].edges} == {1, 2, 3}
+
+
 def test_retrace_reports_missing_way():
     b = square()
     s = saved(b)

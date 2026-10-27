@@ -2,7 +2,7 @@
 
 A saved candidate keeps the OSM nodes and graph edge keys it walked (`route`). On a newer cut, each step from
 node u to node v along way W is found again using only W's edges, which also covers W being split by a new
-junction. If a node or the way is gone, or W no longer joins u and v, the way is reported missing and there is
+junction or merged where a junction went away. If a node or the way is gone, or W no longer joins u and v, the way is reported missing and there is
 no route (CLAUDE.md rule 1: report the gap, never draw a connecting line).
 """
 
@@ -34,8 +34,16 @@ def retrace(tg, saved_candidate: dict) -> dict:
             by_way[w] = H
         return by_way[w]
 
-    for (u, v), k in zip(zip(rec["nodes"], rec["nodes"][1:]), rec["keys"]):
+    saved_nodes, saved_keys, i = rec["nodes"], rec["keys"], 0
+    while i < len(saved_keys):
+        u, k = saved_nodes[i], saved_keys[i]
         w = _way_of(k)
+        # A saved node that is no longer a graph node (a side trail at that junction was deleted) is walked
+        # through on the same way to the next saved node that still is one. Merged edges never mix ways.
+        j = i + 1
+        while j < len(saved_nodes) - 1 and saved_nodes[j] not in G and _way_of(saved_keys[j]) == w:
+            j += 1
+        v, i = saved_nodes[j], j
         if G.has_edge(u, v, k) and G[u][v][k]["way_id"] == w:
             keys.append(k)
             nodes.append(v)
