@@ -31,6 +31,7 @@ MAX_SECONDS = 60.0  # search time budget; the report says when it was hit
 MAX_DETOUR_M = 1609.0  # a must-visit spot can be reached by an out-and-back of at most this (one way)
 MAX_STEMS = 8  # nearest junctions tried as lollipop stems
 WIDEN = 0.25  # if nothing fits the range, look this much wider and report the deviation
+MAX_EVALUATED = 40  # only the best this many (by distance, roads, repeats) get day plans: they're the slow part
 FIRST_RESULTS_S = 8.0  # after this long, hand over the best trips found so far while the search goes on
 
 
@@ -290,19 +291,32 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
             found = _apply_must_visit(tg, found, must_visit, no_roads, excluded, rep)
         if direction:
             found = [c if orientation(c.route) == direction else _reversed(tg, c) for c in found]
+        scored = len(found)
+        mid = (min_m + max_m) / 2
+        order = lambda c: (c.penalty, abs(c.length_m - mid), c.length_m)  # noqa: E731
         for c in found:
             c.penalty = penalty(c.length_m, c.road_m, c.last_resort_m, c.repeated_m, min_m, max_m, weights)
-            if evaluate is not None:
+        if evaluate is not None:
+            found.sort(key=order)
+            # the best few dozen, plus enough different-looking ones that the final pick still has variety
+            pool, spread = found[:MAX_EVALUATED], []
+            for c in found:
+                if len(spread) == 3 * count:
+                    break
+                if all(c.overlap(o) < max_overlap for o in spread):
+                    spread.append(c)
+            found = pool + [c for c in spread if c not in pool]
+            for c in found:
                 c.penalty += evaluate(c)
-        mid = (min_m + max_m) / 2
-        found.sort(key=lambda c: (c.penalty, abs(c.length_m - mid), c.length_m))
+        rep["evaluated"] = len(found) if evaluate is not None else 0
+        found.sort(key=order)
         chosen = []
         for c in found:
             if all(c.overlap(o) < max_overlap for o in chosen):
                 chosen.append(c)
             if len(chosen) == count:
                 break
-        rep["scored"] = len(found)
+        rep["scored"] = scored
         return chosen
 
     snap = {"due": clock() + first_s, "done": on_snapshot is None}

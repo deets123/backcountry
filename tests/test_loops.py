@@ -409,3 +409,14 @@ def test_no_snapshot_when_search_finishes_first(grid, tg):
     snaps = []
     report = search(tg, grid.ids["g00"], 2 * KM, 9 * KM, on_snapshot=snaps.append, first_s=999)
     assert snaps == [] and report["partial"] is False
+
+
+def test_only_the_best_loops_get_day_plans(grid, tg, monkeypatch):
+    from backcountry import loops
+
+    monkeypatch.setattr(loops, "MAX_EVALUATED", 1)
+    seen = []
+    report = loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, evaluate=lambda c: seen.append(c) or 0.0)
+    total = report["loops_found"] + report["lollipops_found"]
+    assert report["evaluated"] == len(seen) <= 1 + 3 * 1 and len(seen) < total
+    assert all(c in seen for c in report["candidates"]) and len(report["candidates"]) == 1
