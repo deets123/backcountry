@@ -168,11 +168,17 @@ def write_area_region(spec: AreaSpec, areas_dir: Path | None = None) -> Path:
     return path
 
 
-ELEVATION_DONE = "elevation_done_{date}"  # beside a cut: its elevation step finished (the area is ready)
+ELEVATION_DONE = "elevation_done_{date}"
+ELEVATION_PAD_DEG = 0.05  # elevation is fetched this far (~5 km) past the area's box, no farther  # beside a cut: its elevation step finished (the area is ready)
 
 
 def elevation_done(region, raw_dir: Path | None, date: str) -> bool:
     return (ingest.region_raw_dir(region, raw_dir) / ELEVATION_DONE.format(date=date)).exists()
+
+
+def _cells(tg, spec: AreaSpec) -> list:
+    b, p = spec.bbox, ELEVATION_PAD_DEG
+    return corridor_cells(tg, within=(b.west - p, b.south - p, b.east + p, b.north + p))
 
 
 def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Path | None = None,
@@ -189,7 +195,7 @@ def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Pa
             return {"area_id": spec.id, "cut": date, "already": True}
         tg = build_graph(ingest.load_raw(region, raw_dir, date), region.crs)
         t1 = time.monotonic()
-        dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=corridor_cells(tg))
+        dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=_cells(tg, spec))
         (out_dir / ELEVATION_DONE.format(date=date)).write_text(date)
         return {"area_id": spec.id, "cut": date, "already": False, "elevation_only": True,
                 "seconds": {"elevation": round(time.monotonic() - t1, 2)}}
@@ -210,8 +216,84 @@ def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Pa
     t1 = time.monotonic()
     if on_trails is not None:
         on_trails()
-    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=corridor_cells(tg))
+    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=_cells(tg, spec))
     (out_dir / ELEVATION_DONE.format(date=date)).write_text(date)
     t2 = time.monotonic()
     return {"area_id": spec.id, "cut": date, "already": False, "edges": tg.graph.number_of_edges(),
             "seconds": {"cut_and_graph": round(t1 - t0, 2), "elevation": round(t2 - t1, 2)}}
+
+
+# --- prepared ahead ---------------------------------------------------------------------------------------
+
+PREPARED_FILE = "prepared.json"  # in the areas folder: areas prepared ahead, never evicted for user-opened ones
+
+
+def prepared_ids(areas_dir: Path | None = None) -> set[str]:
+    path = (areas_dir or AREAS_DIR) / PREPARED_FILE
+    try:
+        return set(json.loads(path.read_text()).get("areas", []))
+    except (OSError, ValueError):
+        return set()
+
+
+def write_prepared(areas_dir: Path | None, ids) -> None:
+    d = areas_dir or AREAS_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = d / (PREPARED_FILE + ".tmp")
+    tmp.write_text(json.dumps({"areas": sorted(set(ids)), "prepared_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}))
+    os.replace(tmp, d / PREPARED_FILE)
+
+
+def _area_bytes(area_id: str, raw_dir: Path | None) -> int:
+    d = (raw_dir or ingest.RAW_DIR) / area_id
+    return sum(p.stat().st_size for p in d.rglob("*") if p.is_file()) if d.exists() else 0
+
+
+def _trail_miles(con, spec: AreaSpec, date: str) -> float:
+    b = spec.bbox
+    tg = build_graph(osm_index.cut(con, (b.west, b.south, b.east, b.north), date), utm_crs((b.west + b.east) / 2, (b.south + b.north) / 2))
+    return sum(d["length_m"] for *_, d in tg.graph.edges(data=True) if not d["is_road"]) / 1609.344
+
+
+def prepare_popular(con, budget_gb: float, raw_dir: Path | None = None, areas_dir: Path | None = None,
+                    dem_fetch=None, limit: int | None = None, log=print) -> dict:
+    """Prepare popular areas ahead (osm_index.popular_areas; wilderness ranked by trail miles), stopping when
+    the next one would take prepared areas past budget_gb. Each finished area is recorded in prepared.json."""
+    dem_fetch = dem_fetch or ingest.fetch_dem
+    date = osm_index.index_meta(con)["extract_date"]
+    found = osm_index.popular_areas(con, MAX_AREA_KM2)
+    parks = [a for a in found if "Wilderness" not in (a["type_label"] or "") and "Wilderness" not in a["name"]]
+    wild = [a for a in found if a not in parks]
+    if wild:
+        log(f"Ranking {len(wild)} wilderness areas by trail miles…")
+        miles = {a["osm"]: _trail_miles(con, _from_area(con, a), date) for a in wild}
+        wild.sort(key=lambda a: -miles[a["osm"]])
+    prepared, skipped = sorted(prepared_ids(areas_dir)), []
+    budget = budget_gb * 1e9
+    used = sum(_area_bytes(a, raw_dir) for a in prepared)
+    for a in (parks + wild)[:limit]:
+        spec = _from_area(con, a)
+        if spec.id in prepared and _area_bytes(spec.id, raw_dir):
+            out = prepare_area(spec, con, raw_dir, areas_dir, dem_fetch)  # quick when fresh; refreshes a stale cut
+            used = sum(_area_bytes(x, raw_dir) for x in prepared)
+            continue
+        before = _area_bytes(spec.id, raw_dir)
+        try:
+            out = prepare_area(spec, con, raw_dir, areas_dir, dem_fetch)
+        except ValueError as e:  # e.g. no trails there
+            skipped.append({"area": spec.display_name, "reason": str(e)})
+            continue
+        size = _area_bytes(spec.id, raw_dir) - before
+        if used + size > budget:
+            if not before:  # a new one that doesn't fit: take it out again
+                import shutil
+
+                shutil.rmtree((raw_dir or ingest.RAW_DIR) / spec.id, ignore_errors=True)
+                ((areas_dir or AREAS_DIR) / f"{spec.id}.yaml").unlink(missing_ok=True)
+            log(f"Stopping: {spec.display_name} would go past the {budget_gb:g} GB share.")
+            break
+        used += size
+        prepared.append(spec.id)
+        write_prepared(areas_dir, prepared)
+        log(f"Prepared {spec.display_name} ({size / 1e6:.0f} MB, {out.get('seconds', {})}); {used / 1e9:.2f} GB used")
+    return {"prepared": [p for p in prepared], "skipped": skipped, "used_gb": round(used / 1e9, 3)}

@@ -176,14 +176,21 @@ class AreaWorker:
         return sorted(self.settings.areas.glob("*.yaml"), key=lambda p: p.stat().st_mtime)  # oldest first
 
     def _usage(self) -> int:
+        """Bytes used by areas people opened (prepared-ahead areas have their own share)."""
+        raw, prepared = self.settings.raw_dir or ingest.RAW_DIR, areas.prepared_ids(self.settings.areas)
+        return sum(_dir_bytes(raw / p.stem) for p in self._area_ids() if p.stem not in prepared)
+
+    def _budget(self) -> float:
         raw = self.settings.raw_dir or ingest.RAW_DIR
-        return sum(_dir_bytes(raw / p.stem) for p in self._area_ids())
+        prepared = sum(_dir_bytes(raw / a) for a in areas.prepared_ids(self.settings.areas))
+        return self.limits["disk_gb"] * 1e9 - min(prepared, self.settings.prepared_gb * 1e9)
 
     def _make_room(self) -> None:
-        budget = self.limits["disk_gb"] * 1e9
+        budget = self._budget()
         if self._usage() <= budget:
             return
-        keep = self._referenced() | {k for k, st in self.status.items() if st["status"] in ("queued", "preparing", "trails")}
+        keep = (self._referenced() | areas.prepared_ids(self.settings.areas)
+                | {k for k, st in self.status.items() if st["status"] in ("queued", "preparing", "trails")})
         raw = self.settings.raw_dir or ingest.RAW_DIR
         for p in self._area_ids():
             if p.stem in keep:

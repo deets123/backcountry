@@ -30,6 +30,7 @@ class Settings:
     max_loaded: int = 4            # areas kept built in memory (least recently used goes first)
     area_limits: dict | None = None  # {max_queue, per_hour, disk_gb}; defaults in api.area_worker
     area_thread: bool = True       # prepare areas on a background thread (tests run them inline)
+    prepared_gb: float = 8.0       # disk share reserved for areas prepared ahead (backcountry areas prepare-popular)
 
     @classmethod
     def default(cls) -> "Settings":
@@ -38,7 +39,8 @@ class Settings:
         env = {k: os.environ.get(f"BACKCOUNTRY_AREA_{k.upper()}") for k in ("max_queue", "per_hour", "disk_gb")}
         limits = {k: (float(v) if k == "disk_gb" else int(v)) for k, v in env.items() if v}
         return cls(raw_dir=ingest.RAW_DIR, runs_dir=REPO_ROOT / "data" / "runs", regions_dir=REGIONS_DIR,
-                   areas_dir=AREAS_DIR, osm_dir=usdata.OSM_DIR, area_limits=limits or None)
+                   areas_dir=AREAS_DIR, osm_dir=usdata.OSM_DIR, area_limits=limits or None,
+                   prepared_gb=float(os.environ.get("BACKCOUNTRY_PREPARED_GB") or 8.0))
 
     @property
     def areas(self) -> Path:

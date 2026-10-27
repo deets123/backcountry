@@ -140,11 +140,14 @@ def graph_bounds_ll(tg, pad_deg: float = 0.005) -> tuple[float, float, float, fl
             max(b[2] for b in bounds) + pad_deg, max(b[3] for b in bounds) + pad_deg)
 
 
-def corridor_cells(tg, cell_deg: float = DEM_CELL_DEG, buffer_m: float = CORRIDOR_M) -> list[tuple[float, float, float, float]]:
+def corridor_cells(tg, cell_deg: float = DEM_CELL_DEG, buffer_m: float = CORRIDOR_M,
+                   within: tuple | None = None) -> list[tuple[float, float, float, float]]:
     """The grid cells (west, south, east, north; edges at multiples of cell_deg) that any edge, widened by
-    buffer_m, touches. Elevation is read only for these, so the empty parts of a big park cost nothing."""
+    buffer_m, touches. Elevation is read only for these, so the empty parts of a big park cost nothing.
+    `within` (west, south, east, north): only cells touching it (a cut's long roads run far outside an area)."""
     from shapely.geometry import box
 
+    limit = box(*within) if within else None
     found = set()
     for *_, d in tg.graph.edges(data=True):
         line = d["geom_wgs84"]
@@ -153,7 +156,8 @@ def corridor_cells(tg, cell_deg: float = DEM_CELL_DEG, buffer_m: float = CORRIDO
         w, s, e, n = widened.bounds
         for i in range(math.floor(w / cell_deg), math.floor(e / cell_deg) + 1):
             for j in range(math.floor(s / cell_deg), math.floor(n / cell_deg) + 1):
-                if widened.intersects(box(i * cell_deg, j * cell_deg, (i + 1) * cell_deg, (j + 1) * cell_deg)):
+                cell = box(i * cell_deg, j * cell_deg, (i + 1) * cell_deg, (j + 1) * cell_deg)
+                if widened.intersects(cell) and (limit is None or limit.intersects(cell)):
                     found.add((i, j))
     return [(round(i * cell_deg, 9), round(j * cell_deg, 9), round((i + 1) * cell_deg, 9), round((j + 1) * cell_deg, 9))
             for i, j in sorted(found)]

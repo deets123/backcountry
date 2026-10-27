@@ -345,6 +345,31 @@ def containing_areas(con, lon: float, lat: float) -> list[dict]:
     return sorted((_area_record(r) for r in _areas_at(con, lon, lat, states=False)), key=lambda a: a["area_km2"])
 
 
+POPULAR_ORDER = ("National Park", "National Monument", "National Recreation Area")
+
+
+def popular_areas(con, max_km2: float = 5000.0) -> list[dict]:
+    """Areas worth preparing ahead, in order: national parks (largest first), then national monuments and
+    recreation areas, then wilderness areas (as found; `areas.prepare_popular` ranks those by trail miles).
+    Only areas small enough to open whole, inside a US state."""
+    rows = con.execute("SELECT * FROM areas WHERE is_state = 0 AND area_km2 <= ? AND (name LIKE '%National%' "
+                       "OR name LIKE '%Wilderness%' OR tags LIKE '%protection_title%')", (max_km2,))
+    tiers: dict[int, list[dict]] = {}  # 0 national parks, 1 monuments and recreation areas, 2 wilderness
+    for r in rows:
+        a = _area_record(r)
+        label = a["type_label"] or ""
+        tier = (0 if label == "National Park" else 1 if label in POPULAR_ORDER
+                else 2 if "Wilderness" in label or "Wilderness" in a["name"] else None)
+        if tier is not None:
+            tiers.setdefault(tier, []).append(a)
+    out = []
+    for tier in sorted(tiers):
+        group = sorted(tiers[tier], key=lambda a: (-a["area_km2"], a["name"]))
+        out += [a for a in group if state_at(con, *wkb.loads(con.execute(
+            "SELECT wkb FROM areas WHERE osm = ?", (a["osm"],)).fetchone()[0]).representative_point().coords[0])]
+    return out
+
+
 def area_by_osm(con, osm: str) -> dict | None:
     r = con.execute("SELECT * FROM areas WHERE osm = ? AND is_state = 0", (osm,)).fetchone()
     return _area_record(r) | {"state": state_at(con, *wkb.loads(r["wkb"]).representative_point().coords[0])} if r else None

@@ -410,3 +410,17 @@ def test_ready_area_is_reloaded_with_its_elevation(tmp_path, index_path):
     store.forget = lambda rid: (forgotten.append(rid), orig(rid))
     run_worker(client)
     assert forgotten == [area_id]
+
+
+def test_user_areas_never_evict_prepared_ones(tmp_path, index_path):
+    from backcountry import areas as areas_mod
+
+    client, _ = make_client(tmp_path, index_path)
+    park = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    wild = client.post("/api/areas", json={"ref": "relation/3004"}).json()["area_id"]
+    run_worker(client)
+    areas_mod.write_prepared(tmp_path / "areas", [park])
+    client.app.state.areas.limits["disk_gb"] = 0.0
+    client.post("/api/areas", json={"box": [-149.75, 10.75, -149.65, 10.85]})
+    assert (tmp_path / "areas" / f"{park}.yaml").exists() and (tmp_path / "raw" / park).exists()
+    assert not (tmp_path / "raw" / wild).exists()

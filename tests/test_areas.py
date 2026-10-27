@@ -199,4 +199,40 @@ def test_prepare_area_asks_for_elevation_only_along_trails(index, dirs):
     areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)
     region = load_region(spec.id, regions_dir=dirs["areas_dir"].parent / "none", areas_dir=dirs["areas_dir"])
     tg = build_graph(ingest.load_raw(region, dirs["raw_dir"]), region.crs)
-    assert got == [corridor_cells(tg)] and got[0]
+    b, p = spec.bbox, areas.ELEVATION_PAD_DEG
+    assert got == [corridor_cells(tg, within=(b.west - p, b.south - p, b.east + p, b.north + p))] and got[0]
+
+
+# --- prepared ahead (popular areas) -------------------------------------------------------------
+
+
+def test_popular_areas_order(index):
+    names = [a["name"] for a in osm_index.popular_areas(index)]
+    assert names.index("Testpark National Park") < names.index("Testrock National Monument") < names.index("Testpark Wilderness")
+    assert "Testwood National Forest" not in names and "Statea" not in names
+
+
+def sized_dem(nbytes):
+    def fetch(region, bounds, raw_dir=None, **kw):
+        d = ingest.region_raw_dir(region, raw_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "dem13_fake.bin").write_bytes(b"\0" * nbytes)
+    return fetch
+
+
+def test_prepare_popular_stops_at_the_budget(index, dirs, monkeypatch):
+    monkeypatch.setattr(osm_index, "popular_areas", lambda con, *a: [osm_index.area_by_osm(con, r) for r in
+                                                                     ("relation/3003", "relation/3004")])
+    size = 1_000_000
+    # area files are small next to the fake elevation: one area fits in 1.5 of them, two don't
+    out = areas.prepare_popular(index, budget_gb=1.5 * size / 1e9, dem_fetch=sized_dem(size), log=lambda *a: None, **dirs)
+    park, wild = (areas.area_from_ref(index, r).id for r in ("relation/3003", "relation/3004"))
+    assert out["prepared"] == [park] and out["used_gb"] <= 1.5 * size / 1e9
+    assert areas.prepared_ids(dirs["areas_dir"]) == {park}
+    assert not (dirs["raw_dir"] / wild).exists() and not (dirs["areas_dir"] / f"{wild}.yaml").exists()
+
+
+def test_prepare_popular_skips_areas_without_trails(index, dirs, monkeypatch):
+    monkeypatch.setattr(osm_index, "popular_areas", lambda con, *a: [osm_index.area_by_osm(con, "relation/3006")])
+    out = areas.prepare_popular(index, budget_gb=1.0, dem_fetch=no_dem(), log=lambda *a: None, **dirs)
+    assert out["prepared"] == [] and len(out["skipped"]) == 1

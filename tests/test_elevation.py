@@ -264,3 +264,15 @@ def test_corridor_samples_match_a_full_read_along_trails(tmp_path):
                                           sorted(tg_cells.graph.edges(keys=True, data=True))):
         assert b["gain_ft_fwd"] == pytest.approx(a["gain_ft_fwd"], abs=0.1)
         assert b["loss_ft_fwd"] == pytest.approx(a["loss_ft_fwd"], abs=0.1)
+
+
+def test_corridor_cells_stay_near_the_area():
+    from shapely.geometry import box
+
+    from backcountry.elevation import corridor_cells
+
+    tg = _corridor_graph()
+    near = (-81.01, 36.1, -80.89, 36.2)  # around the two near trails; the far one is outside
+    cells = corridor_cells(tg, within=near)
+    assert cells and all(box(*c).intersects(box(*near)) for c in cells)
+    assert len(cells) < len(corridor_cells(tg))
