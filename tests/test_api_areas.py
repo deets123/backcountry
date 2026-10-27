@@ -18,9 +18,9 @@ class FakeDem:
             raise RuntimeError(f"cannot open /secret/path/{region.id}.tif")
 
 
-def make_client(tmp_path, index_path, dem=None, **limits):
+def make_client(tmp_path, index_path, dem=None, osm_dir=None, **limits):
     settings = Settings(raw_dir=tmp_path / "raw", runs_dir=tmp_path / "runs", areas_dir=tmp_path / "areas",
-                        osm_dir=index_path.parent, area_thread=False,
+                        osm_dir=osm_dir or index_path.parent, area_thread=False,
                         area_limits={"max_queue": 3, "per_hour": 6, "disk_gb": 40.0, **limits})
     dem = dem or FakeDem()
     return TestClient(create_app(settings, web_dist=tmp_path / "no-web", dem_fetch=dem)), dem
@@ -277,3 +277,76 @@ def test_update_bad_candidate(planned):
     assert client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 9}).status_code == 404
     assert client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": "1"}).status_code == 400
     assert client.get("/api/runs/../update", params={"candidate": 1}).status_code == 404
+
+
+# --- a refreshed index: areas opened before it get a new cut ------------------------------------------------
+
+NEWER = "2026-11-20"
+
+
+def own_osm_dir(tmp_path, index_path):
+    """An index folder of the test's own (the shared fixture index stays untouched), holding the first index."""
+    import shutil
+
+    d = tmp_path / "osm"
+    d.mkdir()
+    shutil.copy(index_path, d / index_path.name)
+    return d
+
+
+def refresh_index(osm_dir):
+    from backcountry import osm_index
+    from conftest import FIXTURES
+
+    osm_index.build_index(FIXTURES / "mini.osm", osm_dir / f"us-{NEWER}.sqlite", NEWER)
+
+
+def area_cuts(client, area_id):
+    from backcountry import ingest
+    from backcountry.region import load_region
+
+    s = client.app.state.settings
+    return ingest.cuts(load_region(area_id, s.regions_dir, s.areas), s.raw_dir)
+
+
+def test_refresh_gives_an_opened_area_a_new_cut_on_next_open(tmp_path, index_path):
+    d = own_osm_dir(tmp_path, index_path)
+    client, _ = make_client(tmp_path, index_path, osm_dir=d, per_hour=1)
+    a = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    assert area_cuts(client, a) == [MINI_DATE]
+    refresh_index(d)
+    r = client.post("/api/areas", json={"ref": "relation/3003"}).json()
+    assert r["status"] == "queued"  # not counted against the hourly cap (per_hour=1 is used up)
+    run_worker(client)
+    assert area_cuts(client, a) == [MINI_DATE, NEWER]
+    assert client.post("/api/areas", json={"ref": "relation/3003"}).json()["status"] == "ready"
+
+
+def test_refresh_with_a_full_queue_opens_on_the_older_data(tmp_path, index_path):
+    d = own_osm_dir(tmp_path, index_path)
+    client, _ = make_client(tmp_path, index_path, osm_dir=d, max_queue=1)
+    client.post("/api/areas", json={"ref": "relation/3003"})
+    run_worker(client)
+    refresh_index(d)
+    assert client.post("/api/areas", json={"box": [-149.95, 10.6, -149.9, 10.65]}).json()["status"] == "queued"
+    assert client.post("/api/areas", json={"ref": "relation/3003"}).json()["status"] == "ready"
+
+
+def test_update_offer_after_refresh_without_reopening_the_area(tmp_path, index_path):
+    d = own_osm_dir(tmp_path, index_path)
+    client, _ = make_client(tmp_path, index_path, osm_dir=d)
+    a = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    ths = client.get(f"/api/regions/{a}/trailheads").json()["trailheads"]
+    th = next(t for t in ths if "osm_trailhead" in (t.get("kinds") or []))
+    run = client.post(f"/api/regions/{a}/generate", json={"trailhead": th["id"], "total": "20-32", "nights": 1,
+                                                          "daily": "8-20", "type": "loop"}).json()
+    refresh_index(d)
+    check = client.get(f"/api/runs/{run['run_id']}/update", params={"candidate": 1}).json()
+    assert check["newer"] is True and check["latest"] == NEWER
+    early = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
+    assert early["ok"] is False and "still being set up" in early["message"] and "unchanged" in early["message"]
+    run_worker(client)  # the check queued the new cut quietly
+    done = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
+    assert done["ok"] is True and done["run"]["data_cut"] == NEWER

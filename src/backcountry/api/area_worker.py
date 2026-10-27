@@ -79,33 +79,66 @@ class AreaWorker:
         finally:
             con.close()
 
-    def _ready(self, area_id: str) -> bool:
+    def _cuts(self, area_id: str) -> list[str]:
         try:
             region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
         except FileNotFoundError:
-            return False
-        return bool(ingest.cuts(region, self.settings.raw_dir))
+            return []
+        return ingest.cuts(region, self.settings.raw_dir)
+
+    def _ready(self, area_id: str) -> bool:
+        return bool(self._cuts(area_id))
+
+    def _index_date(self) -> str | None:
+        try:
+            con = self.index()
+        except NoIndex:
+            return None
+        try:
+            return osm_index.index_meta(con)["extract_date"]
+        finally:
+            con.close()
 
     def request(self, spec: areas.AreaSpec) -> dict:
+        """Ready if the area has a cut of the current index. An area opened before a refresh gets a new cut
+        (quick: its elevation is cached; not counted against the hourly cap), or opens on its older cut when
+        the queue is full. A new area is queued within the limits."""
         with self._lock:
             current = self.status.get(spec.id)
             if current and current["status"] in ("queued", "preparing"):
                 return current
-            if self._ready(spec.id):
+            cuts, date = self._cuts(spec.id), self._index_date()
+            if cuts and (date is None or date in cuts):
                 return self._set(spec, "ready")
             now = time.monotonic()
             while self._started and now - self._started[0] > 3600:
                 self._started.popleft()
             if self._queue.qsize() >= self.limits["max_queue"]:
+                if cuts:
+                    return self._set(spec, "ready")  # usable on its older data; refreshed on a later open
                 raise Busy("The server is busy setting up other areas. Try again in a few minutes.")
-            if len(self._started) >= self.limits["per_hour"]:
-                raise Busy("Lots of new areas were opened in the last hour. Try again later, or pick one opened recently.")
-            self._make_room()
-            self._started.append(now)
+            if not cuts:
+                if len(self._started) >= self.limits["per_hour"]:
+                    raise Busy("Lots of new areas were opened in the last hour. Try again later, or pick one opened recently.")
+                self._make_room()
+                self._started.append(now)
             st = self._set(spec, "queued")
             self._queue.put(spec)
         self._ensure_thread()
         return st
+
+    def newer_data(self, area_id: str) -> str | None:
+        """The current index's date if this generated area has no cut of it yet (a refresh happened since it was
+        opened); that cut is then queued quietly, so an update can follow. None otherwise."""
+        cuts, date = self._cuts(area_id), self._index_date()
+        if date is None or not cuts or date in cuts:
+            return None
+        region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+        a = region.area or {}
+        spec = areas.AreaSpec(id=region.id, name=region.name, type_label=a.get("type_label") or "Area",
+                              state=a.get("state"), bbox=region.bbox, osm=a.get("osm"), capped=bool(a.get("capped")))
+        self.request(spec)  # a known area: never Busy, at worst left for a later open
+        return date
 
     def _set(self, spec, status: str, message: str | None = None) -> dict:
         st = {"area_id": spec.id, "name": spec.name, "status": status,

@@ -247,6 +247,8 @@ def update_check(run_id: str, request: Request, candidate: int = 1):
     run, c = _candidate(request, run_id, candidate)
     loaded = _regions(request).get(run["region"])
     have, latest = _version_of(run), _latest_of(loaded)
+    pending = request.app.state.areas.newer_data(run["region"]) if loaded.region.generated else None
+    latest = max(latest, pending or latest)  # a refreshed index: its cut is being made now
     return {"newer": bool(have and latest > have), "cut": have, "latest": latest,
             "approx_bytes": len(json.dumps(c))}
 
@@ -257,6 +259,10 @@ def update_trip(run_id: str, request: Request, body: dict):
     The old run is never modified; the phone keeps the old trip unless the user accepts."""
     run, c = _candidate(request, run_id, _candidate_n(body.get("candidate")))
     loaded = _regions(request).get(run["region"])
+    pending = request.app.state.areas.newer_data(run["region"]) if loaded.region.generated else None
+    if pending and pending > _latest_of(loaded):
+        return {"ok": False, "message": "The newer trail data for this area is still being set up. Try again in a minute. "
+                                        "Your trip is unchanged."}
     if not (_version_of(run) and _latest_of(loaded) > _version_of(run)):
         raise RequestError("update", "This trip already uses the newest trail data.")
     followed = retrace(loaded.tg, c)
