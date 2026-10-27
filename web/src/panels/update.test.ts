@@ -56,13 +56,15 @@ describe("the update steps", () => {
   it("nothing is sent until the user taps", () => {
     const root = document.createElement("div");
     root.innerHTML = renderUpdate({ id: "old-1", phase: "offer", latest: "2026-11-20", mb: 3 });
-    const actions = { reviewUpdate: vi.fn(), declineUpdate: vi.fn(), acceptUpdate: vi.fn() };
+    const actions = { reviewUpdate: vi.fn(), declineUpdate: vi.fn(), laterUpdate: vi.fn(), acceptUpdate: vi.fn() };
     bindUpdate(root, actions);
     expect(actions.reviewUpdate).not.toHaveBeenCalled();
     root.querySelector<HTMLButtonElement>("#update-review")!.click();
     expect(actions.reviewUpdate).toHaveBeenCalledTimes(1);
     root.querySelector<HTMLButtonElement>("#update-later")!.click();
-    expect(actions.declineUpdate).toHaveBeenCalledTimes(1);
+    // "Not now" (say, to wait for Wi-Fi) only hides the offer; it isn't remembered like "Keep my trip"
+    expect(actions.laterUpdate).toHaveBeenCalledTimes(1);
+    expect(actions.declineUpdate).not.toHaveBeenCalled();
   });
   it("review fetches the re-planned trip and its changes", async () => {
     const u = await reviewUpdate(rec(), "2026-11-20", { updateTrip: async () => ({ ok: true, run: newRun, changes: ["No changes to this trip."] }) });

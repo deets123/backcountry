@@ -245,6 +245,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       store.set({ tripUpdate: { id: rec.id, phase: "busy" } });
       store.set({ tripUpdate: await reviewUpdate(rec, u.latest, { updateTrip }) });
     },
+    laterUpdate() { store.set({ tripUpdate: null }); },  // offered again the next time the trip is opened
     async declineUpdate() {
       const s = store.get(), u = s.tripUpdate, rec = s.saved.find((t) => t.id === s.savedId);
       if (!rec || !u || (u.phase !== "offer" && u.phase !== "review")) return;

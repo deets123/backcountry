@@ -1,7 +1,8 @@
 // Newer trail data for a saved trip: offered, never applied on its own. Opening a saved trip online asks the server
 // whether its area has newer data; the offer says roughly how much updating would download (so the user can wait for
 // Wi-Fi), "Review changes" re-plans the same route on the new data and lists what changed, and only "Accept" replaces
-// the saved trip and its offline copy. "Keep my trip" is remembered until an even newer version appears.
+// the saved trip and its offline copy. "Keep my trip" is remembered until an even newer version appears; "Not now"
+// only hides the offer until the trip is next opened.
 import type { SavedTrip } from "../offline/db";
 import type { Run } from "../types";
 import { esc } from "./common";
@@ -73,11 +74,11 @@ export function renderUpdate(u: TripUpdate): string {
   }
 }
 
-export interface UpdateActions { reviewUpdate(): void; declineUpdate(): void; acceptUpdate(): void }
+export interface UpdateActions { reviewUpdate(): void; declineUpdate(): void; laterUpdate(): void; acceptUpdate(): void }
 
 export function bindUpdate(root: HTMLElement, actions: UpdateActions): void {
   root.querySelector("#update-review")?.addEventListener("click", () => actions.reviewUpdate());
-  root.querySelector("#update-later")?.addEventListener("click", () => actions.declineUpdate());
+  root.querySelector("#update-later")?.addEventListener("click", () => actions.laterUpdate());
   root.querySelector("#update-keep")?.addEventListener("click", () => actions.declineUpdate());
   root.querySelector("#update-accept")?.addEventListener("click", () => actions.acceptUpdate());
 }
