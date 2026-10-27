@@ -46,7 +46,7 @@ class LoopGraph:
 
 @dataclass
 class Candidate:
-    kind: str  # "loop" or "lollipop"
+    kind: str  # "loop", "lollipop" or "out_and_back"
     start: int
     keys: list[str]  # real graph edge keys in walking order
     nodes: list[int]  # real graph nodes in walking order (len(keys) + 1)
@@ -65,6 +65,7 @@ class Candidate:
     rating: dict | None = None  # a day hike's difficulty rating (whole route, day-hike scale); trips rate per day
     suggestion: dict | None = None  # planning.suggest_fix: one re-checked setting change {text, days}
     pins_m: list | None = None  # resolved pinned camps, kept so the suggestion re-splits the same way
+    turnaround: int | None = None  # out-and-back: the node it turns back at
 
     def overlap(self, other: "Candidate") -> float:
         return overlap(self.keys, other.keys, self.lengths | other.lengths)
@@ -283,7 +284,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     H = lg.graph
     report = {"loop_graph": {"nodes": H.number_of_nodes(), "edges": H.number_of_edges(), "pruned": lg.pruned,
                              "merged": lg.merged, "reach_m": lg.reach_m}, "loops_found": 0, "lollipops_found": 0,
-              "stems_tried": 0, "via_pairs_tried": 0, "truncated": False, "widened": False,
+              "out_and_backs_found": 0, "stems_tried": 0, "via_pairs_tried": 0, "truncated": False, "widened": False,
               "avoided_edges": len(excluded), "must_visit_notes": [], "notes": [], "partial": False}
 
     def choose(found: list[Candidate], rep: dict) -> list[Candidate]:
@@ -360,6 +361,11 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
                     c = make(steps)
                     found.append(c)
                     so_far.append(c)
+        if "out_and_back" in kinds:
+            obs = out_and_backs(tg, start, lo, hi, no_roads, excluded, deadline=deadline, report=report)
+            report["out_and_backs_found"] += len(obs)
+            found += obs
+            so_far.extend(obs)
         return found
 
     found = collect(min_m, max_m)
@@ -375,11 +381,52 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
             report["notes"].append("No loop through the start fits even a 25% wider range. Try --type any, a different "
                                    "range, or fewer --avoid/--no-roads restrictions.")
         else:
-            report["notes"].append("No loop or lollipop fits even a 25% wider range with these restrictions.")
+            report["notes"].append("No trip of this kind fits even a 25% wider range with these restrictions.")
     snap["done"] = True
     chosen = choose(found, report)
     report.update(candidates=chosen, seconds=time.time() - t0)
     return report
+
+
+# --- out-and-back ---------------------------------------------------------------------------------------
+
+MAX_OUT_AND_BACKS = 200  # turnarounds made into candidates, closest to the range's middle first
+
+
+def out_and_backs(tg, start: int, lo: float, hi: float, no_roads: bool = False, exclude_keys=frozenset(),
+                  through: int | None = None, deadline=None, report=None) -> list[Candidate]:
+    """Walk out to a turnaround and back the same way, length in [lo, hi]. Turnarounds are trail ends and
+    junctions (from the full graph: spurs count here). With `through`, only turnarounds whose way out passes
+    `through`, or `through` itself. The way out is the preferred route (roads cost more), as for a stem."""
+    R = routing_graph(tg, no_roads, exclude_keys=exclude_keys)
+    if start not in R:
+        return []
+    G = tg.graph
+    _, paths = nx.single_source_dijkstra(R, start, weight="w")
+    found = []
+    for x, path in paths.items():
+        if x == start or not (G.degree(x) == 1 or G.degree(x) >= 3) and x != through:
+            continue
+        if through is not None and through not in path:
+            continue
+        keys = [R[a][b]["key"] for a, b in zip(path, path[1:])]
+        one_way = sum(G[a][b][k]["length_m"] for (a, b), k in zip(zip(path, path[1:]), keys))
+        if lo <= 2 * one_way <= hi:
+            found.append((abs(2 * one_way - (lo + hi) / 2), x, path, keys, one_way))
+    found.sort(key=lambda f: (f[0], f[1]))
+    out = []
+    for _, x, path, keys, one_way in found[:MAX_OUT_AND_BACKS]:
+        if deadline and time.time() > deadline:
+            if report is not None:
+                report["truncated"] = True
+            break
+        route = walk(tg, keys + keys[::-1], path + path[::-1][1:])
+        route.notes.append(f"Out and back, {one_way / 1609.344:.1f} mi each way.")
+        lengths = {e["key"]: e["length_m"] for e in route.edges}
+        out.append(Candidate(kind="out_and_back", start=start, keys=keys + keys[::-1], nodes=path + path[::-1][1:],
+                             stem_keys=list(keys), route=route, length_m=route.length_m, road_m=route.road_m,
+                             last_resort_m=route.last_resort_m, repeated_m=one_way, lengths=lengths, turnaround=x))
+    return out
 
 
 def _candidate(tg, H, kind, start, super_steps, stem_steps) -> Candidate:

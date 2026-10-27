@@ -18,7 +18,8 @@ from backcountry.route import add_elevation, resolve_point
 from backcountry.scoring import M_PER_MI, Weights
 from backcountry.split import resolve_pins, split_route
 
-KINDS = {"loop": ("loop",), "lollipop": ("lollipop",), "any": ("loop", "lollipop")}
+KINDS = {"loop": ("loop",), "lollipop": ("lollipop",), "out_and_back": ("out_and_back",),
+         "any": ("loop", "lollipop", "out_and_back")}
 LEVEL_WORDS = "easy, moderate, hard or strenuous"
 
 
@@ -167,7 +168,7 @@ class GenerateRequest:
             raise RequestError("daily", "nights needs daily (e.g. 6-11)")
         type_ = data.get("type") or "any"
         if type_ not in KINDS:
-            raise RequestError("type", "type must be loop, lollipop, or any")
+            raise RequestError("type", "type must be loop, lollipop, out_and_back or any")
         direction = data.get("direction") or None
         if direction not in (None, "cw", "ccw"):
             raise RequestError("direction", "direction must be cw or ccw")

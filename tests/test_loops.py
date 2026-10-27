@@ -420,3 +420,44 @@ def test_only_the_best_loops_get_day_plans(grid, tg, monkeypatch):
     total = report["loops_found"] + report["lollipops_found"]
     assert report["evaluated"] == len(seen) <= 1 + 3 * 1 and len(seen) < total
     assert all(c in seen for c in report["candidates"]) and len(report["candidates"]) == 1
+
+
+# --- out-and-back -------------------------------------------------------------------------
+
+
+def test_out_and_back_to_the_dead_spur(grid, tg):
+    from backcountry.loops import out_and_backs
+
+    cands = out_and_backs(tg, grid.ids["g00"], 2.5 * KM, 3.5 * KM)
+    to_d = [c for c in cands if c.turnaround == grid.ids["D"]]
+    assert to_d, [c.turnaround for c in cands]
+    c = to_d[0]
+    assert c.kind == "out_and_back" and c.nodes == c.nodes[::-1] and c.nodes[len(c.nodes) // 2] == grid.ids["D"]
+    assert c.repeated_m == pytest.approx(c.length_m / 2)
+    assert c.length_m == pytest.approx(3 * KM, abs=1)
+    assert any("Out and back, 0.9 mi each way." == n for n in c.route.notes)
+    _check_invariants(tg, cands)
+
+
+def test_out_and_back_turnarounds_fit_the_range(grid, tg):
+    from backcountry.loops import out_and_backs
+
+    for lo, hi in ((1 * KM, 2.2 * KM), (3 * KM, 6 * KM)):
+        cands = out_and_backs(tg, grid.ids["T"], lo, hi)
+        assert cands
+        assert all(lo <= c.length_m <= hi for c in cands)
+        G = tg.graph
+        assert all(G.degree(c.turnaround) == 1 or G.degree(c.turnaround) >= 3 for c in cands)
+
+
+def test_out_and_back_respects_avoid(grid, tg):
+    from backcountry.loops import avoided_keys, out_and_backs
+
+    excluded = avoided_keys(tg, ["Dead Spur"])
+    assert not any(c.turnaround == grid.ids["D"] for c in out_and_backs(tg, grid.ids["g00"], 2.5 * KM, 3.5 * KM,
+                                                                       exclude_keys=excluded))
+
+
+def test_search_kinds_out_and_back(grid, tg):
+    cands = find_candidates(tg, grid.ids["g00"], 2.5 * KM, 3.5 * KM, kinds=("out_and_back",))
+    assert cands and all(c.kind == "out_and_back" for c in cands)

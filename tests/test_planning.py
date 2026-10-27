@@ -22,7 +22,7 @@ def test_parse_range_rejects_bad_values(bad):
 
 def test_from_dict_defaults_and_round_trip():
     req = GenerateRequest.from_dict({"trailhead": "1000", "total": "2.4-5.1"})
-    assert req.count == 3 and req.type == "any" and req.kinds == ("loop", "lollipop")
+    assert req.count == 3 and req.type == "any" and req.kinds == ("loop", "lollipop", "out_and_back")
     assert req.total_m == pytest.approx((2.4 * 1609.344, 5.1 * 1609.344))
     assert req.daily is None and req.daily_m is None
     assert GenerateRequest.from_dict(req.to_dict()) == req
@@ -223,7 +223,7 @@ def _flat_trip(grid, days):
 
     raw = grid.doc()
     tg = build_graph(raw, crs=CRS)
-    data = {"trailhead": str(grid.ids["g00"]), "total": "1.0-2.6", "nights": 1, "daily": "0.5-4", "days": days}
+    data = {"trailhead": str(grid.ids["g00"]), "total": "1.0-2.6", "nights": 1, "daily": "0.5-4", "type": "loop", "days": days}
     return raw, tg, data, plan_trip(REGION, raw, tg, GenerateRequest.from_dict(data), dem=plane_dem(0, 0, 500))
 
 
@@ -277,3 +277,9 @@ def test_plan_trip_snapshot_has_day_plans(grid):
     final = plan_trip(REGION, raw, tg, req, on_snapshot=snaps.append, first_s=8, clock=clock)
     assert len(snaps) == 1 and snaps[0].report["partial"] is True and final.report["partial"] is False
     assert snaps[0].report["candidates"] and all(c.plan is not None for c in snaps[0].report["candidates"])
+
+
+def test_any_includes_out_and_back_but_not_one_way():
+    req = GenerateRequest.from_dict({"trailhead": "1000", "total": "2-5"})
+    assert req.kinds == ("loop", "lollipop", "out_and_back")
+    assert GenerateRequest.from_dict({"trailhead": "1000", "total": "2-5", "type": "out_and_back"}).kinds == ("out_and_back",)
