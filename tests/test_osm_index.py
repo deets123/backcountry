@@ -76,6 +76,15 @@ def test_search_leaves_out_places_outside_the_us(index):
     assert not [x for x in osm_index.search(index, "Testpark") if x["name"] == "Testpark Bay"]
 
 
+def test_area_labels_follow_protection_title_not_the_boundary_tag(index):
+    # OSM uses boundary=national_park loosely (monuments, forests, recreation areas): never label those parks
+    monument = osm_index.search(index, "Testrock")[0]
+    assert (monument["type_label"], monument["park"]) == ("National Monument", False)
+    forest = osm_index.search(index, "Testwood")[0]
+    assert (forest["type_label"], forest["park"]) == ("Protected Area", False)
+    assert osm_index.search(index, "Testpark National Park")[0]["type_label"] == "National Park"
+
+
 def test_search_prefix(index):
     assert osm_index.search(index, "lone pe")[0]["name"] == "Lone Peak"
 

@@ -99,11 +99,14 @@ def _area_kind(tags: dict) -> tuple[str, bool, bool] | None:
         return None
     if tags.get("boundary") == "administrative" and tags.get("admin_level") == "4":
         return "State", False, True
-    if tags.get("boundary") == "national_park" or tags.get("protect_class") == "2":
-        return "National Park", True, False
-    if tags.get("boundary") == "protected_area":
-        title = tags.get("protection_title")
-        return (title, "Park" in title, False) if title else ("Protected Area", False, False)
+    title = (tags.get("protection_title") or "").strip()
+    if tags.get("boundary") in ("national_park", "protected_area") or tags.get("protect_class") == "2":
+        # OSM's own title first: boundary=national_park is used loosely (monuments, forests, recreation areas).
+        # Without one, only IUCN class 2 or the name itself says "National Park".
+        if not title:
+            title = ("National Park" if tags.get("protect_class") == "2" or "National Park" in name
+                     else "Protected Area")
+        return title, "Park" in title, False
     if tags.get("leisure") == "nature_reserve":
         return "Nature Reserve", False, False
     if tags.get("leisure") == "park" and name.endswith("State Park"):
@@ -332,7 +335,8 @@ def nearest_place(con, bbox: tuple, lon: float, lat: float) -> str | None:
 
 def _area_record(r: sqlite3.Row) -> dict:
     geom = wkb.loads(r["wkb"])
-    return {"kind": "area", "osm": r["osm"], "name": r["name"], "type_label": r["type_label"], "park": bool(r["park"]),
+    label, park, _ = _area_kind(json.loads(r["tags"]))  # from the stored tags, so older indexes get today's labels
+    return {"kind": "area", "osm": r["osm"], "name": r["name"], "type_label": label, "park": park,
             "area_km2": r["area_km2"], "bbox": list(geom.bounds), "center": [round(c, 7) for c in geom.centroid.coords[0]]}
 
 
