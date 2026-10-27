@@ -239,7 +239,8 @@ def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None) -> dict:
 
     with _index_for(app, req.destination) as con:
         result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=app.state.settings.raw_dir,
-                           on_snapshot=snapshot if on_snapshot else None, index=con)
+                           on_snapshot=snapshot if on_snapshot else None, index=con,
+                           feature_index=loaded.feature_index(app.state.settings.raw_dir))
     runs = app.state.runs
     previous = runs.latest(region_id, req.trailhead) if runs else None
     run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, _now(),
@@ -371,7 +372,8 @@ def update_trip(run_id: str, request: Request, body: dict):
     req = GenerateRequest.from_dict(run["request"])
     result = plan_route(loaded.region, loaded.raw, loaded.tg, req, followed["route"], c["kind"],
                         (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
-                        raw_dir=request.app.state.settings.raw_dir)
+                        raw_dir=request.app.state.settings.raw_dir,
+                        feature_index=loaded.feature_index(request.app.state.settings.raw_dir))
     result.start = run["start"]
     if (run.get("search") or {}).get("finish") and "finish" in result.report:  # keep how the finish was named
         result.report["finish"] = run["search"]["finish"] | {"node": result.report["finish"]["node"]}

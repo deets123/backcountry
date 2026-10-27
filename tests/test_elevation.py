@@ -15,7 +15,7 @@ from conftest import CRS, X0, Y0, plane_dem
 def test_densify_even_spacing_includes_endpoints():
     d, pts = densify(LineString([(0, 0), (100, 0)]), 10)
     assert d == pytest.approx([i * 10 for i in range(11)])
-    assert (pts[0].x, pts[-1].x) == (0, 100)
+    assert (pts[0][0], pts[-1][0]) == (0, 100)
 
 
 def test_densify_never_exceeds_step():
@@ -308,3 +308,23 @@ def test_dem_is_written_with_the_floating_point_predictor(tmp_path):
     import json
     with rasterio.open(path.parent / json.loads(path.read_text())["tif"]) as ds:
         assert ds.tags(ns="IMAGE_STRUCTURE").get("PREDICTOR") == "3"
+
+
+def test_densify_matches_shapely_point_by_point_and_is_vectorised():
+    """The samples are plain arithmetic along the line: numpy gives shapely's points exactly, in one call."""
+    import time
+
+    rng = np.random.default_rng(7)
+    pts = np.cumsum(rng.uniform(-40, 40, size=(4000, 2)), axis=0)
+    pts[100] = pts[99]  # a repeated vertex (zero-length segment) must not break it
+    line = LineString(pts)
+    t0 = time.perf_counter()
+    d, sampled = densify(line)
+    took = time.perf_counter() - t0
+    xs, ys = sampled[:, 0], sampled[:, 1]
+    assert len(d) == len(xs) == math.ceil(line.length / 30.48) + 1
+    for i in range(0, len(d), 97):
+        p = line.interpolate(d[i])
+        assert (xs[i], ys[i]) == pytest.approx((p.x, p.y), abs=1e-6)
+    assert (xs[-1], ys[-1]) == pytest.approx(line.coords[-1][:2], abs=1e-6)
+    assert took < 0.05, took  # one numpy call, not a Python loop over shapely

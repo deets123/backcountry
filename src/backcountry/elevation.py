@@ -62,11 +62,20 @@ def _transformer(src: str, dst: str) -> Transformer:
     return Transformer.from_crs(src, dst, always_xy=True)
 
 
-def densify(line: LineString, step: float = SAMPLE_M) -> tuple[list[float], list]:
-    """Evenly spaced points along the line, never more than `step` apart, both ends included."""
+def densify(line: LineString, step: float = SAMPLE_M) -> tuple[list[float], np.ndarray]:
+    """Evenly spaced points along the line, never more than `step` apart, both ends included: distances along
+    the line, and an (n, 2) array of x, y. Linear interpolation along the vertices, as shapely's `interpolate`
+    does, but in one numpy call: a long route has tens of thousands of samples."""
     n = max(1, math.ceil(line.length / step - 1e-9))
     d = [line.length * i / n for i in range(n + 1)]
-    return d, [line.interpolate(x) for x in d]
+    xy = np.asarray(line.coords, dtype=float)[:, :2]
+    seg = np.hypot(*np.diff(xy, axis=0).T)
+    keep = np.concatenate([[True], seg > 0])  # a repeated vertex adds no length and would confuse interp
+    xy, cum = xy[keep], np.concatenate([[0.0], np.cumsum(seg[seg > 0])])
+    if len(xy) == 1:
+        return d, np.repeat(xy, len(d), axis=0)
+    at = np.asarray(d) * (cum[-1] / line.length if line.length else 1.0)  # the vertices' own lengths, to rounding
+    return d, np.column_stack([np.interp(at, cum, xy[:, 0]), np.interp(at, cum, xy[:, 1])])
 
 
 def smooth(z, n: int = SMOOTH_SAMPLES) -> np.ndarray:
@@ -125,7 +134,7 @@ def cumulative_gain_loss(z, threshold: float = HYSTERESIS_M):
 def line_profile(line: LineString, dem: DEM, crs: str) -> dict:
     """Sampled profile and gain/loss (meters) for a line in `crs`, in the line's direction."""
     d, pts = densify(line)
-    z = dem.sample([p.x for p in pts], [p.y for p in pts], crs)
+    z = dem.sample(pts[:, 0], pts[:, 1], crs)
     result = {"d_m": d, "z_m": [None if math.isnan(v) else float(v) for v in z], "missing": int(np.isnan(z).sum())}
     if result["missing"]:
         return result | {"gain_m": None, "loss_m": None}

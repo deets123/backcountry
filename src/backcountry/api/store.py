@@ -58,11 +58,20 @@ class LoadedRegion:
     dem: object = None
     cut: str | None = None  # extract date of a generated area's data; None for hand-made regions
     timings: dict = field(default_factory=dict)  # seconds to build the graph, its QA summary and load the DEM
+    _features: object = None
     builds = 0  # class-level counter, for tests
 
     @property
     def node_component(self) -> dict:
         return self.summary["node_component"]
+
+    def feature_index(self, raw_dir=None):
+        """The area's features in a spatial tree, built on first use and kept with the loaded area."""
+        if self._features is None:
+            from backcountry.planning import feature_index
+
+            self._features = feature_index(self.region, self.raw, self.tg, raw_dir)
+        return self._features
 
 
 class RegionStore:

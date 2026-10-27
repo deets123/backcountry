@@ -14,7 +14,7 @@ from backcountry import ingest
 from backcountry.destination import check_ref
 from backcountry.difficulty import LEVEL_TARGETS, LEVELS, level_index, rate_stretch, route_terrain
 from backcountry.elevation import densify
-from backcountry.features import along_route
+from backcountry.features import FeatureIndex, along_route
 from backcountry.loops import Candidate, avoided_keys, search
 from backcountry.route import add_elevation, resolve_point
 from backcountry.scoring import M_PER_MI, Weights
@@ -393,13 +393,14 @@ class _Steps:
     """What plan_trip does to each candidate route: elevation, terrain, days and camps, features, rating. Shared
     with plan_route, so a saved route followed on newer data is planned exactly like a fresh one."""
 
-    def __init__(self, region, raw, tg, req: "GenerateRequest", dem="auto", raw_dir=None):
+    def __init__(self, region, raw, tg, req: "GenerateRequest", dem="auto", raw_dir=None, feature_index=None):
         self.tg, self.req = tg, req
         self.weights = Weights(road=req.road_weight, repeat=req.repeat_weight)
         self.dem = ingest.load_dem(region, raw_dir=raw_dir) if isinstance(dem, str) and dem == "auto" else dem
         self.sites = ingest.camp_sites(raw)
-        self.water = ingest.water_features(raw)
-        self.campgrounds = usfs_campgrounds(region, raw_dir)
+        # the area's features in a spatial tree: built once per loaded area by the API, here for other callers
+        self.features = feature_index or FeatureIndex(self.sites, ingest.water_features(raw), usfs_campgrounds(region, raw_dir),
+                                                      tg.crs)
 
     def elevate(self, c):
         if self.dem is not None:
@@ -428,7 +429,7 @@ class _Steps:
         for p in problems:
             c.plan.notes.append(f"Pinned {p}")
             c.plan.ok = False
-        c.features = along_route(c.route, self.sites, self.water, self.campgrounds, c.plan)
+        c.features = along_route(c.route, plan=c.plan, index=self.features)
         return c.plan.penalty + 100.0 * len(problems)
 
     def day_hike(self, c):
@@ -437,15 +438,20 @@ class _Steps:
         prof = c.route.profile
         c.rating = rate_stretch(prof["d_m"], prof["z_m"], c.terrain, 0.0, prof["d_m"][-1], c.route.gain_ft,
                                 "day_hike").to_dict()
-        c.features = along_route(c.route, self.sites, self.water, self.campgrounds)
+        c.features = along_route(c.route, index=self.features)
 
     def suggest(self, c):
         if c.plan is not None:
             c.suggestion = suggest_fix(c, self.req, lambda r, c=c: self.split(c, r, c.pins_m))
 
 
+def feature_index(region, raw, tg, raw_dir=None) -> FeatureIndex:
+    """The area's camp sites, water and USFS sites in a spatial tree (build once per loaded area)."""
+    return FeatureIndex(ingest.camp_sites(raw), ingest.water_features(raw), usfs_campgrounds(region, raw_dir), tg.crs)
+
+
 def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_keys=(), dem="auto",
-               raw_dir=None) -> PlanResult:
+               raw_dir=None, feature_index=None) -> PlanResult:
     """Plan one given route (e.g. a saved trip followed on newer data) the way plan_trip plans a found loop."""
     lengths = {e["key"]: e["length_m"] for e in route.edges}
     c = Candidate(kind=kind, start=route.nodes[0], keys=[e["key"] for e in route.edges], nodes=list(route.nodes),
@@ -454,7 +460,7 @@ def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_k
                   repeated_m=sum(lengths[k] for k in stem_keys if k in lengths), lengths=lengths,
                   finish=route.nodes[-1] if kind == "one_way" else None,
                   turnaround=route.nodes[len(route.nodes) // 2] if kind == "out_and_back" else None)
-    steps = _Steps(region, raw, tg, req, dem, raw_dir)
+    steps = _Steps(region, raw, tg, req, dem, raw_dir, feature_index)
     if req.nights is None:
         steps.day_hike(c)
     else:
@@ -576,13 +582,14 @@ def _destination_search(tg, start: int, req: "GenerateRequest", index) -> tuple:
 
 
 def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, on_snapshot=None, index=None,
-              **search_kw) -> PlanResult:
+              feature_index=None, **search_kw) -> PlanResult:
     """Resolve the start, search, and attach elevation/days/features.
 
     `dem="auto"` loads the cached DEM from `raw_dir` (default: the repo's data/raw); pass a DEM or None to override.
     `on_snapshot(PlanResult)`: the first trips found, planned like the final ones, while the search goes on
     (see loops.search; `search_kw` passes its `first_s` and `clock`). `index`: the US index connection, needed
-    for a destination (its place is looked up there).
+    for a destination (its place is looked up there). `feature_index`: the area's FeatureIndex (built once per
+    loaded area; built here when not given).
     """
     t0 = time.perf_counter()
     try:
@@ -597,7 +604,7 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
             raise RequestError("avoid", str(e))
     finish_node, finish_how = _resolve_finish(tg, region, req, start["node"])
     dest, dest_kw, dest_notes = _destination_search(tg, start["node"], req, index)
-    steps = _Steps(region, raw, tg, req, dem, raw_dir)
+    steps = _Steps(region, raw, tg, req, dem, raw_dir, feature_index)
     split_s = [0.0]  # time spent planning days, inside and after the search
 
     def timed(fn):
