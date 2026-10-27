@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api";
-import { INITIAL } from "../store";
 import type { AreaStatus, SearchResult } from "../types";
-import { openSearchResult, renderSearch, waitForArea, type OpenDeps } from "./search";
+import { createStore, INITIAL as START } from "../store";
+import { bindSearch, openSearchResult, renderSearch, waitForArea, type OpenDeps } from "./search";
 
+const INITIAL = START;
 const park: SearchResult = { kind: "area", ref: "relation/3003", name: "Testpark National Park", type_label: "National Park",
   state: "Statea", bbox: [-149.95, 10.1, -149.6, 10.5], center: [-149.8, 10.3] };
 const region: SearchResult = { kind: "region", id: "dolly_sods", name: "Dolly Sods Wilderness, WV", type_label: "Region", state: null };
@@ -101,5 +102,29 @@ describe("openSearchResult", () => {
     const d = deps();
     await openSearchResult({ box: [-149.75, 10.75, -149.65, 10.85] }, d);
     expect(d.calls[0]).toBe('open {"box":[-149.75,10.75,-149.65,10.85]}');
+  });
+});
+
+describe("bindSearch", () => {
+  it("typing survives a panel redraw that lands before the search runs (e.g. trailheads finished loading)", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createStore({ ...INITIAL });
+      const root = document.createElement("div");
+      const actions = {
+        setQuery: (q: string) => store.set({ searchQuery: q }),
+        async searchAreas(q: string) { store.set({ searchQuery: q, searchResults: [park] }); },
+        async openTarget() {}, async openRecent() {}, async planHere() {},
+      };
+      const draw = () => { root.innerHTML = renderSearch(store.get()); bindSearch(root, store.get, actions, 250); };
+      draw();
+      const input = root.querySelector<HTMLInputElement>("#area-search")!;
+      input.value = "Testp";
+      input.dispatchEvent(new Event("input"));
+      draw();  // the app re-renders the panel 100 ms later, before the debounce fires
+      expect(root.querySelector<HTMLInputElement>("#area-search")!.value).toBe("Testp");
+      await vi.advanceTimersByTimeAsync(300);
+      expect(root.querySelector("#search-results")!.textContent).toContain("Testpark National Park");
+    } finally { vi.useRealTimers(); }
   });
 });

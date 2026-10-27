@@ -22,7 +22,8 @@ from backcountry.elevation import graph_bounds_ll
 from backcountry.graph import build_graph
 from backcountry.region import AREAS_DIR, BBox, load_region
 
-MAX_AREA_KM2 = 2500.0  # bigger areas open as a capped box; set from measured build times (PROGRESS.md)
+MAX_AREA_KM2 = 5000.0  # bigger areas open as a capped box. Measured 2026-10-27 (PROGRESS.md): Grand Canyon NP,
+#                        4,866 km2, opens in 4.4 min (elevation) and 1.4 GB; Yellowstone-size parks stay capped
 CAPPED_BOX_KM = 24.0   # side of the capped square
 BBOX_PAD_DEG = 0.01    # around a boundary, so trails on its edge are whole
 _REF = re.compile(r"^(node|way|relation)/\d{1,12}$")

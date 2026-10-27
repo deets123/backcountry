@@ -45,6 +45,8 @@ ${where(s)}
 }
 
 export interface SearchActions {
+  /** Keep the typed text in state at once (no re-render), so a panel redraw before the search runs keeps it. */
+  setQuery(q: string): void;
   searchAreas(q: string): Promise<void>;
   openTarget(t: Target): Promise<void>;
   openRecent(r: RecentArea): Promise<void>;
@@ -53,10 +55,12 @@ export interface SearchActions {
 
 export function bindSearch(root: HTMLElement, get: () => State, actions: SearchActions, debounceMs = 250): void {
   const input = root.querySelector<HTMLInputElement>("#area-search");
-  const list = root.querySelector<HTMLElement>("#search-results");
-  if (!input || !list) return;
+  if (!input || !root.querySelector("#search-results")) return;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // The list is looked up when results arrive: the panel may have been redrawn since the keystroke.
   const bindList = () => {
+    const list = root.querySelector<HTMLElement>("#search-results");
+    if (!list) return;
     list.querySelectorAll<HTMLElement>("[data-result]").forEach((b) => b.addEventListener("click", () => {
       const r = get().searchResults?.[Number(b.dataset.result)];
       if (r) void actions.openTarget(r);
@@ -67,10 +71,12 @@ export function bindSearch(root: HTMLElement, get: () => State, actions: SearchA
     }));
   };
   input.addEventListener("input", () => {
+    actions.setQuery(input.value);
     if (timer) clearTimeout(timer);
     timer = setTimeout(async () => {
-      await actions.searchAreas(input.value);
-      list.innerHTML = renderResults(get());  // in place: re-rendering the panel would drop the keyboard
+      await actions.searchAreas(get().searchQuery);  // the latest text, even if typed in a redrawn box
+      const list = root.querySelector<HTMLElement>("#search-results");
+      if (list) list.innerHTML = renderResults(get());  // in place: re-rendering the panel would drop the keyboard
       bindList();
     }, debounceMs);
   });

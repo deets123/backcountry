@@ -4,7 +4,7 @@ import { createStore, INITIAL } from "../store";
 import type { Trailhead } from "../types";
 import { bindPlan, renderPlan, tapMessage } from "./plan";
 
-const NO_SEARCH = { async searchAreas() {}, async openTarget() {}, async openRecent() {}, async planHere() {} };
+const NO_SEARCH = { setQuery() {}, async searchAreas() {}, async openTarget() {}, async openRecent() {}, async planHere() {} };
 const th = (over: Partial<Trailhead>): Trailhead => ({ id: "x", name: "X", node: 1, source: "yaml", verified: false, in_graph: true,
   lat: 39, lon: -79, component: "C0", ...over });
 
@@ -138,6 +138,7 @@ describe("plan panel search", () => {
     expect(root.querySelector(".where")!.textContent).toBe("Planning in Dolly Sods");
     const opened: unknown[] = [];
     const actions = { ...NO_SEARCH, generate() {}, backToCompare() {}, showSaved() {}, editForm() {},
+      setQuery: (q: string) => store.set({ searchQuery: q }),
       async searchAreas(q: string) { store.set({ searchQuery: q, searchResults: [{ kind: "region", id: "pemi", name: "Pemi", type_label: "Region", state: null }] }); },
       async openTarget(t: unknown) { opened.push(t); } };
     bindPlan(root, store, actions);

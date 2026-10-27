@@ -109,6 +109,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
         map?.setTrailheads(ths, (th) => actions.pickTrailhead(th));
       } catch (e) { store.set({ status: "", error: (e as Error).message }); }
     },
+    setQuery(q: string) { store.set({ searchQuery: q }); },
     async searchAreas(q: string) {
       store.set({ searchQuery: q });
       if (!q.trim()) return store.set({ searchResults: null });
