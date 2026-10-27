@@ -11,8 +11,10 @@
               + with per-day targets: level steps away from a day's level * level_miss,
                 and % grade over a day's steepness cap * gain_over_cap
 
-Lower is better. All weights are per mile so they're easy to reason about:
-road=1.0 means a road mile is as unwelcome as an extra mile of distance.
+Lower is better. The distance-like weights (road, repeat, distance deviation, imbalance) are per mile, so
+road=1.0 means a road mile is as unwelcome as an extra mile of distance; gain_over_cap is per 1,000 ft over a
+day's climbing cap (and per % point over its steepness cap); level_miss is per level step away from a day's
+target level.
 """
 
 from dataclasses import dataclass

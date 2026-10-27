@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -303,7 +304,8 @@ def test_every_error_is_json_with_an_error_key(env, grid):
     assert r.status_code == 400 and r.json()["field"] == "n"
     r = c.get("/api/explode")
     assert r.status_code == 500 and r.headers["content-type"].startswith("application/json")
-    assert "engine fell over" in r.json()["error"]
+    assert "engine fell over" not in r.json()["error"]  # details (often paths) stay in the server log
+    assert re.fullmatch(r"Something went wrong on the server \(error [0-9a-f]{8}\)\. Try again\.", r.json()["error"])
 
 
 def test_a_corrupt_run_file_does_not_break_generate(client, grid):
@@ -489,3 +491,34 @@ def test_finishes_endpoint(client, grid):
 def test_cancel_endpoint(client):
     assert client.delete("/api/plans/0123456789abcdef").status_code == 404
     assert client.delete("/api/plans/..%2Fx").status_code in (400, 404)
+
+
+def test_generate_and_update_count_against_the_plan_cap(env, grid, monkeypatch):
+    import threading
+
+    from backcountry.api import endpoints
+
+    env.plan_jobs = 1
+    client = TestClient(create_app(env, web_dist=env.runs_dir / "no-web"))
+    body = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "type": "loop"}
+    run = client.post("/api/regions/dolly_sods/generate", json=body).json()  # fine on its own: the slot was free
+    release, started = threading.Event(), threading.Event()
+    real = endpoints.plan_trip
+
+    def slow(*a, **k):
+        started.set()
+        release.wait(5)
+        return real(*a, **k)
+    monkeypatch.setattr(endpoints, "plan_trip", slow)
+    job = client.post("/api/regions/dolly_sods/plans", json=body).json()["job_id"]
+    started.wait(5)
+    try:
+        assert client.post("/api/regions/dolly_sods/generate", json=body).status_code == 429
+        assert run["run_id"]  # (the saved-trip update takes the same slot; it needs newer data to run at all)
+    finally:
+        release.set()
+    for _ in range(200):
+        if client.get(f"/api/plans/{job}").json()["status"] == "done":
+            break
+        threading.Event().wait(0.02)
+    assert client.get(f"/api/plans/{job}").json()["status"] == "done"

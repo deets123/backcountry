@@ -28,6 +28,7 @@ class Settings:
     areas_dir: Path | None = None  # generated areas; None (tests) means there are none
     osm_dir: Path | None = None    # the local US index; None means search finds hand-made regions only
     max_loaded: int = 4            # areas kept built in memory (least recently used goes first)
+    max_loaded_bytes: float = 3e9  # ...and never more than about this much of them (raw data plus elevation)
     area_limits: dict | None = None  # {max_queue, per_hour, disk_gb}; defaults in api.area_worker
     area_thread: bool = True       # prepare areas on a background thread (tests run them inline)
     prepared_gb: float = 8.0       # disk share reserved for areas prepared ahead (backcountry areas prepare-popular)
@@ -59,6 +60,7 @@ class LoadedRegion:
     cut: str | None = None  # extract date of a generated area's data; None for hand-made regions
     timings: dict = field(default_factory=dict)  # seconds to build the graph, its QA summary and load the DEM
     _features: object = None
+    bytes: int = 0  # about what this area holds in memory: its raw data (parsed) and the elevation blocks read
     builds = 0  # class-level counter, for tests
 
     @property
@@ -93,6 +95,7 @@ class RegionStore:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._loaded: OrderedDict[tuple, LoadedRegion] = OrderedDict()
+        self._building: dict[tuple, threading.Lock] = {}
         self._lock = threading.Lock()  # endpoints run in a threadpool; build each region once
 
     def ids(self) -> list[str]:
@@ -115,7 +118,12 @@ class RegionStore:
 
     def recent_areas(self, limit: int = 8) -> list[dict]:
         """Generated areas that have trail data, most recently opened first."""
-        paths = sorted(self.settings.areas.glob("*.yaml"), key=lambda p: p.stat().st_mtime, reverse=True)
+        def mtime(p):
+            try:
+                return p.stat().st_mtime
+            except FileNotFoundError:  # removed between the listing and now
+                return 0.0
+        paths = sorted(self.settings.areas.glob("*.yaml"), key=mtime, reverse=True)
         out = []
         for p in paths:
             try:
@@ -166,6 +174,12 @@ class RegionStore:
             if key in self._loaded:
                 self._loaded.move_to_end(key)
                 return self._loaded[key]
+            building = self._building.setdefault(key, threading.Lock())
+        with building:  # one build per area; other areas aren't held up by this one's 10 s graph build
+            with self._lock:
+                if key in self._loaded:
+                    self._loaded.move_to_end(key)
+                    return self._loaded[key]
             try:
                 raw = ingest.load_raw(region, self.settings.raw_dir, cut)
             except FileNotFoundError as e:  # names `backcountry ingest`
@@ -177,12 +191,22 @@ class RegionStore:
             t2 = time.perf_counter()
             dem = ingest.load_dem(region, raw_dir=self.settings.raw_dir)
             timings = {"graph": round(t1 - t0, 2), "qa": round(t2 - t1, 2), "dem_load": round(time.perf_counter() - t2, 2)}
-            loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=summary, dem=dem, cut=cut, timings=timings)
+            size = os.path.getsize(raw["cache_path"]) if raw.get("cache_path") and os.path.exists(raw["cache_path"]) else 0
+            loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=summary, dem=dem, cut=cut, timings=timings,
+                                  bytes=2 * size + 1 + (dem.max_bytes if dem is not None and hasattr(dem, "max_bytes") else 0))
             LoadedRegion.builds += 1
-            self._loaded[key] = loaded
-            while len(self._loaded) > max(1, self.settings.max_loaded):
-                self._loaded.popitem(last=False)
+            with self._lock:
+                self._loaded[key] = loaded
+                self._building.pop(key, None)
+                while len(self._loaded) > max(1, self.settings.max_loaded) or (
+                        len(self._loaded) > 1 and sum(x.bytes for x in self._loaded.values()) > self.settings.max_loaded_bytes):
+                    self._loaded.popitem(last=False)
             return loaded
+
+    def loaded_ids(self) -> set[str]:
+        """Areas someone is using right now (built in memory)."""
+        with self._lock:
+            return {k[0] for k in self._loaded}
 
 
 class RunStore:

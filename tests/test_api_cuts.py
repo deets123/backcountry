@@ -122,3 +122,45 @@ def test_loaded_region_reports_load_timings(area_env):
     timings = RegionStore(settings).get(spec.id).timings
     assert set(timings) == {"graph", "qa", "dem_load"}
     assert all(isinstance(v, float) and v >= 0 for v in timings.values())
+
+
+def test_store_bounds_loaded_areas_by_bytes(area_env, grid):
+    settings, spec = area_env
+    (settings.raw_dir / "dolly_sods").mkdir(parents=True)
+    (settings.raw_dir / "dolly_sods" / "overpass_20260101T000000Z.json").write_text(json.dumps(grid.doc()))
+    settings.max_loaded, settings.max_loaded_bytes = 10, 1  # a byte: only the newest loaded area can stay
+    store = RegionStore(settings)
+    LoadedRegion.builds = 0
+    a = store.get(spec.id)
+    assert a.bytes > 1
+    store.get("dolly_sods")
+    store.get(spec.id)
+    assert LoadedRegion.builds == 3
+
+
+def test_building_one_area_does_not_block_another(area_env, grid, monkeypatch):
+    import threading
+
+    from backcountry.api import store as store_mod
+
+    settings, spec = area_env
+    (settings.raw_dir / "dolly_sods").mkdir(parents=True)
+    (settings.raw_dir / "dolly_sods" / "overpass_20260101T000000Z.json").write_text(json.dumps(grid.doc()))
+    store = RegionStore(settings)
+    release, slow_started = threading.Event(), threading.Event()
+    real = store_mod.build_graph
+
+    def slow(raw, crs):
+        if raw.get("region") == spec.id:
+            slow_started.set()
+            release.wait(5)
+        return real(raw, crs)
+    monkeypatch.setattr(store_mod, "build_graph", slow)
+    t = threading.Thread(target=lambda: store.get(spec.id), daemon=True)
+    t.start()
+    assert slow_started.wait(5)
+    done = threading.Event()
+    threading.Thread(target=lambda: (store.get("dolly_sods"), done.set()), daemon=True).start()
+    assert done.wait(5), "another area's load waited for this one's 10 s graph build"
+    release.set()
+    t.join(5)

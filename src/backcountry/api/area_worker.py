@@ -50,6 +50,7 @@ class AreaWorker:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._index_path: Path | None = None
+        self.in_use = lambda: set()  # areas with a plan being worked on (the app wires the plan jobs in)
 
     # --- the index ------------------------------------------------------------------------------------------
 
@@ -94,7 +95,10 @@ class AreaWorker:
         cuts = self._cuts(area_id)
         if not cuts:
             return False
-        region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+        try:
+            region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+        except FileNotFoundError:  # removed between the listing and now
+            return False
         return areas.elevation_done(region, self.settings.raw_dir, cuts[-1])
 
     def _index_date(self) -> str | None:
@@ -164,7 +168,10 @@ class AreaWorker:
         if st is None:
             if not self._ready(area_id):
                 return {"status": "unknown", "message": None}
-            region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+            try:
+                region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+            except FileNotFoundError:
+                return {"status": "unknown", "message": None}
             return {"status": "ready", "message": None, "name": region.name, "bbox": vars(region.bbox)}
         if st["status"] == "failed":
             return {"status": "failed", "message": st["message"], "name": st["name"]}
@@ -192,7 +199,7 @@ class AreaWorker:
         budget = self._budget()
         if self._usage() <= budget:
             return
-        keep = (self._referenced() | areas.prepared_ids(self.settings.areas)
+        keep = (self._referenced() | areas.prepared_ids(self.settings.areas) | self.store.loaded_ids() | self.in_use()
                 | {k for k, st in self.status.items() if st["status"] in ("queued", "preparing", "trails")})
         raw = self.settings.raw_dir or ingest.RAW_DIR
         for p in self._area_ids():

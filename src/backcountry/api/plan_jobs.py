@@ -8,6 +8,7 @@ they finish.
 
 import logging
 import re
+from contextlib import contextmanager
 import secrets
 import threading
 import time
@@ -27,23 +28,58 @@ class PlanJobs:
     def __init__(self, settings, clock=time.monotonic):
         self.settings, self.clock = settings, clock
         self._jobs: dict[str, dict] = {}
-        self._lock = threading.Lock()
+        self._inline = 0
+        self._lock = threading.RLock()
 
     def _expire(self) -> None:
         now = self.clock()
         for job_id in [j for j, job in self._jobs.items() if job["finished"] is not None and now - job["finished"] > JOB_TTL_S]:
             del self._jobs[job_id]
 
-    def start(self, work) -> str:
-        """Run `work(on_snapshot) -> run` and keep what it hands over. Raises Busy when too many are running."""
+    @property
+    def cap(self) -> int:
+        return getattr(self.settings, "plan_jobs", MAX_PLAN_JOBS)
+
+    def running(self) -> int:
+        """Plans being worked on right now: job threads still alive (a cancelled one counts until its search has
+        actually stopped) plus requests planning inline (`slot`)."""
+        with self._lock:
+            live = sum(1 for j in self._jobs.values() if j.get("thread") is not None and j["thread"].is_alive())
+            return live + self._inline
+
+    def regions_in_use(self) -> set[str]:
+        with self._lock:
+            return {j["region"] for j in self._jobs.values()
+                    if j.get("region") and j.get("thread") is not None and j["thread"].is_alive()}
+
+    @contextmanager
+    def slot(self):
+        """A planning slot for a request that plans inline (the old generate and the saved-trip update)."""
+        with self._lock:
+            if self.running() >= self.cap:
+                raise Busy("The server is busy planning other trips. Try again in a minute.")
+            self._inline += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._inline -= 1
+
+    def start(self, work, region: str | None = None) -> str:
+        """Run `work(on_snapshot, stop) -> run` and keep what it hands over; `stop()` turns true when the phone
+        gave up, and the work is expected to end soon after. Raises Busy when too many are running."""
         with self._lock:
             self._expire()
-            if sum(1 for j in self._jobs.values() if j["status"] == "searching") >= getattr(self.settings, "plan_jobs", MAX_PLAN_JOBS):
+            if self.running() >= self.cap:
                 raise Busy("The server is busy planning other trips. Try again in a minute.")
             job_id = secrets.token_hex(8)
-            self._jobs[job_id] = {"status": "searching", "run": None, "message": None, "field": None, "finished": None}
+            self._jobs[job_id] = {"status": "searching", "run": None, "message": None, "field": None, "finished": None,
+                                  "cancelled": False, "thread": None, "region": region}
         if self.settings.area_thread:
-            threading.Thread(target=self._run, args=(job_id, work), daemon=True).start()
+            t = threading.Thread(target=self._run, args=(job_id, work), daemon=True)
+            with self._lock:
+                self._jobs[job_id]["thread"] = t
+            t.start()
         else:
             self._run(job_id, work)  # tests: synchronous
         return job_id
@@ -55,7 +91,7 @@ class PlanJobs:
                 job.update(fields)
 
     def cancel(self, job_id: str) -> None:
-        """The phone gave up on this plan: its slot is free at once (the search finishes on its own, unseen)."""
+        """The phone gave up on this plan: the search is told to stop; its slot is free once it has."""
         if not isinstance(job_id, str) or not _JOB_ID.match(job_id):
             raise NotFound("No such plan.")
         with self._lock:
@@ -63,11 +99,15 @@ class PlanJobs:
             if job is None:
                 raise NotFound("No such plan (it may have expired).")
             if job["status"] == "searching":
-                job.update(status="cancelled", run=None, finished=self.clock())
+                job.update(status="cancelled", run=None, finished=self.clock(), cancelled=True)
+
+    def _stopped(self, job_id: str) -> bool:
+        job = self._jobs.get(job_id)
+        return job is None or job["cancelled"]
 
     def _run(self, job_id: str, work) -> None:
         try:
-            run = work(lambda partial: self._set(job_id, run=partial))
+            run = work(lambda partial: self._set(job_id, run=partial), lambda: self._stopped(job_id))
             self._set(job_id, status="done", run=run, finished=self.clock())
         except RequestError as e:
             self._set(job_id, status="failed", message=str(e), field=e.field, finished=self.clock())

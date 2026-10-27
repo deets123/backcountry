@@ -516,3 +516,31 @@ def test_group_open_covers_both_areas(api):
     assert client.get(f"/api/areas/{r['area_id']}/status").json()["status"] == "ready"
     names = {f["properties"]["name"] for f in client.get(f"/api/regions/{r['area_id']}/trails").json()["features"]}
     assert "Rim Trail" in names
+
+
+# --- eviction never takes an area someone is using -----------------------------------------------------
+
+
+def test_eviction_keeps_areas_that_are_loaded_or_being_planned(tmp_path, index_path):
+    client, _ = make_client(tmp_path, index_path)
+    park = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    wild = client.post("/api/areas", json={"ref": "relation/3004"}).json()["area_id"]
+    run_worker(client)
+    assert client.get(f"/api/regions/{park}/trails").status_code == 200  # loaded: someone is looking at it
+    client.app.state.areas.limits["disk_gb"] = 0.0
+    client.post("/api/areas", json={"box": [-149.75, 10.75, -149.65, 10.85]})
+    assert (tmp_path / "areas" / f"{park}.yaml").exists() and (tmp_path / "raw" / park).exists()
+    assert not (tmp_path / "raw" / wild).exists()
+
+
+def test_status_of_an_area_that_vanished_is_unknown_not_an_error(api):
+    import shutil
+
+    client, _ = api
+    a = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    client.app.state.areas.status.clear()
+    (client.app.state.settings.areas / f"{a}.yaml").unlink()
+    shutil.rmtree(client.app.state.settings.raw_dir / a, ignore_errors=True)
+    assert client.get(f"/api/areas/{a}/status").json()["status"] == "unknown"
+    assert client.get("/api/regions").status_code == 200

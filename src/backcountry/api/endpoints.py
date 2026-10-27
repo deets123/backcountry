@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -199,18 +200,23 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None) -> dict:
-    """Plan and save a run. `on_snapshot(run)` gets the first trips found (not saved) while the search goes on."""
+def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None, stop=None) -> dict:
+    """Plan and save a run. `on_snapshot(run)` gets the first trips found (not saved) while the search goes on;
+    `stop()` true (the phone gave up) ends the search at its next check: the clock jumps past the deadline."""
     loaded = app.state.regions.get(region_id)
 
     def snapshot(result):
         run = run_payload("partial", loaded.region, result, loaded.raw, loaded.tg, _now(), diff=None)
         on_snapshot(run | {"partial": True})
 
+    search_kw = {"clock": (lambda: time.time() + (1e9 if stop() else 0.0))} if stop else {}
     with _index_for(app, req.destination) as con:
         result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=app.state.settings.raw_dir,
                            on_snapshot=snapshot if on_snapshot else None, index=con,
-                           feature_index=loaded.feature_index(app.state.settings.raw_dir), names=loaded.names())
+                           feature_index=loaded.feature_index(app.state.settings.raw_dir), names=loaded.names(),
+                           **search_kw)
+    if stop and stop():
+        return {"run_id": "cancelled", "partial": True, "candidates": []}
     runs = app.state.runs
     previous = runs.latest(region_id, req.trailhead) if runs else None
     run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, _now(),
@@ -224,7 +230,9 @@ def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None) -> dict:
 
 @router.post("/regions/{region_id}/generate")
 def generate(region_id: str, request: Request, body: dict):
-    return _plan(request.app, region_id, GenerateRequest.from_dict(body))
+    req = GenerateRequest.from_dict(body)
+    with request.app.state.plans.slot():
+        return _plan(request.app, region_id, req)
 
 
 @router.post("/regions/{region_id}/plans")
@@ -232,7 +240,8 @@ def start_plan(region_id: str, request: Request, body: dict):
     """Start planning in the background (settings are checked first); poll /plans/{job_id}."""
     req = GenerateRequest.from_dict(body)
     app = request.app
-    return {"job_id": app.state.plans.start(lambda on_snapshot: _plan(app, region_id, req, on_snapshot))}
+    return {"job_id": app.state.plans.start(lambda on_snapshot, stop: _plan(app, region_id, req, on_snapshot, stop),
+                                            region=region_id)}
 
 
 @router.get("/plans/{job_id}")
@@ -340,10 +349,11 @@ def update_trip(run_id: str, request: Request, body: dict):
         return {"ok": False, "message": f"The route no longer follows the same trails in the newer data (missing: {names}). "
                                         "Your trip is unchanged."}
     req = GenerateRequest.from_dict(run["request"])
-    result = plan_route(loaded.region, loaded.raw, loaded.tg, req, followed["route"], c["kind"],
-                        (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
-                        raw_dir=request.app.state.settings.raw_dir,
-                        feature_index=loaded.feature_index(request.app.state.settings.raw_dir), names=loaded.names())
+    with request.app.state.plans.slot():
+        result = plan_route(loaded.region, loaded.raw, loaded.tg, req, followed["route"], c["kind"],
+                            (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
+                            raw_dir=request.app.state.settings.raw_dir,
+                            feature_index=loaded.feature_index(request.app.state.settings.raw_dir), names=loaded.names())
     result.start = run["start"]
     if (run.get("search") or {}).get("finish") and "finish" in result.report:  # keep how the finish was named
         result.report["finish"] = run["search"]["finish"] | {"node": result.report["finish"]["node"]}

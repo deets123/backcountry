@@ -16,6 +16,7 @@ Gaps in the DEM are never filled in.
 """
 
 import math
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -38,6 +39,17 @@ class DEM:
     crs: str
     source: dict = field(default_factory=dict)
 
+    @property
+    def shape(self) -> tuple[int, int]:
+        return self.array.shape
+
+    def _gather(self, rows: np.ndarray, cols: np.ndarray) -> np.ndarray:
+        """Pixel values at (row, col) pairs, as float64."""
+        return self.array[rows, cols].astype("float64")
+
+    def resident_bytes(self) -> int:
+        return int(self.array.nbytes)
+
     def sample(self, xs, ys, from_crs: str) -> np.ndarray:
         """Bilinear elevations at points given in from_crs. NaN where the DEM has no value."""
         xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
@@ -48,12 +60,93 @@ class DEM:
         c, r = cols - 0.5, rows - 0.5  # relative to pixel centers
         c0, r0 = np.floor(c).astype(int), np.floor(r).astype(int)
         fc, fr = c - c0, r - r0
-        h, w = self.array.shape
+        h, w = self.shape
         ok = (c0 >= 0) & (r0 >= 0) & (c0 + 1 < w) & (r0 + 1 < h)
         out = np.full(c.shape, np.nan)
-        a, c0, r0, fc, fr = self.array, c0[ok], r0[ok], fc[ok], fr[ok]
-        out[ok] = (a[r0, c0] * (1 - fc) * (1 - fr) + a[r0, c0 + 1] * fc * (1 - fr)
-                   + a[r0 + 1, c0] * (1 - fc) * fr + a[r0 + 1, c0 + 1] * fc * fr)
+        c0, r0, fc, fr = c0[ok], r0[ok], fc[ok], fr[ok]
+        g = self._gather
+        out[ok] = (g(r0, c0) * (1 - fc) * (1 - fr) + g(r0, c0 + 1) * fc * (1 - fr)
+                   + g(r0 + 1, c0) * (1 - fc) * fr + g(r0 + 1, c0 + 1) * fc * fr)
+        return out
+
+
+BLOCK_PX = 256  # the tiles the DEM files are written in
+DEM_CACHE_BYTES = 256 * 1024 * 1024  # blocks kept in memory per loaded DEM, most recently used
+
+
+class FileDEM(DEM):
+    """A DEM left on disk: the blocks a route touches are read when asked for and kept (most recently used,
+    up to DEM_CACHE_BYTES). A big park's DEM is mostly empty, and holding all of it in memory was most of
+    what a loaded area cost. Same values as reading the whole file."""
+
+    def __init__(self, path, transform, crs: str, shape: tuple[int, int], source: dict | None = None,
+                 max_bytes: int = DEM_CACHE_BYTES):
+        import threading
+
+        self._full = None
+        super().__init__(array=None, transform=transform, crs=crs, source=source or {})
+        self.path, self._shape, self.max_bytes = str(path), tuple(shape), max_bytes
+        self._blocks: "OrderedDict[tuple[int, int], np.ndarray]" = OrderedDict()
+        self._bytes = 0
+        self._lock = threading.Lock()
+        self._ds = None
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return self._shape
+
+    @property
+    def array(self) -> np.ndarray:
+        """The whole raster, read on first use (QA reports and tests; routes never need it)."""
+        if self._full is None:
+            import rasterio
+
+            with rasterio.open(self.path) as ds:
+                self._full = ds.read(1).astype("float64")
+        return self._full
+
+    @array.setter
+    def array(self, value):  # the dataclass base sets array=None in __init__
+        self._full = value
+
+    def resident_bytes(self) -> int:
+        return self._bytes + (self._full.nbytes if self._full is not None else 0)
+
+    def _read_block(self, bi: int, bj: int) -> np.ndarray:
+        import rasterio
+        from rasterio.windows import Window
+
+        if self._ds is None:
+            self._ds = rasterio.open(self.path)
+        h, w = self._shape
+        r0, c0 = bi * BLOCK_PX, bj * BLOCK_PX
+        win = Window(c0, r0, min(BLOCK_PX, w - c0), min(BLOCK_PX, h - r0))
+        block = np.full((BLOCK_PX, BLOCK_PX), np.nan, dtype="float32")
+        data = self._ds.read(1, window=win)
+        block[:data.shape[0], :data.shape[1]] = data
+        return block
+
+    def _block(self, bi: int, bj: int) -> np.ndarray:
+        with self._lock:  # one reader at a time: a dataset isn't safe to share across threads
+            key = (bi, bj)
+            block = self._blocks.get(key)
+            if block is not None:
+                self._blocks.move_to_end(key)
+                return block
+            block = self._read_block(bi, bj)
+            self._blocks[key] = block
+            self._bytes += block.nbytes
+            while self._bytes > self.max_bytes and len(self._blocks) > 1:
+                _, old = self._blocks.popitem(last=False)
+                self._bytes -= old.nbytes
+            return block
+
+    def _gather(self, rows: np.ndarray, cols: np.ndarray) -> np.ndarray:
+        out = np.full(len(rows), np.nan)
+        bi, bj = rows // BLOCK_PX, cols // BLOCK_PX
+        for key in set(zip(bi.tolist(), bj.tolist())):
+            m = (bi == key[0]) & (bj == key[1])
+            out[m] = self._block(*key)[rows[m] - key[0] * BLOCK_PX, cols[m] - key[1] * BLOCK_PX]
         return out
 
 

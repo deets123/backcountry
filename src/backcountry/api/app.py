@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import logging
+import secrets
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -28,6 +29,7 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = None, c
     app.state.runs = RunStore(settings.runs_dir) if settings.runs_dir else None
     app.state.areas = AreaWorker(settings, app.state.regions, app.state.runs, dem_fetch=dem_fetch)
     app.state.plans = PlanJobs(settings)
+    app.state.areas.in_use = app.state.plans.regions_in_use  # never evict an area with a plan under way
     cached: list = [chat_model]
 
     def get_chat_model() -> ChatModel:
@@ -83,8 +85,9 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = None, c
 
     @app.exception_handler(Exception)
     def failed(request: Request, exc: Exception):
-        logging.getLogger("backcountry.api").exception("request failed")  # the traceback stays in the server log
-        return JSONResponse(status_code=500, content={"error": f"{type(exc).__name__}: {exc}"})
+        error_id = secrets.token_hex(4)  # the traceback (which may name files) stays in the server log, under this id
+        logging.getLogger("backcountry.api").exception("request failed (error %s)", error_id)
+        return JSONResponse(status_code=500, content={"error": f"Something went wrong on the server (error {error_id}). Try again."})
 
     web_dist = REPO_ROOT / "web" / "dist" if web_dist is None else web_dist
     if web_dist.exists():
