@@ -1,4 +1,4 @@
-import { ApiError, areaStatus, chat, difficulty, generate, getRegions, getTrailheads, getTrails, openArea, search, updateCheck,
+import { ApiError, areaStatus, chat, difficulty, getPlan, getRegions, getTrailheads, getTrails, openArea, search, startPlan, updateCheck,
   updateTrip } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
@@ -7,6 +7,7 @@ import { createMap, type TripMap } from "./map";
 import { cleanOrphans, deleteTrip, getTrip, listTrips, putTrip, tilesPresent } from "./offline/db";
 import { refreshLevels } from "./offline/levels";
 import { saveTrip, tripId } from "./offline/save";
+import { runPlanJob } from "./planjob";
 import { coverageNote } from "./offline/tiles";
 import { bindChat } from "./panels/chat";
 import { bindCompare, renderCompare, startLabel } from "./panels/compare";
@@ -145,9 +146,14 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       abort?.abort();
       abort = new AbortController();
       const timer = setTimeout(() => abort?.abort(), 120_000);
-      store.set({ busy: true, error: null, status: "Searching… this takes 5–20 s on a big network." });
+      store.set({ busy: true, error: null, status: "Searching… the first trips show in about 10 s." });
       try {
-        const run = await generate(s.region, built.request, abort.signal);
+        const signal = abort.signal;
+        const run = await runPlanJob({
+          startPlan, getPlan, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+          // the first trips found: shown while the search goes on (status stays busy; not saved)
+          onPartial: (partial) => store.set({ run: partial, form: fromRun(partial), selected: 1, view: "compare", savedId: null, campsM: null }),
+        }, s.region, built.request, signal);
         store.set({ run, form: fromRun(run), selected: 1, view: "compare", busy: false, status: "", savedId: null, campsM: null });
       } catch (e) {
         const msg = (e as Error).name === "AbortError"

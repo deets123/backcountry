@@ -94,7 +94,9 @@ export interface Run {
   data_cut?: string | null;  // generated areas: the extract date the trip was planned on
   known_gaps: string[]; diff: string | null;
   difficulty_rules?: DifficultyRules;
+  partial?: boolean;  // the first trips found while the search goes on (not saved)
 }
+export interface PlanJob { status: "searching" | "done" | "failed"; run: Run | null; message?: string | null; field?: string | null }
 export interface DifficultyRules {
   version: number;
   scales: Record<"day_hike" | "backpacking", { cutoffs: [number, number, number] }>;

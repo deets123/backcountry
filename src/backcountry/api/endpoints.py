@@ -163,21 +163,47 @@ def _record(run: dict) -> dict:
             "candidates": [c["record"] for c in run["candidates"]]}
 
 
-@router.post("/regions/{region_id}/generate")
-def generate(region_id: str, request: Request, body: dict):
-    loaded = _regions(request).get(region_id)
-    req = GenerateRequest.from_dict(body)
-    result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem,
-                       raw_dir=request.app.state.settings.raw_dir)
-    runs = request.app.state.runs
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None) -> dict:
+    """Plan and save a run. `on_snapshot(run)` gets the first trips found (not saved) while the search goes on."""
+    loaded = app.state.regions.get(region_id)
+
+    def snapshot(result):
+        run = run_payload("partial", loaded.region, result, loaded.raw, loaded.tg, _now(), diff=None)
+        on_snapshot(run | {"partial": True})
+
+    result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=app.state.settings.raw_dir,
+                       on_snapshot=snapshot if on_snapshot else None)
+    runs = app.state.runs
     previous = runs.latest(region_id, req.trailhead) if runs else None
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, now, diff=None)
+    run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, _now(),
+                      diff=None) | {"partial": False}
     if previous:
         run["diff"] = diff_markdown(_record(previous), _record(run))
     if runs:
         runs.save(run)
     return run
+
+
+@router.post("/regions/{region_id}/generate")
+def generate(region_id: str, request: Request, body: dict):
+    return _plan(request.app, region_id, GenerateRequest.from_dict(body))
+
+
+@router.post("/regions/{region_id}/plans")
+def start_plan(region_id: str, request: Request, body: dict):
+    """Start planning in the background (settings are checked first); poll /plans/{job_id}."""
+    req = GenerateRequest.from_dict(body)
+    app = request.app
+    return {"job_id": app.state.plans.start(lambda on_snapshot: _plan(app, region_id, req, on_snapshot))}
+
+
+@router.get("/plans/{job_id}")
+def plan_status(job_id: str, request: Request):
+    return request.app.state.plans.get(job_id)
 
 
 def _is_number(v) -> bool:

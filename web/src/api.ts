@@ -1,7 +1,7 @@
 // Typed client for the piece-1 API. All errors become ApiError with the server's wording.
 import type { DifficultyAnswer, DifficultyBody } from "./offline/levels";
 import type { UpdateAnswer, UpdateCheck } from "./panels/update";
-import type { ApiErrorBody, AreaOpened, AreaStatus, ChatAnswer, FeaturesInView, GenerateRequest, RecentArea, Region, Run, SearchResult,
+import type { ApiErrorBody, AreaOpened, AreaStatus, ChatAnswer, FeaturesInView, GenerateRequest, PlanJob, RecentArea, Region, Run, SearchResult,
   TrailFeatureCollection, Trailhead } from "./types";
 
 export class ApiError extends Error {
@@ -83,6 +83,16 @@ export function generate(region: string, req: GenerateRequest, signal?: AbortSig
   return request(`/api/regions/${region}/generate`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal,
   });
+}
+
+export function startPlan(region: string, req: GenerateRequest, signal?: AbortSignal): Promise<{ job_id: string }> {
+  return request(`/api/regions/${region}/plans`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal,
+  });
+}
+
+export function getPlan(jobId: string, signal?: AbortSignal): Promise<PlanJob> {
+  return request(`/api/plans/${encodeURIComponent(jobId)}`, { signal });
 }
 
 export function getRun(runId: string): Promise<Run> {

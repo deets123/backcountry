@@ -42,7 +42,8 @@ export function renderCompare(s: State): string {
 <p class="note">${run.search.scored} loops scored from ${run.search.via_pairs_tried.toLocaleString("en-US")} waypoint pairs in ${run.search.seconds.toFixed(1)} s. Tap a card or a line on the map to focus it.</p>
 ${notesHtml(lines)}
 ${run.candidates.length ? `<div class="cards">${run.candidates.map((c) => cardHtml(c, c.index === s.selected)).join("")}</div>` : `<p class="note">No candidates. Change the settings and try again.</p>`}
-${run.candidates.length ? `<button class="primary" id="open-trip">Open candidate ${s.selected}</button>` : ""}
+${run.partial ? `<p class="status">Still looking for better trips…</p>` : ""}
+${run.candidates.length ? `<button class="primary" id="open-trip"${run.partial ? " disabled" : ""}>Open candidate ${s.selected}</button>` : ""}
 ${run.diff ? `<details><summary>What changed since last time</summary><pre class="note" style="white-space:pre-wrap">${esc(run.diff)}</pre></details>` : ""}
 ${renderChat(s)}
 <button class="link" id="replan">Change the settings</button>`;
