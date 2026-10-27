@@ -350,3 +350,15 @@ def test_update_offer_after_refresh_without_reopening_the_area(tmp_path, index_p
     run_worker(client)  # the check queued the new cut quietly
     done = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
     assert done["ok"] is True and done["run"]["data_cut"] == NEWER
+
+
+def test_capped_park_says_it_is_only_part(tmp_path, index_path, monkeypatch):
+    from backcountry import areas
+
+    monkeypatch.setattr(areas, "MAX_AREA_KM2", 10.0)
+    client, _ = make_client(tmp_path, index_path)
+    r = client.post("/api/areas", json={"ref": "relation/3003"}).json()
+    assert r["name"] == "Part of Testpark National Park" and r["message"] == "Finding trails in Part of Testpark National Park…"
+    run_worker(client)
+    assert client.get(f"/api/areas/{r['area_id']}/status").json()["name"] == "Part of Testpark National Park"
+    assert any(a["name"] == "Part of Testpark National Park" for a in client.get("/api/regions").json()["recent_areas"])

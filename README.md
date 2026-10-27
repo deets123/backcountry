@@ -154,8 +154,10 @@ it). Older indexes and the areas cut from them are kept, so saved trips keep wor
 files in `data/osm/` by hand when the new one is in use.
 
 Opened areas live in `data/raw/<area>/` and `data/areas/` (git-ignored): Zion about 110 MB, Yosemite 300 MB,
-Grand Canyon 1.4 GB. Areas over 5,000 km² (Yellowstone, Death Valley) open as a 24 km square around the spot you
-picked. Server limits (environment variables): `BACKCOUNTRY_AREA_MAX_QUEUE` (3 waiting), `BACKCOUNTRY_AREA_PER_HOUR`
+Grand Canyon 1.4 GB. Areas over 5,000 km² (Yellowstone, Death Valley) open as a 24 km square, shown as "Part of
+…": around the place or map spot you picked, or the park's middle when you search the park itself. After a
+`refresh`, an area opened before it gets the newer trail data the next time it is opened (or when a saved trip there
+checks for an update). Server limits (environment variables): `BACKCOUNTRY_AREA_MAX_QUEUE` (3 waiting), `BACKCOUNTRY_AREA_PER_HOUR`
 (6 new areas an hour), `BACKCOUNTRY_AREA_DISK_GB` (40; the least recently opened areas no saved trip uses are
 removed first). `BACKCOUNTRY_OSM_DIR` and `BACKCOUNTRY_AREAS_DIR` move the index and generated areas.
 

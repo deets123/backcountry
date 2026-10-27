@@ -46,6 +46,7 @@ def test_oversized_area_is_capped(index, monkeypatch):
     monkeypatch.setattr(areas, "MAX_AREA_KM2", 10.0)
     spec = areas.area_from_ref(index, "relation/3003")
     assert spec.capped and spec.name == "Testpark National Park"
+    assert spec.display_name == "Part of Testpark National Park"  # the user is told only part of it is loaded
     km = (spec.bbox.north - spec.bbox.south) * 110.574
     assert abs(km - areas.CAPPED_BOX_KM) < 0.5
 
@@ -61,6 +62,7 @@ def test_place_outside_any_area_opens_capped_box(index):
     far = osm_index.search(index, "Far Corner")[0]
     spec = areas.area_from_ref(index, far["osm"])
     assert spec.capped and spec.osm is None and spec.name == "Area near Far Corner" and spec.state == "Statea"
+    assert spec.display_name == "Area near Far Corner"  # a box was never a whole park
 
 
 def test_box_outside_us_refused(index):

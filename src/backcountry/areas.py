@@ -39,6 +39,11 @@ class AreaSpec:
     osm: str | None
     capped: bool
 
+    @property
+    def display_name(self) -> str:
+        """What the user sees: a park too big to open whole says only part of it is loaded."""
+        return f"Part of {self.name}" if self.capped and self.osm else self.name
+
 
 def utm_crs(lon: float, lat: float) -> str:
     """The WGS84 UTM zone (northern hemisphere: the US) holding this point."""
@@ -148,11 +153,12 @@ def write_area_region(spec: AreaSpec, areas_dir: Path | None = None) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     b = spec.bbox
     doc = {
-        "id": spec.id, "name": spec.name, "generated": True,
+        "id": spec.id, "name": spec.display_name, "generated": True,
         "crs": utm_crs((b.west + b.east) / 2, (b.south + b.north) / 2),
         "bbox": {"south": b.south, "west": b.west, "north": b.north, "east": b.east},
         "boundary_name_regex": re.escape(spec.name) if spec.osm else None,
-        "area": {"type_label": spec.type_label, "state": spec.state, "osm": spec.osm, "capped": spec.capped},
+        "area": {"name": spec.name, "type_label": spec.type_label, "state": spec.state, "osm": spec.osm,
+                 "capped": spec.capped},
         "trailheads": [],
     }
     path = d / f"{spec.id}.yaml"

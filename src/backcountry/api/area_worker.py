@@ -135,14 +135,14 @@ class AreaWorker:
             return None
         region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
         a = region.area or {}
-        spec = areas.AreaSpec(id=region.id, name=region.name, type_label=a.get("type_label") or "Area",
+        spec = areas.AreaSpec(id=region.id, name=a.get("name") or region.name, type_label=a.get("type_label") or "Area",
                               state=a.get("state"), bbox=region.bbox, osm=a.get("osm"), capped=bool(a.get("capped")))
         self.request(spec)  # a known area: never Busy, at worst left for a later open
         return date
 
     def _set(self, spec, status: str, message: str | None = None) -> dict:
-        st = {"area_id": spec.id, "name": spec.name, "status": status,
-              "message": message or f"Finding trails in {spec.name}…", "bbox": vars(spec.bbox)}
+        st = {"area_id": spec.id, "name": spec.display_name, "status": status,
+              "message": message or f"Finding trails in {spec.display_name}…", "bbox": vars(spec.bbox)}
         self.status[spec.id] = st
         return st
 
