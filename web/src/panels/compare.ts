@@ -36,7 +36,6 @@ export function renderCompare(s: State): string {
   const start = startLabel(r.trailhead, s.trailheads);
   const lines = [...run.search.notes, ...run.search.must_visit_notes];
   if (run.search.widened) lines.push("Nothing fit the requested range, so the search looked 25% wider; the distance deviation is included in each penalty.");
-  if (run.search.truncated) lines.push("The search hit its time budget, so some loops were never examined.");
   return `
 <h1>${esc(start)}, ${esc(total)} mi</h1>
 <p class="note">${run.search.scored} loops scored from ${run.search.via_pairs_tried.toLocaleString("en-US")} waypoint pairs in ${run.search.seconds.toFixed(1)} s. Tap a card or a line on the map to focus it.</p>

@@ -261,3 +261,26 @@ def test_group_box_is_capped(index, monkeypatch):
     monkeypatch.setattr(areas, "MAX_AREA_KM2", 10.0)  # the park's box is far bigger than this
     with pytest.raises(ValueError):
         areas.area_from_refs(index, ["relation/3003", "relation/3004"])
+
+
+def test_prepared_area_tops_up_elevation_when_the_cell_rule_changes(index, dirs):
+    from backcountry.elevation import corridor_cells
+
+    got = []
+
+    def fetch(region, bounds, **kw):
+        got.append(kw["cells"])
+    spec = areas.area_from_ref(index, "relation/3003")
+    areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)
+    region = load_region(spec.id, regions_dir=dirs["areas_dir"].parent / "none", areas_dir=dirs["areas_dir"])
+    tg = build_graph(ingest.load_raw(region, dirs["raw_dir"]), region.crs)
+    # trails everywhere in the cut, roads only near the park
+    shape = osm_index.area_shape(index, "relation/3003").simplify(0.005).buffer(areas.ELEVATION_PAD_DEG)
+    assert got == [corridor_cells(tg, within=shape, limit_roads_only=True)]
+    assert areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)["already"] is True and len(got) == 1
+    # an area prepared under an older rule (its marker holds the date, not the cells) gets only its elevation again
+    marker = ingest.region_raw_dir(region, dirs["raw_dir"]) / areas.ELEVATION_DONE.format(date=MINI_DATE)
+    marker.write_text(MINI_DATE)
+    out = areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)
+    assert out["elevation_only"] is True and len(got) == 2
+    assert areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)["already"] is True and len(got) == 2

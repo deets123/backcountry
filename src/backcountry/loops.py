@@ -32,7 +32,7 @@ MAX_SECONDS = 60.0  # search time budget; the report says when it was hit
 MAX_DETOUR_M = 1609.0  # a must-visit spot can be reached by an out-and-back of at most this (one way)
 MAX_STEMS = 8  # nearest junctions tried as lollipop stems
 WIDEN = 0.25  # if nothing fits the range, look this much wider and report the deviation
-MAX_EVALUATED = 40  # only the best this many (by distance, roads, repeats) get day plans: they're the slow part
+SNAPSHOT_EVALUATED = 12  # the first look day-plans only this many (the best by distance, roads, repeats)
 FIRST_RESULTS_S = 8.0  # after this long, hand over the best trips found so far while the search goes on
 
 
@@ -194,7 +194,7 @@ def _steps(H, nodes, used):
     return steps
 
 
-def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, report=None, tick=None):
+def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, report=None, tick=None, clock=time.time):
     """Edge-disjoint loops through `start` built from one or two via junctions, length in [lo, hi].
 
     `tick(loops)` is called before each via junction with the loops found so far (for early results)."""
@@ -211,7 +211,7 @@ def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, repor
     for i, a in enumerate(nodes):
         if tick is not None:
             tick(loops)
-        if deadline and time.time() > deadline:
+        if deadline and clock() > deadline:
             if report is not None:
                 report["truncated"] = True
             break
@@ -283,7 +283,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     node out-and-backs must pass (a destination). `max_detour_m`: the longest must-visit detour, one way.
     `finish`: where one-way trips end.
     """
-    t0 = time.time()
+    t0 = clock()
     deadline = t0 + max_seconds
     excluded = avoided_keys(tg, avoid) if avoid else set()
     lg = loop_graph(tg, start, no_roads, excluded, reach_m=max_m * (1 + WIDEN) / 2)  # the widened retry fits too
@@ -293,7 +293,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
               "out_and_backs_found": 0, "one_ways_found": 0, "stems_tried": 0, "via_pairs_tried": 0, "truncated": False, "widened": False,
               "avoided_edges": len(excluded), "must_visit_notes": [], "notes": [], "partial": False}
 
-    def choose(found: list[Candidate], rep: dict) -> list[Candidate]:
+    def choose(found: list[Candidate], rep: dict, limit: int | None = None) -> list[Candidate]:
         if must_visit:
             found = _apply_must_visit(tg, found, must_visit, no_roads, excluded, rep, max_detour_m)
         if keep is not None:
@@ -307,17 +307,19 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
         for c in found:
             c.penalty = penalty(c.length_m, c.road_m, c.last_resort_m, c.repeated_m, min_m, max_m, weights)
         if evaluate is not None:
+            # every trip gets its days planned, best first by distance, roads and repeats; only the clock can
+            # stop it, and then the report says so (trips not planned in full are never offered)
             found.sort(key=order)
-            # the best few dozen, plus enough different-looking ones that the final pick still has variety
-            pool, spread = found[:MAX_EVALUATED], []
+            done = []
             for c in found:
-                if len(spread) == 3 * count:
+                if limit is not None and len(done) >= limit:
                     break
-                if all(c.overlap(o) < max_overlap for o in spread):
-                    spread.append(c)
-            found = pool + [c for c in spread if c not in pool]
-            for c in found:
+                if limit is None and clock() > deadline:
+                    rep["truncated"] = True
+                    break
                 c.penalty += evaluate(c)
+                done.append(c)
+            found = done
         rep["evaluated"] = len(found) if evaluate is not None else 0
         found.sort(key=order)
         chosen = []
@@ -339,8 +341,8 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
                 return
             snap["done"] = True
             rep = dict(report, must_visit_notes=[], notes=list(report["notes"]), partial=True)
-            rep["candidates"] = choose(list(so_far) + [make(steps) for steps, _ in loops], rep)
-            rep["seconds"] = time.time() - t0
+            rep["candidates"] = choose(list(so_far) + [make(steps) for steps, _ in loops], rep, limit=SNAPSHOT_EVALUATED)
+            rep["seconds"] = clock() - t0
             on_snapshot(rep)
         return tick
 
@@ -348,7 +350,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
         found = []
         if "loop" in kinds:
             tick = ticker(lambda steps: _candidate(tg, H, "loop", start, steps, []))
-            for steps, _ in waypoint_loops(H, start, lo, hi, deadline=deadline, report=report, tick=tick):
+            for steps, _ in waypoint_loops(H, start, lo, hi, deadline=deadline, report=report, tick=tick, clock=clock):
                 found.append(_candidate(tg, H, "loop", start, steps, []))
             so_far.extend(found)
             report["loops_found"] += len(found)
@@ -364,25 +366,27 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
                     return _candidate(tg, H, "lollipop", start, stem + steps + [(b, a, k) for a, b, k in stem[::-1]], stem)
 
                 loops = waypoint_loops(H, v, lo - 2 * dist[v], hi - 2 * dist[v], forbidden, deadline, report,
-                                       tick=ticker(make))
+                                       tick=ticker(make), clock=clock)
                 report["lollipops_found"] += len(loops)
                 for steps, _ in loops:
                     c = make(steps)
                     found.append(c)
                     so_far.append(c)
         if "one_way" in kinds and finish is not None:
-            ows = one_ways(tg, start, finish, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report)
+            ows = one_ways(tg, start, finish, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report,
+                           clock=clock)
             report["one_ways_found"] += len(ows)
             found += ows
             so_far.extend(ows)
         if "out_and_back" in kinds:
-            obs = out_and_backs(tg, start, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report)
+            obs = out_and_backs(tg, start, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report,
+                                clock=clock)
             if through is not None and must_visit:
                 # a destination on a spur: a longer out-and-back can also go past the spur's junction and take
                 # the spur as a side trip (must_visit adds it)
                 walked = {tuple(c.keys) for c in obs}
-                obs += [c for c in out_and_backs(tg, start, lo, hi, no_roads, excluded, deadline=deadline, report=report)
-                        if tuple(c.keys) not in walked]
+                obs += [c for c in out_and_backs(tg, start, lo, hi, no_roads, excluded, deadline=deadline, report=report,
+                                                 clock=clock) if tuple(c.keys) not in walked]
             report["out_and_backs_found"] += len(obs)
             found += obs
             so_far.extend(obs)
@@ -404,7 +408,9 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
             report["notes"].append("No trip of this kind fits even a 25% wider range with these restrictions.")
     snap["done"] = True
     chosen = choose(found, report)
-    report.update(candidates=chosen, seconds=time.time() - t0)
+    if report["truncated"]:
+        report["notes"].append("The search hit its time budget, so some trips were never examined or planned in full.")
+    report.update(candidates=chosen, seconds=clock() - t0)
     return report
 
 
@@ -414,7 +420,7 @@ MAX_OUT_AND_BACKS = 200  # turnarounds made into candidates, closest to the rang
 
 
 def out_and_backs(tg, start: int, lo: float, hi: float, no_roads: bool = False, exclude_keys=frozenset(),
-                  through: int | None = None, deadline=None, report=None) -> list[Candidate]:
+                  through: int | None = None, deadline=None, report=None, clock=time.time) -> list[Candidate]:
     """Walk out to a turnaround and back the same way, length in [lo, hi]. Turnarounds are trail ends and
     junctions (from the full graph: spurs count here). With `through`, only turnarounds whose way out passes
     `through`, or `through` itself. The way out is the preferred route (roads cost more), as for a stem."""
@@ -436,7 +442,7 @@ def out_and_backs(tg, start: int, lo: float, hi: float, no_roads: bool = False, 
     found.sort(key=lambda f: (f[0], f[1]))
     out = []
     for _, x, path, keys, one_way in found[:MAX_OUT_AND_BACKS]:
-        if deadline and time.time() > deadline:
+        if deadline and clock() > deadline:
             if report is not None:
                 report["truncated"] = True
             break
@@ -477,7 +483,7 @@ def _one_way_candidate(tg, start, finish, keys, nodes) -> Candidate:
 
 
 def one_ways(tg, start: int, finish: int, lo: float, hi: float, no_roads: bool = False, exclude_keys=frozenset(),
-             through: int | None = None, deadline=None, report=None) -> list[Candidate]:
+             through: int | None = None, deadline=None, report=None, clock=time.time) -> list[Candidate]:
     """From start to finish, length in [lo, hi]: the preferred route, the next best way round each stretch of it,
     and other ways through one junction (the second leg avoids the first leg's trails). With `through`: start -> through -> finish; a `through` on a spur
     is walked out and back (those edges are the candidate's detour_keys)."""
@@ -508,7 +514,7 @@ def one_ways(tg, start: int, finish: int, lo: float, hi: float, no_roads: bool =
     stretches = list(zip(best, best[1:]))
     step = max(1, len(stretches) // MAX_ONE_WAY_VIAS)
     for a, b in stretches[::step]:
-        if deadline and time.time() > deadline:
+        if deadline and clock() > deadline:
             if report is not None:
                 report["truncated"] = True
             return out
@@ -538,7 +544,7 @@ def one_ways(tg, start: int, finish: int, lo: float, hi: float, no_roads: bool =
     vias = sorted((a for a in dist_s if a not in (start, finish) and a in dist_f and G.degree(a) >= 3
                    and dist_s[a] + dist_f[a] <= hi * LAST_RESORT_CAP), key=lambda a: (abs(dist_s[a] + dist_f[a] - mid), a))
     for a in vias[:MAX_ONE_WAY_VIAS]:
-        if deadline and time.time() > deadline:
+        if deadline and clock() > deadline:
             if report is not None:
                 report["truncated"] = True
             break

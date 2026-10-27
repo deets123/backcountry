@@ -212,17 +212,26 @@ def write_area_region(spec: AreaSpec, areas_dir: Path | None = None) -> Path:
     return path
 
 
-ELEVATION_DONE = "elevation_done_{date}"
-ELEVATION_PAD_DEG = 0.05  # elevation is fetched this far (~5 km) past the area's box, no farther  # beside a cut: its elevation step finished (the area is ready)
+ELEVATION_DONE = "elevation_done_{date}"  # beside a cut: its elevation step finished, for these cells (a hash)
+ELEVATION_PAD_DEG = 0.05  # roads get elevation this far (~5 km) past the area, no farther; trails everywhere
 
 
-def elevation_done(region, raw_dir: Path | None, date: str) -> bool:
-    return (ingest.region_raw_dir(region, raw_dir) / ELEVATION_DONE.format(date=date)).exists()
+def _cells_key(cells) -> str:
+    return hashlib.sha1(json.dumps(sorted(cells)).encode()).hexdigest()
+
+
+def elevation_done(region, raw_dir: Path | None, date: str, cells=None) -> bool:
+    """The elevation step finished for this cut; with `cells`, for exactly these cells (an area prepared under an
+    older rule, or with fewer trails, gets its elevation again)."""
+    marker = ingest.region_raw_dir(region, raw_dir) / ELEVATION_DONE.format(date=date)
+    if not marker.exists():
+        return False
+    return cells is None or marker.read_text().strip() == _cells_key(cells)
 
 
 def _cells(tg, spec: AreaSpec, con=None) -> list:
-    """Elevation cells: near the area's outline when it has one (a park's box can be far bigger than the park),
-    else its box, ELEVATION_PAD_DEG past it either way."""
+    """Elevation cells: every trail in the cut, wherever it runs; roads only near the area's outline when it has
+    one (a park's box can be far bigger than the park), else its box, ELEVATION_PAD_DEG past it either way."""
     b, p = spec.bbox, ELEVATION_PAD_DEG
     shape = osm_index.area_shape(con, spec.osm) if con is not None and spec.osm and not spec.capped else None
     if con is not None and spec.members:
@@ -231,8 +240,8 @@ def _cells(tg, spec: AreaSpec, con=None) -> list:
         shapes = [osm_index.area_shape(con, ref) for ref, _ in spec.members]
         shape = unary_union([x for x in shapes if x is not None]) if all(x is not None for x in shapes) else None
     if shape is not None:
-        return corridor_cells(tg, within=shape.simplify(0.005).buffer(p))
-    return corridor_cells(tg, within=(b.west - p, b.south - p, b.east + p, b.north + p))
+        return corridor_cells(tg, within=shape.simplify(0.005).buffer(p), limit_roads_only=True)
+    return corridor_cells(tg, within=(b.west - p, b.south - p, b.east + p, b.north + p), limit_roads_only=True)
 
 
 def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Path | None = None,
@@ -245,12 +254,13 @@ def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Pa
     region = load_region(spec.id, regions_dir=Path("/nonexistent"), areas_dir=areas_dir)
     out_dir = ingest.region_raw_dir(region, raw_dir)
     if date in ingest.cuts(region, raw_dir):
-        if elevation_done(region, raw_dir, date):
-            return {"area_id": spec.id, "cut": date, "already": True}
         tg = build_graph(ingest.load_raw(region, raw_dir, date), region.crs)
+        cells = _cells(tg, spec, con)
+        if elevation_done(region, raw_dir, date, cells):
+            return {"area_id": spec.id, "cut": date, "already": True}
         t1 = time.monotonic()
-        dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=_cells(tg, spec, con))
-        (out_dir / ELEVATION_DONE.format(date=date)).write_text(date)
+        dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=cells)
+        (out_dir / ELEVATION_DONE.format(date=date)).write_text(_cells_key(cells))
         return {"area_id": spec.id, "cut": date, "already": False, "elevation_only": True,
                 "seconds": {"elevation": round(time.monotonic() - t1, 2)}}
     for left in out_dir.glob("*.tmp"):
@@ -270,8 +280,9 @@ def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Pa
     t1 = time.monotonic()
     if on_trails is not None:
         on_trails()
-    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=_cells(tg, spec, con))
-    (out_dir / ELEVATION_DONE.format(date=date)).write_text(date)
+    cells = _cells(tg, spec, con)
+    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=cells)
+    (out_dir / ELEVATION_DONE.format(date=date)).write_text(_cells_key(cells))
     t2 = time.monotonic()
     return {"area_id": spec.id, "cut": date, "already": False, "edges": tg.graph.number_of_edges(),
             "seconds": {"cut_and_graph": round(t1 - t0, 2), "elevation": round(t2 - t1, 2)}}

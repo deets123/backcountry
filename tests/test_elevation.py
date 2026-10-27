@@ -328,3 +328,27 @@ def test_densify_matches_shapely_point_by_point_and_is_vectorised():
         assert (xs[i], ys[i]) == pytest.approx((p.x, p.y), abs=1e-6)
     assert (xs[-1], ys[-1]) == pytest.approx(line.coords[-1][:2], abs=1e-6)
     assert took < 0.05, took  # one numpy call, not a Python loop over shapely
+
+
+def test_trails_get_elevation_everywhere_roads_only_near_the_area():
+    from shapely.geometry import box
+
+    from backcountry.elevation import corridor_cells
+
+    from conftest import RawBuilder
+
+    b = RawBuilder()
+    b.node("a", 0, 0), b.node("b", 0, 3000)
+    b.node("t1", 30000, 0), b.node("t2", 31000, 0)  # a trail far outside the area
+    b.node("r1", 0, 30000), b.node("r2", 0, 31000)  # a road far outside the area
+    b.way(1, ["a", "b"], highway="path", name="Inside Trail")
+    b.way(2, ["t1", "t2"], highway="path", name="Far Trail")
+    b.way(3, ["r1", "r2"], highway="unclassified", name="Far Road")
+    tg = build_graph(b.doc(), crs=CRS)
+    area = (-81.02, 36.1, -80.98, 36.15)  # around a-b only
+    cells = corridor_cells(tg, within=area, limit_roads_only=True)
+    far_trail = tg.graph[b.ids["t1"]][b.ids["t2"]][next(iter(tg.graph[b.ids["t1"]][b.ids["t2"]]))]["geom_wgs84"]
+    far_road = tg.graph[b.ids["r1"]][b.ids["r2"]][next(iter(tg.graph[b.ids["r1"]][b.ids["r2"]]))]["geom_wgs84"]
+    assert any(box(*c).intersects(far_trail) for c in cells)
+    assert not any(box(*c).intersects(far_road) for c in cells)
+    assert len(cells) > len(corridor_cells(tg, within=area))

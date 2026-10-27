@@ -411,17 +411,6 @@ def test_no_snapshot_when_search_finishes_first(grid, tg):
     assert snaps == [] and report["partial"] is False
 
 
-def test_only_the_best_loops_get_day_plans(grid, tg, monkeypatch):
-    from backcountry import loops
-
-    monkeypatch.setattr(loops, "MAX_EVALUATED", 1)
-    seen = []
-    report = loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, evaluate=lambda c: seen.append(c) or 0.0)
-    total = report["loops_found"] + report["lollipops_found"]
-    assert report["evaluated"] == len(seen) <= 1 + 3 * 1 and len(seen) < total
-    assert all(c in seen for c in report["candidates"]) and len(report["candidates"]) == 1
-
-
 # --- out-and-back -------------------------------------------------------------------------
 
 
@@ -492,3 +481,44 @@ def test_one_way_through_a_spur_walks_it_out_and_back(grid, tg):
     assert cands and all(ids["D"] in c.route.nodes for c in cands)
     c = cands[0]
     assert c.detour_keys and c.repeated_m == pytest.approx(500, abs=1)  # D's spur, walked twice
+
+
+# --- every candidate is day-planned; only the clock can stop it, and then it says so ---------------------
+
+
+def test_every_candidate_is_day_planned_when_there_is_time(grid, tg):
+    from backcountry import loops
+
+    assert not hasattr(loops, "MAX_EVALUATED")
+    seen = []
+    report = loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, evaluate=lambda c: seen.append(c) or 0.0)
+    total = report["loops_found"] + report["lollipops_found"]
+    assert total > 3 and report["evaluated"] == len(seen) == total and report["truncated"] is False
+
+
+def test_day_planning_stops_at_the_deadline_and_says_so(grid, tg):
+    from backcountry import loops
+
+    seen, t = [], [0.0]
+
+    def evaluate(c):  # each day plan "takes" 25 s on a clock that otherwise stands still
+        seen.append(c)
+        t[0] += 25
+        return 0.0
+    report = loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, max_seconds=60, clock=lambda: t[0],
+                          evaluate=evaluate)
+    total = report["loops_found"] + report["lollipops_found"]
+    assert 0 < report["evaluated"] == len(seen) < total
+    assert report["truncated"] is True
+    assert all(c in seen for c in report["candidates"])
+    assert any("time budget" in n for n in report["notes"])
+
+
+def test_the_snapshot_day_plans_only_a_few(grid, tg, monkeypatch):
+    from backcountry import loops
+
+    monkeypatch.setattr(loops, "SNAPSHOT_EVALUATED", 2)
+    seen, snaps = [], []
+    loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, on_snapshot=snaps.append, first_s=8,
+                 clock=_ticking_clock(5), evaluate=lambda c: seen.append(c) or 0.0)
+    assert snaps and snaps[0]["evaluated"] == 2 < len(seen)  # the final pass still plans every trip
