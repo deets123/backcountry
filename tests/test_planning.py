@@ -5,6 +5,7 @@ from backcountry.planning import GenerateRequest, RequestError, parse_range, pla
 from backcountry.region import BBox, Region
 from conftest import CRS
 
+KM = 1000.0
 REGION = Region(id="synthetic", name="Synthetic", crs=CRS, bbox=BBox(36.0, -81.1, 36.2, -80.9))
 
 
@@ -283,3 +284,50 @@ def test_any_includes_out_and_back_but_not_one_way():
     req = GenerateRequest.from_dict({"trailhead": "1000", "total": "2-5"})
     assert req.kinds == ("loop", "lollipop", "out_and_back")
     assert GenerateRequest.from_dict({"trailhead": "1000", "total": "2-5", "type": "out_and_back"}).kinds == ("out_and_back",)
+
+
+# --- one way --------------------------------------------------------------------------------------
+
+
+def test_one_way_needs_a_finish(grid):
+    with pytest.raises(RequestError) as e:
+        GenerateRequest.from_dict({"trailhead": "1000", "total": "2-5", "type": "one_way"})
+    assert e.value.field == "finish"
+
+
+def test_one_way_bad_finish_is_a_request_error(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    for finish in (str(ids["T"]), "0.0,0.0"):
+        req = GenerateRequest.from_dict({"trailhead": str(ids["T"]), "total": "2-5", "type": "one_way", "finish": finish})
+        with pytest.raises(RequestError) as e:
+            plan_trip(REGION, raw, tg, req)
+        assert e.value.field == "finish"
+
+
+def test_one_way_plans_to_the_finish(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    req = GenerateRequest.from_dict({"trailhead": str(ids["T"]), "total": "2.5-4.4", "type": "one_way",
+                                     "finish": str(ids["g22"])})
+    assert GenerateRequest.from_dict(req.to_dict()) == req
+    cands = plan_trip(REGION, raw, tg, req).report["candidates"]
+    assert cands and all(c.route.nodes[-1] == ids["g22"] for c in cands)
+
+
+def test_suggest_finishes_fit_the_range_and_skip_the_start(grid):
+    from backcountry.planning import suggest_finishes
+
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    ths = [{"id": n, "name": f"TH {n}", "node": ids[n], "in_graph": True, "source": "data", "verified": False,
+            "lat": tg.graph.nodes[ids[n]]["lat"], "lon": tg.graph.nodes[ids[n]]["lon"]} for n in ("T", "g22", "g02", "g20", "D")]
+    got = suggest_finishes(tg, ths, ids["T"], 2.0 * KM, 4.6 * KM)
+    # trail distances from T: D 2.0 km, g02 and g20 2.5 km, g22 4.5 km; closest to the range middle (3.3 km) first
+    assert [f["id"] for f in got] == ["g02", "g20", "g22", "D"]
+    assert len(suggest_finishes(tg, ths * 3, ids["T"], 2.0 * KM, 4.6 * KM)) <= 5
+    for f in got:
+        assert 2.0 * KM <= f["length_m"] <= 4.6 * KM and f["straight_line_m"] > 0 and f["gain_ft"] is None

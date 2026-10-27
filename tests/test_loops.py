@@ -461,3 +461,34 @@ def test_out_and_back_respects_avoid(grid, tg):
 def test_search_kinds_out_and_back(grid, tg):
     cands = find_candidates(tg, grid.ids["g00"], 2.5 * KM, 3.5 * KM, kinds=("out_and_back",))
     assert cands and all(c.kind == "out_and_back" for c in cands)
+
+
+# --- one way ------------------------------------------------------------------------------
+
+
+def test_one_way_from_T_to_g22(grid, tg):
+    from backcountry.loops import one_ways
+
+    ids = grid.ids
+    cands = one_ways(tg, ids["T"], ids["g22"], 4 * KM, 7 * KM)
+    assert cands
+    G = tg.graph
+    for c in cands:
+        assert c.kind == "one_way" and c.finish == ids["g22"]
+        assert c.route.nodes[0] == ids["T"] and c.route.nodes[-1] == ids["g22"]
+        assert 4 * KM <= c.length_m <= 7 * KM
+        for e, (u, v) in zip(c.route.edges, zip(c.route.nodes, c.route.nodes[1:])):
+            assert G.has_edge(u, v, e["key"])
+        assert any(n.startswith("One way: start and finish are ") and n.endswith("Shuttle drive: unknown.")
+                   for n in c.route.notes)
+    assert min(c.length_m for c in cands) == pytest.approx(4.5 * KM, abs=1)
+
+
+def test_one_way_through_a_spur_walks_it_out_and_back(grid, tg):
+    from backcountry.loops import one_ways
+
+    ids = grid.ids
+    cands = one_ways(tg, ids["T"], ids["g20"], 2 * KM, 5 * KM, through=ids["D"])
+    assert cands and all(ids["D"] in c.route.nodes for c in cands)
+    c = cands[0]
+    assert c.detour_keys and c.repeated_m == pytest.approx(500, abs=1)  # D's spur, walked twice

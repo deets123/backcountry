@@ -19,6 +19,7 @@ Two shapes:
             Only stem edges are walked twice.
 """
 
+import math
 import time
 from dataclasses import dataclass, field
 
@@ -46,7 +47,7 @@ class LoopGraph:
 
 @dataclass
 class Candidate:
-    kind: str  # "loop", "lollipop" or "out_and_back"
+    kind: str  # "loop", "lollipop", "out_and_back" or "one_way"
     start: int
     keys: list[str]  # real graph edge keys in walking order
     nodes: list[int]  # real graph nodes in walking order (len(keys) + 1)
@@ -66,6 +67,7 @@ class Candidate:
     suggestion: dict | None = None  # planning.suggest_fix: one re-checked setting change {text, days}
     pins_m: list | None = None  # resolved pinned camps, kept so the suggestion re-splits the same way
     turnaround: int | None = None  # out-and-back: the node it turns back at
+    finish: int | None = None  # one way: the node it ends at
 
     def overlap(self, other: "Candidate") -> float:
         return overlap(self.keys, other.keys, self.lengths | other.lengths)
@@ -269,7 +271,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
            no_roads: bool = False, weights: Weights = Weights(), max_overlap: float = 0.5,
            max_seconds: float = MAX_SECONDS, evaluate=None, avoid=(), must_visit=(), direction: str | None = None,
            on_snapshot=None, first_s: float = FIRST_RESULTS_S, clock=time.time, keep=None, through: int | None = None,
-           max_detour_m: float = MAX_DETOUR_M) -> dict:
+           max_detour_m: float = MAX_DETOUR_M, finish: int | None = None) -> dict:
     """Find, score, and pick candidates.
 
     `evaluate(candidate)` may add penalty (e.g. a day plan's). `avoid`: names/way ids to exclude.
@@ -279,6 +281,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     scored and picked the same way (`report["partial"]` True); not called if the search ends sooner.
     `keep(candidate)`: only candidates it accepts are picked (a destination's range and reach). `through`: the
     node out-and-backs must pass (a destination). `max_detour_m`: the longest must-visit detour, one way.
+    `finish`: where one-way trips end.
     """
     t0 = time.time()
     deadline = t0 + max_seconds
@@ -287,7 +290,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     H = lg.graph
     report = {"loop_graph": {"nodes": H.number_of_nodes(), "edges": H.number_of_edges(), "pruned": lg.pruned,
                              "merged": lg.merged, "reach_m": lg.reach_m}, "loops_found": 0, "lollipops_found": 0,
-              "out_and_backs_found": 0, "stems_tried": 0, "via_pairs_tried": 0, "truncated": False, "widened": False,
+              "out_and_backs_found": 0, "one_ways_found": 0, "stems_tried": 0, "via_pairs_tried": 0, "truncated": False, "widened": False,
               "avoided_edges": len(excluded), "must_visit_notes": [], "notes": [], "partial": False}
 
     def choose(found: list[Candidate], rep: dict) -> list[Candidate]:
@@ -366,6 +369,11 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
                     c = make(steps)
                     found.append(c)
                     so_far.append(c)
+        if "one_way" in kinds and finish is not None:
+            ows = one_ways(tg, start, finish, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report)
+            report["one_ways_found"] += len(ows)
+            found += ows
+            so_far.extend(ows)
         if "out_and_back" in kinds:
             obs = out_and_backs(tg, start, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report)
             report["out_and_backs_found"] += len(obs)
@@ -431,6 +439,87 @@ def out_and_backs(tg, start: int, lo: float, hi: float, no_roads: bool = False, 
         out.append(Candidate(kind="out_and_back", start=start, keys=keys + keys[::-1], nodes=path + path[::-1][1:],
                              stem_keys=list(keys), route=route, length_m=route.length_m, road_m=route.road_m,
                              last_resort_m=route.last_resort_m, repeated_m=one_way, lengths=lengths, turnaround=x))
+    return out
+
+
+# --- one way --------------------------------------------------------------------------------------------
+
+MAX_ONE_WAY_VIAS = 60  # junctions tried as "via" points for other ways to the finish
+LAST_RESORT_CAP = 10.0  # routing costs can be up to this times the distance (last-resort roads)
+
+
+def _path_keys(R, path):
+    return [R[a][b]["key"] for a, b in zip(path, path[1:])]
+
+
+def _one_way_candidate(tg, start, finish, keys, nodes) -> Candidate:
+    route = walk(tg, keys, nodes)
+    G = tg.graph
+    straight = math.hypot(G.nodes[start]["x"] - G.nodes[finish]["x"], G.nodes[start]["y"] - G.nodes[finish]["y"])
+    route.notes.append(f"One way: start and finish are {straight / 1609.344:.1f} mi apart in a straight line. "
+                       "Shuttle drive: unknown.")
+    lengths = {e["key"]: e["length_m"] for e in route.edges}
+    seen, twice = set(), []
+    for k in keys:
+        if k in seen and k not in twice:
+            twice.append(k)
+        seen.add(k)
+    return Candidate(kind="one_way", start=start, keys=keys, nodes=nodes, stem_keys=[], route=route,
+                     detour_keys=twice, length_m=route.length_m, road_m=route.road_m, last_resort_m=route.last_resort_m,
+                     repeated_m=sum(lengths[k] for k in twice), lengths=lengths, finish=finish)
+
+
+def one_ways(tg, start: int, finish: int, lo: float, hi: float, no_roads: bool = False, exclude_keys=frozenset(),
+             through: int | None = None, deadline=None, report=None) -> list[Candidate]:
+    """From start to finish, length in [lo, hi]: the preferred route, and other ways through one junction (the
+    second leg avoids the first leg's trails). With `through`: start -> through -> finish; a `through` on a spur
+    is walked out and back (those edges are the candidate's detour_keys)."""
+    R = routing_graph(tg, no_roads, exclude_keys=exclude_keys)
+    if start not in R or finish not in R:
+        return []
+    G = tg.graph
+
+    def real(path):
+        return sum(G[a][b][R[a][b]["key"]]["length_m"] for a, b in zip(path, path[1:]))
+
+    try:
+        if through is not None:
+            p1 = nx.shortest_path(R, start, through, weight="w")
+            p2 = nx.shortest_path(R, through, finish, weight="w")
+            nodes, keys = p1 + p2[1:], _path_keys(R, p1) + _path_keys(R, p2)
+            c = _one_way_candidate(tg, start, finish, keys, nodes)
+            return [c] if lo <= c.length_m <= hi else []
+        best = nx.shortest_path(R, start, finish, weight="w")
+    except nx.NetworkXNoPath:
+        return []
+    out, seen = [], set()
+    if lo <= real(best) <= hi:
+        out.append(_one_way_candidate(tg, start, finish, _path_keys(R, best), best))
+        seen.add(tuple(best))
+    dist_s, paths_s = nx.single_source_dijkstra(R, start, weight="w")
+    dist_f = nx.single_source_dijkstra_path_length(R, finish, weight="w")
+    mid = (lo + hi) / 2
+    vias = sorted((a for a in dist_s if a not in (start, finish) and a in dist_f and G.degree(a) >= 3
+                   and dist_s[a] + dist_f[a] <= hi * LAST_RESORT_CAP), key=lambda a: (abs(dist_s[a] + dist_f[a] - mid), a))
+    for a in vias[:MAX_ONE_WAY_VIAS]:
+        if deadline and time.time() > deadline:
+            if report is not None:
+                report["truncated"] = True
+            break
+        leg1 = paths_s[a]
+        R2 = R.copy()
+        R2.remove_edges_from(zip(leg1, leg1[1:]))
+        try:
+            leg2 = nx.shortest_path(R2, a, finish, weight="w")
+        except nx.NetworkXNoPath:
+            continue
+        nodes = leg1 + leg2[1:]
+        if tuple(nodes) in seen or len(set(nodes)) != len(nodes):  # no repeats: a walk that crosses itself isn't one
+            continue
+        seen.add(tuple(nodes))
+        keys = _path_keys(R, leg1) + [R2[x][y]["key"] for x, y in zip(leg2, leg2[1:])]
+        if lo <= real(leg1) + sum(G[x][y][R2[x][y]["key"]]["length_m"] for x, y in zip(leg2, leg2[1:])) <= hi:
+            out.append(_one_way_candidate(tg, start, finish, keys, nodes))
     return out
 
 

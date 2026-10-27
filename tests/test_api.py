@@ -473,3 +473,14 @@ def test_plan_job_bad_settings_are_a_400(client, grid):
 def test_plan_job_id_is_validated(client):
     assert client.get("/api/plans/..%2F..%2Fetc").status_code in (400, 404)
     assert client.get("/api/plans/0123456789abcdef").status_code == 404
+
+
+def test_finishes_endpoint(client, grid):
+    r = client.get("/api/regions/dolly_sods/finishes", params={"trailhead": str(grid.ids["T"]), "total": "0.5-4"})
+    assert r.status_code == 200, r.text
+    finishes = r.json()["finishes"]
+    assert 1 <= len(finishes) <= 5
+    for f in finishes:
+        assert {"id", "name", "length_m", "gain_ft", "loss_ft", "straight_line_m"} <= set(f) and f["node"] != grid.ids["T"]
+    assert client.get("/api/regions/dolly_sods/finishes", params={"trailhead": "nowhere", "total": "1-4"}).status_code == 400
+    assert client.get("/api/regions/dolly_sods/finishes", params={"trailhead": str(grid.ids["T"]), "total": "4-1"}).status_code == 400

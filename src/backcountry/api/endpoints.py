@@ -18,7 +18,8 @@ from backcountry.destination import resolve as resolve_destination
 from backcountry.difficulty import rate_saved, segments_terrain
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
-from backcountry.planning import GenerateRequest, RequestError, plan_route, plan_trip
+from backcountry.planning import GenerateRequest, RequestError, parse_range, plan_route, plan_trip, suggest_finishes
+from backcountry.scoring import M_PER_MI
 from backcountry.retrace import changes as trip_changes
 from backcountry.retrace import retrace
 from backcountry.region import load_region
@@ -55,12 +56,8 @@ def _index_for(app, req_destination):
         con.close()
 
 
-@router.get("/regions/{region_id}/trailheads")
-def trailheads(region_id: str, request: Request, destination: str | None = None):
-    """Trailheads; with `destination` (a search result's ref), each gets its trail distance to it, nearest first."""
-    if destination is not None:
-        check_ref(destination)
-    loaded = _regions(request).get(region_id)
+def _trailhead_list(loaded) -> list[dict]:
+    """The region's trailheads (yaml entries first), then start points found in the data."""
     G = loaded.tg.graph
     out = []
     for th in loaded.region.trailheads:
@@ -86,6 +83,16 @@ def trailheads(region_id: str, request: Request, destination: str | None = None)
             "verified": False, "in_graph": True, "kinds": c["kinds"], "lat": c["lat"], "lon": c["lon"],
             "component": c["component"], "snap_m": c["snap_m"],
         })
+    return out
+
+
+@router.get("/regions/{region_id}/trailheads")
+def trailheads(region_id: str, request: Request, destination: str | None = None):
+    """Trailheads; with `destination` (a search result's ref), each gets its trail distance to it, nearest first."""
+    if destination is not None:
+        check_ref(destination)
+    loaded = _regions(request).get(region_id)
+    out = _trailhead_list(loaded)
     if destination is not None:
         with _index_for(request.app, destination) as con:
             dist = trail_distances(loaded.tg, resolve_destination(con, loaded.tg, destination))
@@ -94,6 +101,25 @@ def trailheads(region_id: str, request: Request, destination: str | None = None)
             t["to_destination_m"] = round(d, 1) if d is not None else None
         out.sort(key=lambda t: (t["to_destination_m"] is None, t["to_destination_m"] or 0.0))
     return {"region": region_id, "trailheads": out}
+
+
+@router.get("/regions/{region_id}/finishes")
+def finishes(region_id: str, request: Request, trailhead: str, total: str, destination: str | None = None):
+    """Trailheads a one-way trip from `trailhead` can finish at within `total` miles (via `destination`)."""
+    lo, hi = parse_range(total, "total")
+    if destination is not None:
+        check_ref(destination)
+    loaded = _regions(request).get(region_id)
+    try:
+        start = resolve_point(loaded.tg, loaded.region, trailhead)["node"]
+    except ValueError as e:
+        raise RequestError("trailhead", str(e)) from e
+    through = None
+    if destination is not None:
+        with _index_for(request.app, destination) as con:
+            through = resolve_destination(con, loaded.tg, destination).node
+    return {"finishes": suggest_finishes(loaded.tg, _trailhead_list(loaded), start, lo * M_PER_MI, hi * M_PER_MI,
+                                         through=through, dem=loaded.dem)}
 
 
 # --- search and areas ------------------------------------------------------------------------
