@@ -44,7 +44,8 @@ The any-area piece made every US park searchable, but three things still stop it
 
 ### 1b. Day hikes, and destinations inside longer trips (the user chose both)
 
-- **Day hikes:** zero nights becomes a normal choice (today nights must be at least 1). A day hike is one day with
+- **Day hikes:** (found while planning: day hikes already exist; nights left blank plans one. The piece adds a
+  clear "Day hike" choice to the form rather than a new mode.) A day hike is one day with
   no camps, and has every trip type, a difficulty level, GPX, saving, offline use and the chat, the same as
   overnight trips. The form offers "Day hike" alongside nights. "Angels Landing" with a day hike gives the
   out-and-back from the Grotto with its real length.
