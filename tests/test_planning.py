@@ -5,6 +5,7 @@ from backcountry.planning import GenerateRequest, RequestError, parse_range, pla
 from backcountry.region import BBox, Region
 from conftest import CRS
 
+KM = 1000.0
 REGION = Region(id="synthetic", name="Synthetic", crs=CRS, bbox=BBox(36.0, -81.1, 36.2, -80.9))
 
 
@@ -22,7 +23,7 @@ def test_parse_range_rejects_bad_values(bad):
 
 def test_from_dict_defaults_and_round_trip():
     req = GenerateRequest.from_dict({"trailhead": "1000", "total": "2.4-5.1"})
-    assert req.count == 3 and req.type == "any" and req.kinds == ("loop", "lollipop")
+    assert req.count == 3 and req.type == "any" and req.kinds == ("loop", "lollipop", "out_and_back")
     assert req.total_m == pytest.approx((2.4 * 1609.344, 5.1 * 1609.344))
     assert req.daily is None and req.daily_m is None
     assert GenerateRequest.from_dict(req.to_dict()) == req
@@ -223,7 +224,7 @@ def _flat_trip(grid, days):
 
     raw = grid.doc()
     tg = build_graph(raw, crs=CRS)
-    data = {"trailhead": str(grid.ids["g00"]), "total": "1.0-2.6", "nights": 1, "daily": "0.5-4", "days": days}
+    data = {"trailhead": str(grid.ids["g00"]), "total": "1.0-2.6", "nights": 1, "daily": "0.5-4", "type": "loop", "days": days}
     return raw, tg, data, plan_trip(REGION, raw, tg, GenerateRequest.from_dict(data), dem=plane_dem(0, 0, 500))
 
 
@@ -251,3 +252,147 @@ def test_level_suggestion_names_the_level(grid):
     c = result.report["candidates"][0]
     assert "Day 1 came out easy, not hard" in c.plan.violations
     assert c.suggestion["text"] == "Setting day 1 to easy would fix it."  # moderate (one step) still misses on the flat
+
+
+@pytest.mark.parametrize("nights", [None, 1])
+def test_plan_trip_reports_timings(grid, nights):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    body = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1"} | ({"nights": 1, "daily": "0.5-4"} if nights else {})
+    timings = plan_trip(REGION, raw, tg, GenerateRequest.from_dict(body)).report["timings"]
+    assert set(timings) == {"resolve", "search", "day_split", "finish"}
+    assert all(isinstance(v, float) and v >= 0 for v in timings.values())
+
+
+def test_plan_trip_snapshot_has_day_plans(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    t = [0.0]
+
+    def clock():
+        t[0] += 5
+        return t[0]
+
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["g00"]), "total": "1.2-5.6", "nights": 1, "daily": "0.5-4"})
+    snaps = []
+    final = plan_trip(REGION, raw, tg, req, on_snapshot=snaps.append, first_s=8, clock=clock)
+    assert len(snaps) == 1 and snaps[0].report["partial"] is True and final.report["partial"] is False
+    assert snaps[0].report["candidates"] and all(c.plan is not None for c in snaps[0].report["candidates"])
+
+
+def test_any_includes_out_and_back_but_not_one_way():
+    req = GenerateRequest.from_dict({"trailhead": "1000", "total": "2-5"})
+    assert req.kinds == ("loop", "lollipop", "out_and_back")
+    assert GenerateRequest.from_dict({"trailhead": "1000", "total": "2-5", "type": "out_and_back"}).kinds == ("out_and_back",)
+
+
+# --- one way --------------------------------------------------------------------------------------
+
+
+def test_one_way_needs_a_finish(grid):
+    with pytest.raises(RequestError) as e:
+        GenerateRequest.from_dict({"trailhead": "1000", "total": "2-5", "type": "one_way"})
+    assert e.value.field == "finish"
+
+
+def test_one_way_bad_finish_is_a_request_error(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    for finish in (str(ids["T"]), "0.0,0.0"):
+        req = GenerateRequest.from_dict({"trailhead": str(ids["T"]), "total": "2-5", "type": "one_way", "finish": finish})
+        with pytest.raises(RequestError) as e:
+            plan_trip(REGION, raw, tg, req)
+        assert e.value.field == "finish"
+
+
+def test_one_way_plans_to_the_finish(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    req = GenerateRequest.from_dict({"trailhead": str(ids["T"]), "total": "2.5-4.4", "type": "one_way",
+                                     "finish": str(ids["g22"])})
+    assert GenerateRequest.from_dict(req.to_dict()) == req
+    cands = plan_trip(REGION, raw, tg, req).report["candidates"]
+    assert cands and all(c.route.nodes[-1] == ids["g22"] for c in cands)
+
+
+def test_suggest_finishes_fit_the_range_and_skip_the_start(grid):
+    from backcountry.planning import suggest_finishes
+
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    ths = [{"id": n, "name": f"TH {n}", "node": ids[n], "in_graph": True, "source": "data", "verified": False,
+            "lat": tg.graph.nodes[ids[n]]["lat"], "lon": tg.graph.nodes[ids[n]]["lon"]} for n in ("T", "g22", "g02", "g20", "D")]
+    got = suggest_finishes(tg, ths, ids["T"], 2.0 * KM, 4.6 * KM)
+    # trail distances from T: D 2.0 km, g02 and g20 2.5 km, g22 4.5 km; closest to the range middle (3.3 km) first
+    assert [f["id"] for f in got] == ["g02", "g20", "g22", "D"]
+    assert len(suggest_finishes(tg, ths * 3, ids["T"], 2.0 * KM, 4.6 * KM)) <= 5
+    for f in got:
+        assert 2.0 * KM <= f["length_m"] <= 4.6 * KM and f["straight_line_m"] > 0 and f["gain_ft"] is None
+
+
+def test_suggested_finishes_prefer_trailheads_and_spread_out(grid):
+    from backcountry.planning import suggest_finishes
+
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids, G = grid.ids, tg.graph
+
+    def th(name, node, kinds):
+        return {"id": name, "name": name, "node": ids[node], "in_graph": True, "source": "data", "verified": False,
+                "lat": G.nodes[ids[node]]["lat"], "lon": G.nodes[ids[node]]["lon"], "kinds": kinds}
+
+    ths = [th("junction m", "m", ["trail_road_junction"]), th("junction g11", "g11", ["trail_road_junction"]),
+           th("Tagged g12", "g12", ["osm_trailhead"]), th("junction g01", "g01", ["trail_road_junction"])]
+    got = [f["id"] for f in suggest_finishes(tg, ths, ids["T"], 1.0 * KM, 6.0 * KM)]
+    assert got[0] == "Tagged g12"  # a tagged trailhead before road crossings
+    assert not ({"junction m", "junction g11"} <= set(got))  # 500 m apart: one of them is enough
+
+
+def test_one_way_offers_variants_that_share_most_of_their_trail():
+    from conftest import RawBuilder
+
+    # A to D along a long shared trail, with two ways round the middle: a short cut and a longer bend
+    b = RawBuilder()
+    for name, x, y in [("A", 0, 0), ("B", 4000, 0), ("C", 5000, 0), ("D", 9000, 0), ("E", 4500, 600)]:
+        b.node(name, x, y)
+    b.way(1, ["A", "B"], highway="path", name="Long Trail")
+    b.way(2, ["B", "C"], highway="path", name="Short Cut")
+    b.way(3, ["B", "E", "C"], highway="path", name="Rim Bend")
+    b.way(4, ["C", "D"], highway="path", name="Long Trail")
+    raw = b.doc()
+    tg = build_graph(raw, crs=CRS)
+    req = GenerateRequest.from_dict({"trailhead": str(b.ids["A"]), "total": "5-7", "type": "one_way",
+                                     "finish": str(b.ids["D"]), "count": 3})
+    cands = plan_trip(REGION, raw, tg, req).report["candidates"]
+    names = [{e["name"] for e in c.route.edges} for c in cands]
+    assert any("Short Cut" in n for n in names) and any("Rim Bend" in n for n in names)
+
+
+# --- review fixes ------------------------------------------------------------------------------------------
+
+
+def test_one_way_ignores_direction_and_keeps_its_ends(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    for extra in ({"direction": "ccw"}, {"must_visit": [str(ids["D"])]}):
+        req = GenerateRequest.from_dict({"trailhead": str(ids["T"]), "total": "2.5-4.4", "type": "one_way",
+                                         "finish": str(ids["g22"])} | extra)
+        cands = plan_trip(REGION, raw, tg, req).report["candidates"]
+        assert cands, extra
+        for c in cands:
+            assert c.route.nodes[0] == ids["T"] and c.route.nodes[-1] == ids["g22"] and c.finish == ids["g22"], extra
+
+
+def test_out_and_back_with_a_detour_keeps_its_turnaround(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    req = GenerateRequest.from_dict({"trailhead": str(ids["T"]), "total": "1-6", "type": "out_and_back",
+                                     "must_visit": [str(ids["D"])], "direction": "cw"})
+    cands = plan_trip(REGION, raw, tg, req).report["candidates"]
+    assert cands and all(c.turnaround is not None and c.turnaround in c.route.nodes for c in cands)
+    assert all(c.route.nodes[0] == ids["T"] for c in cands)

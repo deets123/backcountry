@@ -856,3 +856,70 @@ Spec: `docs/superpowers/specs/2026-10-25-any-us-area-design.md`. Plan: `docs/sup
   can't be followed; plan it again instead.
 - NPS published mileages aren't compared yet (acceptance check 4's second half).
 - Deferred: park rules, permits and closures (next after trip shapes); trip temperatures and gear.
+
+## Destinations, trip shapes and speed (built 2026-10-27; awaiting your phone check)
+
+Spec: `docs/superpowers/specs/2026-10-27-trip-shapes-and-speed-design.md`. Plan:
+`docs/superpowers/plans/2026-10-27-trip-shapes-and-speed.md`. Built on the any-area branch (PR #8).
+
+**Built**
+- **Speed.** The search only looks at junctions a trip can reach (half the longest trip), every leg's shortest-path
+  search stops at the length left, and only the best 40 loops (plus a varied few) get day plans, which was most of
+  the time. The first trips show after about 8 s while the search goes on (plans run as jobs the phone polls), and
+  the search stops by 60 s. Elevation is read only in the ~5 km cells trails pass through, near the area's
+  outline, six at a time, and stored about a third smaller. A new area shows its trails as soon as they're cut,
+  then "Adding elevation…" (Plan waits for it). `backcountry areas prepare-popular` prepares national parks, then
+  monuments and recreation areas, then the wilderness areas with the most trail miles, in their own 8 GB share.
+- **Destinations.** Searching a place makes it where every trip goes: the start list shows only starts that reach
+  it within the miles, nearest first; out-and-backs turn there; loops and longer out-and-backs take it as a side
+  trip ("Side trip to Angels Landing, 0.9 mi round trip."). A summit past the mapped trail gets a note with the
+  distance; an unreachable place says so; when nothing fits the miles the shortest out and back to it is offered
+  with its real length.
+- **Trip shapes.** Out and back, one way (up to five suggested finishes with miles, gain, loss and the straight
+  line; Google Maps and Apple Maps buttons for the shuttle drive, which is "unknown" in the app and the GPX), a
+  Day hike switch, and Start/Finish waypoints when the ends differ. Saved trips of every shape follow newer data.
+- **Search names.** "Zion" lists "Zion (park and nearby wilderness)" first and opens both; "Zion National Park" and
+  "Zion NP" open the park alone.
+
+**Measured** (this laptop, `scripts/measure-speed --fresh`, before → after)
+
+| | Open (trails + elevation) | Disk | Plan (2 nights, 18–26 mi) |
+|---|---|---|---|
+| Zion, from the Grotto | 44.4 s → 18.0 s (elevation 43.2 → 17.3) | 106 → 55 MB | 90 s, hit the limit, 0 trips → 11.3 s, 1 trip |
+| Yosemite, from Bridalveil Creek | 51.9 s → 42.2 s (48.7 → 39.7) | 297 → 167 MB | 176.6 s → 20.7 s, 3 trips |
+| Grand Canyon | 286.4 s → 78.3 s (280.4 → 74.0) | 1,417 → 308 MB | |
+
+Trails are on screen after the cut: 0.7–4 s. Grand Canyon's elevation is still over a minute on a first open, so
+it counts on being prepared ahead (spec). The prepare-ahead run hasn't been done on the real index yet.
+
+**Acceptance checks** (`tests/test_real_areas.py`, local data)
+1. Speed: the table above. First trips at about 8 s (by design; not timed separately).
+2. Angels Landing as a day hike from the Grotto: an out-and-back of 5.73 mi, +1,654 ft (1.7 s); the summit node
+   is 6 m from the trail, so no note. As 2 nights: an out-and-back of 19.16 mi up the West Rim with "Side trip to
+   Angels Landing, 0.9 mi round trip." (13.4 s).
+3. Chesler Park: Elephant Hill Trail Trailhead is offered (3.7 mi by trail); a 13.54 mi loop through it is planned.
+4. West Rim one way: from Lava Point the suggested finishes are West Rim Trailhead South (14.8 mi), Right Fork,
+   Grotto Trailhead (15.5 mi), Weeping Rock and Court of the Patriarchs, each with gain and loss. Planned between
+   the starts nearest your track's ends (West Rim Trailhead North; the Grotto's south trailhead), one offered trip
+   is yours: 14.71 mi against your 14.57 mi track, every track point within 100 m (the others take Telephone
+   Canyon). Your track starts and ends about 900 m from the Lava Point and Grotto trailheads the spec named.
+5. "Zion" → Zion National Park + Zion Wilderness; "Zion National Park" and "Zion NP" → the park alone.
+6. Tests: pytest 659 passed, 30 skipped; `scripts/heavy-tests` 683 passed, 6 skipped; real-area checks 9 passed,
+   1 skipped; web 195 unit, 12 end-to-end. Chat eval not re-run (the chat's prompt and parsing didn't change).
+
+**Review fixes** (a fresh reviewer read the whole branch; each fix has a test that failed first)
+- One-way and out-and-back trips ignore Direction (it walked one-way trips backwards); detours keep the finish.
+- A destination cut off by avoided trails says it can't be reached; the fallback respects avoid.
+- No hidden must-visit wording (raw ids, CLI flags) on destination trips.
+- A plan that fails after its first trips showed goes back to the plan with the error.
+- A group of areas must touch, with a capped box (a crafted request could have cut half the country).
+- An updated one-way trip keeps its finish's name; the phone cancels plans it gave up on (freeing the slot);
+  a cell with no USGS tile is left empty instead of failing the whole area.
+
+**Known gaps and next steps**
+- Run `caffeinate -i uv run backcountry areas prepare-popular` overnight; it hasn't been run on the real index.
+- Grand Canyon-size parks take over a minute on a first open (USGS download), so prepared-ahead matters for them.
+- One-way trips can show several close variants (they may share up to 90% of their trail).
+- The destination flow is covered by unit tests and the real-data checks, not by a browser test (the test server
+  has no US index).
+- Next piece: park rules, permits and closures. OSM already tags some (`access=permit` on the Angels Landing trail).

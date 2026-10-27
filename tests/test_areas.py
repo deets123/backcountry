@@ -144,17 +144,18 @@ def test_prepare_twice_is_quick_and_same(index, dirs):
     assert len(list((dirs["raw_dir"] / spec.id).glob("extract_*.json"))) == 1
 
 
-def test_interrupted_cut_leaves_no_cache(index, dirs):
+def test_interrupted_elevation_keeps_the_trails_but_is_not_ready(index, dirs):
     def broken(region, bounds, **kw):
         raise RuntimeError("USGS unreachable")
 
     spec = areas.area_from_ref(index, "relation/3003")
     with pytest.raises(RuntimeError):
         areas.prepare_area(spec, index, dem_fetch=broken, **dirs)
-    assert not list((dirs["raw_dir"] / spec.id).glob("extract_*.json"))
+    assert len(list((dirs["raw_dir"] / spec.id).glob("extract_*.json"))) == 1  # the trails can be shown
     region = load_region(spec.id, areas_dir=dirs["areas_dir"])
-    with pytest.raises(FileNotFoundError):
-        ingest.load_raw(region, dirs["raw_dir"])
+    assert not areas.elevation_done(region, dirs["raw_dir"], MINI_DATE)
+    out = areas.prepare_area(spec, index, dem_fetch=no_dem(), **dirs)  # the next try fetches only elevation
+    assert out["elevation_only"] is True and areas.elevation_done(region, dirs["raw_dir"], MINI_DATE)
 
 
 def test_prepare_clears_leftovers_of_an_interrupted_run(index, dirs):
@@ -185,3 +186,78 @@ def test_load_raw_by_cut(index, dirs, tmp_path):
     with pytest.raises(FileNotFoundError):
         ingest.load_raw(region, dirs["raw_dir"], cut="2025-01-01")
     assert ingest.cuts(region, dirs["raw_dir"]) == [MINI_DATE, "2026-11-20"]
+
+
+def test_prepare_area_asks_for_elevation_only_along_trails(index, dirs):
+    from backcountry.elevation import corridor_cells
+
+    got = []
+
+    def fetch(region, bounds, **kw):
+        got.append(kw.get("cells"))
+    spec = areas.area_from_ref(index, "relation/3003")
+    areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)
+    region = load_region(spec.id, regions_dir=dirs["areas_dir"].parent / "none", areas_dir=dirs["areas_dir"])
+    tg = build_graph(ingest.load_raw(region, dirs["raw_dir"]), region.crs)
+    b, p = spec.bbox, areas.ELEVATION_PAD_DEG
+    assert got == [corridor_cells(tg, within=(b.west - p, b.south - p, b.east + p, b.north + p))] and got[0]
+
+
+# --- prepared ahead (popular areas) -------------------------------------------------------------
+
+
+def test_popular_areas_order(index):
+    names = [a["name"] for a in osm_index.popular_areas(index)]
+    assert names.index("Testpark National Park") < names.index("Testrock National Monument") < names.index("Testpark Wilderness")
+    assert "Testwood National Forest" not in names and "Statea" not in names
+
+
+def sized_dem(nbytes):
+    def fetch(region, bounds, raw_dir=None, **kw):
+        d = ingest.region_raw_dir(region, raw_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "dem13_fake.bin").write_bytes(b"\0" * nbytes)
+    return fetch
+
+
+def test_prepare_popular_stops_at_the_budget(index, dirs, monkeypatch):
+    monkeypatch.setattr(osm_index, "popular_areas", lambda con, *a: [osm_index.area_by_osm(con, r) for r in
+                                                                     ("relation/3003", "relation/3004")])
+    size = 1_000_000
+    # area files are small next to the fake elevation: one area fits in 1.5 of them, two don't
+    out = areas.prepare_popular(index, budget_gb=1.5 * size / 1e9, dem_fetch=sized_dem(size), log=lambda *a: None, **dirs)
+    park, wild = (areas.area_from_ref(index, r).id for r in ("relation/3003", "relation/3004"))
+    assert out["prepared"] == [park] and out["used_gb"] <= 1.5 * size / 1e9
+    assert areas.prepared_ids(dirs["areas_dir"]) == {park}
+    assert not (dirs["raw_dir"] / wild).exists() and not (dirs["areas_dir"] / f"{wild}.yaml").exists()
+
+
+def test_prepare_popular_skips_areas_without_trails(index, dirs, monkeypatch):
+    monkeypatch.setattr(osm_index, "popular_areas", lambda con, *a: [osm_index.area_by_osm(con, "relation/3006")])
+    out = areas.prepare_popular(index, budget_gb=1.0, dem_fetch=no_dem(), log=lambda *a: None, **dirs)
+    assert out["prepared"] == [] and len(out["skipped"]) == 1
+
+
+def test_prepare_area_limits_elevation_to_the_outline(index, dirs):
+    from shapely.geometry import box
+
+    got = []
+
+    def fetch(region, bounds, **kw):
+        got.append(kw["cells"])
+    spec = areas.area_from_ref(index, "relation/3003")
+    areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)
+    shape = osm_index.area_shape(index, "relation/3003").buffer(areas.ELEVATION_PAD_DEG)
+    assert got[0] and all(box(*c).intersects(shape) for c in got[0])
+
+
+def test_group_of_areas_that_dont_touch_is_refused(index):
+    with pytest.raises(ValueError):
+        areas.area_from_refs(index, ["relation/3003", "relation/3005"])  # Testrock is ~20 km from the park
+    assert areas.area_from_refs(index, ["relation/3003", "relation/3004"]).members  # touching: fine
+
+
+def test_group_box_is_capped(index, monkeypatch):
+    monkeypatch.setattr(areas, "MAX_AREA_KM2", 10.0)  # the park's box is far bigger than this
+    with pytest.raises(ValueError):
+        areas.area_from_refs(index, ["relation/3003", "relation/3004"])

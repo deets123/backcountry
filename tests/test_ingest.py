@@ -309,3 +309,76 @@ def test_fetch_dem_interrupted_write_leaves_nothing_that_looks_cached(tmp_path, 
     monkeypatch.undo()
     assert ingest.load_dem(REGION, raw_dir=tmp_path) is None  # no truncated dem13_*.json to trip over
     assert not list((tmp_path / REGION.id).glob("*.tif"))  # nor a raster without its metadata
+
+
+def test_fetch_dem_reads_cells_in_parallel_and_keeps_provenance(tmp_path, monkeypatch):
+    import math
+    import threading
+    import time as _time
+
+    import numpy as np
+    from rasterio.transform import from_origin
+
+    calls, threads = [], set()
+
+    def searcher(dataset, bounds):
+        return ITEMS_13
+
+    def reader(urls, bounds):
+        threads.add(threading.get_ident())
+        _time.sleep(0.05)  # long enough that the pool overlaps reads
+        w, s, e, n = bounds
+        calls.append(bounds)
+        rows, cols = round((n - s) / 0.01), round((e - w) / 0.01)
+        return np.full((rows, cols), 500.0, dtype="float32"), from_origin(w, n, 0.01, 0.01), "EPSG:4269"
+
+    cells = [(-80.0, 39.0, -79.95, 39.05), (-79.95, 39.0, -79.9, 39.05), (-80.0, 39.1, -79.95, 39.15),
+             (-79.9, 39.1, -79.85, 39.15)]
+    path = ingest.fetch_dem(REGION, (-80.0, 39.0, -79.85, 39.15), raw_dir=tmp_path, cells=cells, searcher=searcher,
+                            reader=reader)
+    assert sorted(calls) == sorted(cells) and len(threads) > 1
+    meta = json.loads(path.read_text())
+    assert meta["cells"] == 4 and "public domain" in meta["attribution"]
+    assert [s["url"] for s in meta["sources"]] == ["u/n39_2023.tif", "u/n40_2026.tif"]
+    dem = ingest.load_dem(REGION, raw_dir=tmp_path)
+    assert dem.array.shape == (15, 15)
+    assert dem.array[0, 0] == 500.0  # top-left: inside the cell (-80.0, 39.1, -79.95, 39.15)
+    assert math.isnan(dem.array[7, 7])  # (-79.93, 39.08): in no cell
+    # a later fetch for the same trails is cached; one needing a new cell isn't
+    assert ingest.fetch_dem(REGION, (-80.0, 39.0, -79.85, 39.15), raw_dir=tmp_path, cells=cells, searcher=searcher,
+                            reader=reader) == path
+    ingest.fetch_dem(REGION, (-80.0, 39.0, -79.85, 39.15), raw_dir=tmp_path, cells=cells + [(-79.9, 39.0, -79.85, 39.05)],
+                     searcher=searcher, reader=reader)
+    assert len(calls) == 4 + 5
+
+
+def test_each_cell_reads_only_the_tiles_that_hold_it():
+    items = [_item("USGS 1/3 Arc Second n39w080 20230101", "2023-01-01", "u/n39w080.tif"),
+             _item("USGS 1/3 Arc Second n40w080 20230101", "2023-01-01", "u/n40w080.tif")]
+    assert ingest._urls_for(items, "13", (-79.5, 38.5, -79.45, 38.55)) == ["u/n39w080.tif"]
+    assert ingest._urls_for(items, "13", (-79.5, 39.5, -79.45, 39.55)) == ["u/n40w080.tif"]
+    assert ingest._urls_for(items, "13", (-79.5, 38.98, -79.45, 39.03)) == ["u/n39w080.tif", "u/n40w080.tif"]
+    assert ingest._urls_for([_item("odd", "2023-01-01", "u/x.tif")], "13", (0, 0, 1, 1)) == ["u/x.tif"]
+
+
+def test_a_cell_with_no_usgs_tile_is_left_empty(tmp_path):
+    import math
+
+    import numpy as np
+    from rasterio.transform import from_origin
+
+    calls = []
+
+    def reader(urls, bounds):
+        assert urls, "a cell with no tile must not be read"
+        calls.append(bounds)
+        w, s, e, n = bounds
+        return np.full((round((n - s) / 0.01), round((e - w) / 0.01)), 700.0, dtype="float32"), from_origin(w, n, 0.01, 0.01), "EPSG:4269"
+
+    items = [_item("USGS 1/3 Arc Second n40w080 20230101", "2023-01-01", "u/n40w080.tif")]  # covers 39-40 N only
+    cells = [(-80.0, 39.0, -79.95, 39.05), (-80.0, 38.5, -79.95, 38.55)]  # the second has no tile (the coast, say)
+    path = ingest.fetch_dem(REGION, (-80.0, 38.5, -79.95, 39.05), raw_dir=tmp_path, cells=cells,
+                            searcher=lambda d, b: items, reader=reader)
+    assert calls == [cells[0]]
+    dem = ingest.load_dem(REGION, raw_dir=tmp_path)
+    assert dem.array[0, 0] == 700.0 and json.loads(path.read_text())["cells"] == 2

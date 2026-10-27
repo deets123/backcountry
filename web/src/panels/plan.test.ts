@@ -4,7 +4,7 @@ import { createStore, INITIAL } from "../store";
 import type { Trailhead } from "../types";
 import { bindPlan, renderPlan, tapMessage } from "./plan";
 
-const NO_SEARCH = { setQuery() {}, async searchAreas() {}, async openTarget() {}, async openRecent() {}, async planHere() {} };
+const NO_SEARCH = { setQuery() {}, async searchAreas() {}, async openTarget() {}, async openRecent() {}, async planHere() {}, retryOpen() {} };
 const th = (over: Partial<Trailhead>): Trailhead => ({ id: "x", name: "X", node: 1, source: "yaml", verified: false, in_graph: true,
   lat: 39, lon: -79, component: "C0", ...over });
 
@@ -151,3 +151,74 @@ describe("plan panel search", () => {
   });
 });
 
+
+describe("elevation still coming", () => {
+  it("Plan is disabled while elevation is coming, and says why", () => {
+    const html = renderPlan({ ...INITIAL, region: "a1", elevationPending: true });
+    expect(html).toMatch(/id="generate"[^>]*disabled/);
+    expect(html).toContain("Adding elevation…");
+    expect(renderPlan({ ...INITIAL, region: "a1" })).not.toMatch(/id="generate"[^>]*disabled/);
+  });
+  it("a failed open offers to try again", () => {
+    const html = renderPlan({ ...INITIAL, error: "Couldn't get the trail data ready for this area. Try again later.", canRetryOpen: true });
+    expect(html).toContain('id="retry-open"');
+    expect(renderPlan({ ...INITIAL, error: "x" })).not.toContain('id="retry-open"');
+  });
+});
+
+describe("trip shapes and destinations", () => {
+  const ths = [th({ id: "a", name: "Far", to_destination_m: 50000 }), th({ id: "b", name: "Near", to_destination_m: 1000 }),
+    th({ id: "c", name: "Cut off", to_destination_m: null }), th({ id: "d", name: "Mid", to_destination_m: 3000 })];
+  it("type list has the five types", () => {
+    const root = document.createElement("div");
+    root.innerHTML = renderPlan(INITIAL);
+    expect([...root.querySelectorAll<HTMLOptionElement>('select[name="type"] option')].map((o) => o.text))
+      .toEqual(["Any", "Loop", "Lollipop", "Out and back", "One way"]);
+  });
+  it("with a destination, only starts in reach are listed, nearest first", () => {
+    const html = renderPlan({ ...INITIAL, trailheads: ths, destination: { ref: "node/1", name: "Spur Top", center: [0, 0] },
+      form: { ...INITIAL.form, total: "18-26" } });
+    expect(html).toContain("Starts that reach Spur Top");
+    const root = document.createElement("div");
+    root.innerHTML = html;
+    expect([...root.querySelectorAll<HTMLOptionElement>('select[name="trailhead"] option')].map((o) => o.value).filter(Boolean))
+      .toEqual(["b", "d"]);  // 50 km is past half of 26 mi; the cut-off one can't reach it
+  });
+  it("one way allows starts as far as the whole trip", () => {
+    const root = document.createElement("div");
+    root.innerHTML = renderPlan({ ...INITIAL, trailheads: ths, destination: { ref: "node/1", name: "Spur Top", center: [0, 0] },
+      form: { ...INITIAL.form, total: "18-40", type: "one_way" } });
+    expect([...root.querySelectorAll<HTMLOptionElement>('select[name="trailhead"] option')].map((o) => o.value).filter(Boolean))
+      .toEqual(["b", "d", "a"]);
+  });
+  it("one way lists suggested finishes and picking one sets the finish", () => {
+    const finishes = [{ id: "f1", name: "Grotto Trailhead", node: 1, lat: 37, lon: -113, source: "data" as const, verified: false,
+      length_m: 1609.344 * 14.2, gain_ft: 300, loss_ft: 3100, straight_line_m: 1609.344 * 8.4 }];
+    const f = { ...INITIAL.form, type: "one_way" as const, trailhead: "a" };
+    const root = document.createElement("div");
+    root.innerHTML = renderPlan({ ...INITIAL, form: f, finishes });
+    expect(root.textContent).toContain("Grotto Trailhead");
+    expect(root.textContent).toContain("14.20 mi");
+    expect(root.textContent).toContain("8.4 mi apart in a straight line");
+    const edits: FormState[] = [];
+    bindPlan(root, createStore({ ...INITIAL, form: f, finishes }), { generate() {}, ...NO_SEARCH, backToCompare() {}, showSaved() {}, editForm: (x) => edits.push(x) });
+    root.querySelector<HTMLButtonElement>('[data-finish="f1"]')!.click();
+    expect(edits.at(-1)!.finish).toBe("f1");
+    const none = renderPlan({ ...INITIAL, form: { ...f, total: "18-26" }, finishes: [] });
+    expect(none).toContain("No finishing trailhead fits 18–26 mi");
+  });
+  it("the day hike switch hides nights and miles per day", () => {
+    const root = document.createElement("div");
+    root.innerHTML = renderPlan({ ...INITIAL, form: { ...INITIAL.form, dayHike: true } });
+    expect(root.querySelector('input[name="dayHike"]')!.hasAttribute("checked")).toBe(true);
+    expect(root.querySelector('input[name="nights"]')).toBeNull();
+    expect(root.querySelector('input[name="daily"]')).toBeNull();
+  });
+});
+
+describe("direction", () => {
+  it("is only offered for trips that come back round", () => {
+    for (const type of ["one_way", "out_and_back"] as const) expect(renderPlan({ ...INITIAL, form: { ...INITIAL.form, type } })).not.toContain('name="direction"');
+    expect(renderPlan({ ...INITIAL, form: { ...INITIAL.form, type: "loop" } })).toContain('name="direction"');
+  });
+});

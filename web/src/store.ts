@@ -1,5 +1,5 @@
 import { DEFAULT_FORM, type FormState } from "./request";
-import type { ChatMessage, RecentArea, Region, Run, SearchResult, Trailhead } from "./types";
+import type { ChatMessage, Destination, Finish, RecentArea, Region, Run, SearchResult, Trailhead } from "./types";
 import type { Fix, Where } from "./gps";
 import type { SavedTrip } from "./offline/db";
 import type { SaveProgress } from "./offline/save";
@@ -17,6 +17,14 @@ export interface State {
   offline: boolean; updateReady: boolean; mapNote: string | null;
   chat: ChatMessage[]; chatBusy: boolean; chatError: string | null;
   searchQuery: string; searchResults: SearchResult[] | null; recentAreas: RecentArea[];
+  /** The open area's trails are shown but its elevation is still coming (planning waits). */
+  elevationPending: boolean;
+  /** The last area open failed: the plan panel offers to try it again. */
+  canRetryOpen: boolean;
+  /** A searched place every trip goes to and through (null: plan anywhere in the area). */
+  destination: Destination | null;
+  /** One way: finishing trailheads suggested for the current start and miles (null: not asked yet). */
+  finishes: Finish[] | null;
   tripUpdate: TripUpdate | null;  // newer trail data offered for the open saved trip
 }
 
@@ -25,7 +33,8 @@ export const INITIAL: State = {
   error: null, busy: false, basemap: "topo", sheet: "half",
   saved: [], savedId: null, campsM: null, gps: { mode: "off" }, saving: null, tilesMissing: false, junctions: false, offline: false, updateReady: false, mapNote: null,
   chat: [], chatBusy: false, chatError: null,
-  searchQuery: "", searchResults: null, recentAreas: [], tripUpdate: null,
+  searchQuery: "", searchResults: null, recentAreas: [], tripUpdate: null, elevationPending: false, canRetryOpen: false,
+  destination: null, finishes: null,
 };
 
 type Listener = (next: State, prev: State) => void;

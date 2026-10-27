@@ -21,7 +21,7 @@ function messageHtml(m: ChatMessage, i: number, runId: string): string {
 }
 
 export function renderChat(s: State): string {
-  if (!s.run) return "";
+  if (!s.run || s.run.partial) return "";  // a partial run is not saved, so there is nothing to chat about yet
   const run = s.run;
   const status = s.offline ? `<p class="note">Chat needs the server.</p>`
     : s.chatBusy ? `<p class="status">Thinking… (local model, can take ~20 s)</p>`

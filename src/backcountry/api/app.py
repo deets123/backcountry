@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backcountry.api.area_worker import AreaWorker, Busy, NoIndex, NoRoom
 from backcountry.api.endpoints import router
+from backcountry.api.plan_jobs import PlanJobs
 from backcountry.api.store import NotFound, RegionStore, RunStore, Settings
 from backcountry.chat.models import ChatModel, ModelBadOutput, ModelTimeout, ModelUnavailable, model_from_env
 from backcountry.planning import RequestError
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = None, c
     app.state.regions = RegionStore(settings)
     app.state.runs = RunStore(settings.runs_dir) if settings.runs_dir else None
     app.state.areas = AreaWorker(settings, app.state.regions, app.state.runs, dem_fetch=dem_fetch)
+    app.state.plans = PlanJobs(settings)
     cached: list = [chat_model]
 
     def get_chat_model() -> ChatModel:

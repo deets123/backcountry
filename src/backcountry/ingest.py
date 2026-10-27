@@ -418,6 +418,52 @@ def _dem_prefix(kind: str, name: str | None) -> str:
     return f"dem{kind}" + (f"_{name}" if name else "")
 
 
+DEM_WORKERS = 6  # cells read at once
+
+
+def _tile_box_13(title: str) -> tuple[float, float, float, float] | None:
+    """A 1/3 arc-second tile's lon/lat box from its title: n39w080 has its north-west corner at 39N 80W."""
+    m = re.search(r"\b([ns])(\d+)([ew])(\d+)\b", title)
+    if not m:
+        return None
+    n = int(m[2]) * (1 if m[1] == "n" else -1)
+    w = int(m[4]) * (-1 if m[3] == "w" else 1)
+    return (w, n - 1, w + 1, n)
+
+
+def _urls_for(items: list[dict], kind: str, cell: tuple) -> list[str]:
+    """The products that can hold this cell (every product when their tiles can't be told from the title)."""
+    pad = 0.01
+    out = []
+    for i in items:
+        b = _tile_box_13(i["title"]) if kind == "13" else None
+        if b is None or (b[0] - pad < cell[2] and cell[0] < b[2] + pad and b[1] - pad < cell[3] and cell[1] < b[3] + pad):
+            out.append(i["downloadURL"])
+    return out
+
+
+def _mosaic(pieces: list[tuple]):
+    """One raster from cell reads on the same pixel grid; pixels in no cell are NaN."""
+    import numpy as np
+    from rasterio.transform import from_origin
+
+    crs = pieces[0][2]
+    if any(p[2] != crs for p in pieces):
+        raise FetchError("USGS elevation tiles came back in different coordinate systems; nothing was cached.")
+    res = pieces[0][1].a
+    west = min(t.c for _, t, _ in pieces)
+    north = max(t.f for _, t, _ in pieces)
+    east = max(t.c + a.shape[1] * res for a, t, _ in pieces)
+    south = min(t.f - a.shape[0] * res for a, t, _ in pieces)
+    out = np.full((round((north - south) / res), round((east - west) / res)), np.nan, dtype="float32")
+    for a, t, _ in pieces:
+        r0, c0 = round((north - t.f) / res), round((t.c - west) / res)
+        h, w = min(a.shape[0], out.shape[0] - r0), min(a.shape[1], out.shape[1] - c0)
+        window = out[r0:r0 + h, c0:c0 + w]
+        np.copyto(window, a[:h, :w], where=~np.isnan(a[:h, :w]))
+    return out, from_origin(west, north, res, res), crs
+
+
 def fetch_dem(
     region: Region,
     bounds: tuple,
@@ -427,25 +473,44 @@ def fetch_dem(
     refresh: bool = False,
     searcher: Callable[[str, tuple], list[dict]] | None = None,
     reader: Callable | None = None,
+    cells: list[tuple] | None = None,
+    workers: int = DEM_WORKERS,
 ) -> Path:
     """Cache a DEM covering bounds (lon/lat west, south, east, north). Returns the metadata JSON path.
 
-    The default reader opens only https URLs on ALLOWED_DEM_HOSTS, whatever the product search returns."""
+    With `cells` (elevation.corridor_cells: the grid cells trails pass through), only those are read, `workers`
+    at a time, into one raster that is empty (NaN) elsewhere. The default reader opens only https URLs on
+    ALLOWED_DEM_HOSTS, whatever the product search returns."""
     import rasterio
 
     searcher, reader = searcher or tnm_search, reader or _read_merged
     prefix = _dem_prefix(kind, name)
     cached = latest_cache(region, raw_dir, prefix=prefix)
     if cached and not refresh:
-        b = json.loads(cached.read_text())["bounds_wgs84"]
-        if b[0] <= bounds[0] and b[1] <= bounds[1] and b[2] >= bounds[2] and b[3] >= bounds[3]:
+        meta = json.loads(cached.read_text())
+        b = meta["bounds_wgs84"]
+        if cells is not None and "cell_list" in meta:
+            if {tuple(c) for c in cells} <= {tuple(c) for c in meta["cell_list"]}:
+                return cached
+        elif b[0] <= bounds[0] and b[1] <= bounds[1] and b[2] >= bounds[2] and b[3] >= bounds[3]:
             return cached
 
     items = select_dem_items(kind, searcher(DEM_DATASETS[kind], bounds))
     if not items:
         raise RuntimeError(f"USGS has no {DEM_DATASETS[kind]!r} products for bounds {bounds}")
 
-    array, transform, crs = reader([i["downloadURL"] for i in items], bounds)
+    if cells:
+        from concurrent.futures import ThreadPoolExecutor
+
+        jobs = [(c, urls) for c in cells if (urls := _urls_for(items, kind, c))]  # no USGS tile: left empty (NaN)
+        if not jobs:
+            raise RuntimeError(f"USGS has no {DEM_DATASETS[kind]!r} products for these trails")
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            # a failed cell fails the whole fetch: nothing half-read is cached
+            pieces = list(pool.map(lambda job: reader(job[1], job[0]), jobs))
+        array, transform, crs = _mosaic(pieces)
+    else:
+        array, transform, crs = reader([i["downloadURL"] for i in items], bounds)
 
     retrieved_at = _utc_now()
     out_dir = region_raw_dir(region, raw_dir)
@@ -457,7 +522,7 @@ def fetch_dem(
     tif_tmp, path = tif.with_name(tif.name + ".tmp"), out_dir / f"{stem}.json"
     with rasterio.open(tif_tmp, "w", driver="GTiff", height=array.shape[0], width=array.shape[1], count=1,
                        dtype="float32", crs=crs, transform=transform, nodata=float("nan"), compress="deflate",
-                       tiled=True) as dst:
+                       predictor=3, tiled=True) as dst:  # predictor 3 (floating point): about a third smaller
         dst.write(array, 1)
     meta = {
         "region": region.id,
@@ -466,6 +531,7 @@ def fetch_dem(
         "dataset": DEM_DATASETS[kind],
         "attribution": DEM_ATTRIBUTION,
         "bounds_wgs84": list(bounds),
+        **({"cells": len(cells), "cell_list": [list(c) for c in cells]} if cells else {}),
         "crs": crs,
         "tif": tif.name,
         "sources": [{"title": i["title"], "url": i["downloadURL"], "publication_date": i["publicationDate"]}

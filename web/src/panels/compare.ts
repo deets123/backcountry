@@ -3,7 +3,7 @@ import { miles, signedFeet } from "../format";
 import type { State, Store } from "../store";
 import type { Candidate, Trailhead } from "../types";
 import { renderChat } from "./chat";
-import { esc, levelChip, notesHtml } from "./common";
+import { esc, kindName, levelChip, notesHtml } from "./common";
 
 export function segmentNames(c: Candidate): string[] {
   const out: string[] = [];
@@ -14,7 +14,7 @@ export function segmentNames(c: Candidate): string[] {
 export function cardHtml(c: Candidate, selected: boolean): string {
   const days = c.plan ? (c.plan.ok ? "days: OK" : "days: NOT all limits met") : "days: not planned";
   return `<div class="card${selected ? " selected" : ""}" data-index="${c.index}">
-  <div><span class="swatch" style="background:${candidateColor(c.index)}"></span><b>Candidate ${c.index}</b>: ${esc(c.kind)}${"level" in c ? ` · ${levelChip(c.level ?? null)}` : ""}</div>
+  <div><span class="swatch" style="background:${candidateColor(c.index)}"></span><b>Candidate ${c.index}</b>: ${esc(kindName(c.kind))}${"level" in c ? ` · ${levelChip(c.level ?? null)}` : ""}</div>
   <div>${miles(c.length_m)}, ${signedFeet(c.gain_ft, c.loss_ft)}</div>
   <div>road ${miles(c.road_m)}${c.repeated_m ? `, walked twice ${miles(c.repeated_m)}` : ""} · ${days} · penalty ${c.penalty.toFixed(2)}</div>
   <div class="note">${esc(segmentNames(c).join(" › "))}</div>
@@ -42,7 +42,8 @@ export function renderCompare(s: State): string {
 <p class="note">${run.search.scored} loops scored from ${run.search.via_pairs_tried.toLocaleString("en-US")} waypoint pairs in ${run.search.seconds.toFixed(1)} s. Tap a card or a line on the map to focus it.</p>
 ${notesHtml(lines)}
 ${run.candidates.length ? `<div class="cards">${run.candidates.map((c) => cardHtml(c, c.index === s.selected)).join("")}</div>` : `<p class="note">No candidates. Change the settings and try again.</p>`}
-${run.candidates.length ? `<button class="primary" id="open-trip">Open candidate ${s.selected}</button>` : ""}
+${run.partial ? `<p class="status">Still looking for better trips…</p>` : ""}
+${run.candidates.length ? `<button class="primary" id="open-trip"${run.partial ? " disabled" : ""}>Open candidate ${s.selected}</button>` : ""}
 ${run.diff ? `<details><summary>What changed since last time</summary><pre class="note" style="white-space:pre-wrap">${esc(run.diff)}</pre></details>` : ""}
 ${renderChat(s)}
 <button class="link" id="replan">Change the settings</button>`;

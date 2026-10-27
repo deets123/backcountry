@@ -47,6 +47,13 @@
 <node id="1057" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.6" lon="-149.1"></node>
 <node id="1058" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.9" lon="-149.1"></node>
 <node id="1059" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.9" lon="-149.2"></node>
+<node id="1060" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.2195" lon="-149.6995"><tag k="natural" v="peak"/><tag k="name" v="Spur Top"/></node>
+<node id="1061" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.22" lon="-149.6945"><tag k="natural" v="peak"/><tag k="name" v="Far Knob"/></node>
+<node id="1062" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.3" lon="-149.846"><tag k="place" v="locality"/><tag k="name" v="Hidden Meadow"/></node>
+<node id="1063" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.4" lon="-149.7"></node>
+<node id="1064" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.41" lon="-149.7"></node>
+<node id="1065" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.4105" lon="-149.7"><tag k="natural" v="peak"/><tag k="name" v="Lonely Knob"/></node>
+<node id="1066" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.25" lon="-149.72"></node>
 <way id="2001" version="3" timestamp="2026-01-15T00:00:00Z"><nd ref="1001"/><nd ref="1002"/><nd ref="1003"/><nd ref="1004"/><nd ref="1001"/></way>
 <way id="2002" version="3" timestamp="2026-01-15T00:00:00Z"><nd ref="1005"/><nd ref="1006"/><nd ref="1007"/><nd ref="1008"/><nd ref="1005"/></way>
 <way id="2003" version="3" timestamp="2026-01-15T00:00:00Z"><nd ref="1009"/><nd ref="1010"/><nd ref="1011"/><nd ref="1012"/><nd ref="1009"/></way>
@@ -60,6 +67,8 @@
 <way id="2011" version="3" timestamp="2026-01-15T00:00:00Z"><nd ref="1034"/><nd ref="1035"/><nd ref="1036"/><nd ref="1037"/><nd ref="1034"/><tag k="amenity" v="parking"/></way>
 <way id="2021" version="3" timestamp="2026-01-15T00:00:00Z"><nd ref="1052"/><nd ref="1053"/><nd ref="1054"/><nd ref="1055"/><nd ref="1052"/></way>
 <way id="2022" version="3" timestamp="2026-01-15T00:00:00Z"><nd ref="1056"/><nd ref="1057"/><nd ref="1058"/><nd ref="1059"/><nd ref="1056"/></way>
+<way id="2030" version="3" timestamp="2026-01-15T00:00:00Z"><nd ref="1063"/><nd ref="1064"/><tag k="highway" v="path"/><tag k="name" v="Lonely Trail"/></way>
+<way id="2031" version="3" timestamp="2026-01-15T00:00:00Z"><nd ref="1022"/><nd ref="1066"/><tag k="highway" v="path"/><tag k="name" v="East Spur"/></way>
 <relation id="3001" version="3" timestamp="2026-01-15T00:00:00Z"><member type="way" ref="2001" role="outer"/><tag k="type" v="boundary"/><tag k="boundary" v="administrative"/><tag k="admin_level" v="4"/><tag k="name" v="Statea"/></relation>
 <relation id="3002" version="3" timestamp="2026-01-15T00:00:00Z"><member type="way" ref="2002" role="outer"/><tag k="type" v="boundary"/><tag k="boundary" v="administrative"/><tag k="admin_level" v="4"/><tag k="name" v="Stateb"/></relation>
 <relation id="3003" version="3" timestamp="2026-01-15T00:00:00Z"><member type="way" ref="2003" role="outer"/><tag k="type" v="boundary"/><tag k="boundary" v="national_park"/><tag k="name" v="Testpark National Park"/></relation>

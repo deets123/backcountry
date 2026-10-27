@@ -173,3 +173,138 @@ def test_cumulative_gain_matches_total_and_never_decreases():
     assert (G[-1], L[-1]) == pytest.approx(gain_loss(z, 1.5))
     assert np.all(np.diff(G) >= 0) and np.all(np.diff(L) >= 0)
     assert G[0] == 0 and L[0] == 0
+
+
+# --- elevation only where the trails are (speed) -----------------------------------------------
+
+LL_RES, LL_W, LL_N = 0.0005, -81.3, 36.4  # a made-up lon/lat elevation grid around the fixture origin
+LL_COLS, LL_ROWS = 1200, 800
+
+
+def _ll_plane():
+    """z = 1000 + 2000 * (lon + 81) + 3000 * (lat - 36) on a lon/lat grid (bilinear of a plane is exact)."""
+    import numpy as np
+    from rasterio.transform import from_origin
+
+    lons = LL_W + LL_RES * (np.arange(LL_COLS) + 0.5)
+    lats = LL_N - LL_RES * (np.arange(LL_ROWS) + 0.5)
+    z = 1000 + 2000 * (lons[None, :] + 81) + 3000 * (lats[:, None] - 36)
+    return z.astype("float32"), from_origin(LL_W, LL_N, LL_RES, LL_RES)
+
+
+def _window_reader(calls):
+    """Reads the window of the made-up grid covering bounds, on the grid's own pixels (like a merge would)."""
+    import threading
+
+    from rasterio.transform import from_origin
+
+    full, _ = _ll_plane()
+
+    def reader(urls, bounds):
+        w, s, e, n = bounds
+        c0, c1 = round((w - LL_W) / LL_RES), round((e - LL_W) / LL_RES)
+        r0, r1 = round((LL_N - n) / LL_RES), round((LL_N - s) / LL_RES)
+        calls.append((bounds, threading.get_ident()))
+        return full[r0:r1, c0:c1].copy(), from_origin(LL_W + c0 * LL_RES, LL_N - r0 * LL_RES, LL_RES, LL_RES), "EPSG:4326"
+    return reader
+
+
+def _corridor_graph():
+    from conftest import RawBuilder
+
+    b = RawBuilder()
+    b.node("a", 0, 0), b.node("b", 0, 3000)          # along lon -81.0 exactly: a cell border
+    b.node("c", 2000, 1000), b.node("d", 8000, 1000)  # east-west across a cell border
+    b.node("f", 25000, 20000), b.node("g", 26000, 20000)  # far away: its own cells
+    b.way(1, ["a", "b"], highway="path", name="Border Trail")
+    b.way(2, ["c", "d"], highway="path", name="Crossing Trail")
+    b.way(3, ["f", "g"], highway="path", name="Far Trail")
+    return build_graph(b.doc(), crs=CRS)
+
+
+def test_corridor_cells_cover_only_trail_cells():
+    from shapely.geometry import box
+
+    from backcountry.elevation import DEM_CELL_DEG, corridor_cells
+
+    tg = _corridor_graph()
+    cells = corridor_cells(tg)
+    assert cells == sorted(cells) and len(cells) == len(set(cells))
+    for w, s, e, n in cells:
+        assert e - w == pytest.approx(DEM_CELL_DEG) and n - s == pytest.approx(DEM_CELL_DEG)
+    boxes = [box(*c) for c in cells]
+    for *_, d in tg.graph.edges(data=True):
+        for pt in d["geom_wgs84"].coords:
+            assert any(bx.covers(__import__("shapely").geometry.Point(pt)) for bx in boxes)
+    # nothing between the near trails and the far one (which is ~0.2 degrees away)
+    gap = box(-80.85, 36.1, -80.75, 36.2)
+    assert not any(bx.intersects(gap) for bx in boxes)
+
+
+def test_corridor_samples_match_a_full_read_along_trails(tmp_path):
+    from backcountry import ingest
+    from backcountry.elevation import DEM, annotate, corridor_cells
+    from backcountry.region import BBox, Region
+
+    region = Region(id="corridor", name="Corridor", crs=CRS, bbox=BBox(36.0, -81.3, 36.4, -80.7))
+    full, transform = _ll_plane()
+    tg_full, tg_cells = _corridor_graph(), _corridor_graph()
+    want = annotate(tg_full, DEM(array=full.astype("float64"), transform=transform, crs="EPSG:4326"))
+    assert not want["missing"]
+    calls = []
+    ingest.fetch_dem(region, (-81.05, 36.0, -80.65, 36.35), raw_dir=tmp_path, cells=corridor_cells(tg_cells),
+                     searcher=lambda dataset, bounds: [
+                         {"title": f"USGS 1/3 Arc Second {t} 20240101", "downloadURL": f"u/{t}.tif",
+                          "publicationDate": "2024-01-01", "sourceId": t} for t in ("n37w082", "n37w081")],
+                     reader=_window_reader(calls))
+    got = annotate(tg_cells, ingest.load_dem(region, raw_dir=tmp_path))
+    assert len(calls) == len(corridor_cells(tg_cells))
+    assert not got["missing"]
+    for (u, v, k, a), (_, _, _, b) in zip(sorted(tg_full.graph.edges(keys=True, data=True)),
+                                          sorted(tg_cells.graph.edges(keys=True, data=True))):
+        assert b["gain_ft_fwd"] == pytest.approx(a["gain_ft_fwd"], abs=0.1)
+        assert b["loss_ft_fwd"] == pytest.approx(a["loss_ft_fwd"], abs=0.1)
+
+
+def test_corridor_cells_stay_near_the_area():
+    from shapely.geometry import box
+
+    from backcountry.elevation import corridor_cells
+
+    tg = _corridor_graph()
+    near = (-81.01, 36.1, -80.89, 36.2)  # around the two near trails; the far one is outside
+    cells = corridor_cells(tg, within=near)
+    assert cells and all(box(*c).intersects(box(*near)) for c in cells)
+    assert len(cells) < len(corridor_cells(tg))
+
+
+def test_corridor_cells_follow_an_outline_not_its_box():
+    from shapely.geometry import Polygon, box
+
+    from backcountry.elevation import corridor_cells
+
+    tg = _corridor_graph()
+    # an L around the border trail only: its box also holds the crossing trail's cells, the L doesn't
+    outline = Polygon([(-81.02, 36.12), (-80.99, 36.12), (-80.99, 36.25), (-80.85, 36.25), (-80.85, 36.26), (-81.02, 36.26)])
+    cells = corridor_cells(tg, within=outline)
+    assert cells and all(box(*c).intersects(outline) for c in cells)
+    assert len(cells) < len(corridor_cells(tg, within=outline.bounds))
+
+
+def test_dem_is_written_with_the_floating_point_predictor(tmp_path):
+    import rasterio
+
+    from backcountry import ingest
+    from backcountry.region import BBox, Region
+
+    region = Region(id="pred", name="Pred", crs=CRS, bbox=BBox(36.0, -81.3, 36.4, -80.7))
+    tg = _corridor_graph()
+    from backcountry.elevation import corridor_cells
+
+    path = ingest.fetch_dem(region, (-81.05, 36.0, -80.65, 36.35), raw_dir=tmp_path, cells=corridor_cells(tg),
+                            searcher=lambda d, b: [{"title": "USGS 1/3 Arc Second n37w082 20240101", "downloadURL": "u/a.tif",
+                                                    "publicationDate": "2024-01-01", "sourceId": "a"}],
+                            reader=_window_reader([]))
+    import json
+    with rasterio.open(path.parent / json.loads(path.read_text())["tif"]) as ds:
+        assert ds.tags(ns="IMAGE_STRUCTURE").get("PREDICTOR") == "3"

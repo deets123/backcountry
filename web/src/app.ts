@@ -1,4 +1,4 @@
-import { ApiError, areaStatus, chat, difficulty, generate, getRegions, getTrailheads, getTrails, openArea, search, updateCheck,
+import { ApiError, areaStatus, cancelPlan, chat, difficulty, getFinishes, getPlan, getRegions, getTrailheads, getTrails, openArea, search, startPlan, updateCheck,
   updateTrip } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
@@ -7,11 +7,12 @@ import { createMap, type TripMap } from "./map";
 import { cleanOrphans, deleteTrip, getTrip, listTrips, putTrip, tilesPresent } from "./offline/db";
 import { refreshLevels } from "./offline/levels";
 import { saveTrip, tripId } from "./offline/save";
+import { afterFailedPlan, runPlanJob } from "./planjob";
 import { coverageNote } from "./offline/tiles";
 import { bindChat } from "./panels/chat";
 import { bindCompare, renderCompare, startLabel } from "./panels/compare";
 import { esc } from "./panels/common";
-import { bindPlan, renderPlan, tapMessage } from "./panels/plan";
+import { bindPlan, patchFinishes, renderPlan, tapMessage } from "./panels/plan";
 import { bindSaved, renderSaved } from "./panels/saved";
 import { openSearchResult, type Target } from "./panels/search";
 import { acceptUpdate, checkForUpdate, declineUpdate, reviewUpdate } from "./panels/update";
@@ -30,7 +31,7 @@ const DRAG_SNAP_M = 150; // a dropped camp must land this close to the route lin
 // Changes to these re-render the panel. (Form edits typed in the panel don't; see editForm.)
 const RENDER_KEYS: (keyof State)[] = ["view", "status", "error", "busy", "run", "selected", "trailheads", "sheet", "regions", "recentAreas",
   "saved", "savedId", "campsM", "gps", "saving", "offline", "updateReady", "mapNote", "tilesMissing", "junctions",
-  "chat", "chatBusy", "chatError", "tripUpdate"];
+  "chat", "chatBusy", "chatError", "tripUpdate", "elevationPending", "canRetryOpen", "destination"];
 const LIVE_KEYS = new Set<keyof State>(["gps", "saving"]); // updated in place in the trip view (patchTrip)
 const BOOT_TIMEOUT_MS = 5000; // with saved trips on the phone, don't wait longer than this for the server
 
@@ -47,6 +48,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   let lastAlongM: number | null = null;
   let pendingUpdate: (() => void) | null = null;
   let lastView: { view: Box; zoom: number } | null = null;
+  let lastTarget: Target | null = null;  // the last area opened, for "Try again"
 
   function updateMapNote() {
     const s = store.get();
@@ -54,6 +56,18 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     const offline = s.offline || win?.navigator.onLine === false;
     const note = rec && lastView && s.view === "trip" && offline ? coverageNote(rec.box, lastView.view, lastView.zoom, s.basemap) : null;
     if (note !== s.mapNote) store.set({ mapNote: note });
+  }
+
+  /** One way: the finishes that fit the current start and miles (the newest ask wins). */
+  let finishAsk = 0;
+  async function loadFinishes() {
+    const s = store.get(), f = s.form, ask = ++finishAsk;
+    if (!s.region || !f.trailhead || !/^\s*\d+(\.\d+)?\s*-\s*\d+(\.\d+)?\s*$/.test(f.total)) return store.set({ finishes: null });
+    store.set({ finishes: null });
+    try {
+      const finishes = await getFinishes(s.region, f.trailhead.trim(), f.total.trim(), s.destination?.ref);
+      if (ask === finishAsk) store.set({ finishes });
+    } catch (e) { if (ask === finishAsk) store.set({ finishes: [], error: (e as Error).message }); }
   }
 
   async function refreshSaved() {
@@ -100,13 +114,15 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       const b = s0.regions.find((r) => r.id === id)?.bbox ?? s0.recentAreas.find((r) => r.id === id)?.bbox ?? bbox;
       if (!b) return;
       store.set({ region: id, trailheads: [], run: null, savedId: null, campsM: null, view: "plan", status: "Loading trails…", error: null, busy: false,
-        searchQuery: "", searchResults: null });
+        searchQuery: "", searchResults: null, elevationPending: false, canRetryOpen: false });
       map?.fitBounds([b.west, b.south, b.east, b.north]);
       try {
-        const [ths, trails] = await Promise.all([getTrailheads(id), getTrails(id)]);
+        const dest = store.get().destination;
+        const [ths, trails] = await Promise.all([getTrailheads(id, dest?.ref), getTrails(id)]);
         store.set({ trailheads: ths, status: "" });
         map?.setTrails(trails);
         map?.setTrailheads(ths, (th) => actions.pickTrailhead(th));
+        map?.setDestination(dest);
       } catch (e) { store.set({ status: "", error: (e as Error).message }); }
     },
     setQuery(q: string) { store.set({ searchQuery: q }); },
@@ -119,41 +135,54 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       } catch (e) { store.set({ error: (e as Error).message }); }
     },
     openTarget(t: Target) {
+      lastTarget = t;
+      store.set({ canRetryOpen: false });
       return openSearchResult(t, {
         openArea, areaStatus, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         pickRegion: (id, bbox) => actions.pickRegion(id, bbox),
         setStatus: (message) => store.set({ status: message, error: null, busy: true }),
-        setError: (message) => store.set({ error: message, status: "", busy: false }),
+        setError: (message) => store.set({ error: message, status: "", busy: false, elevationPending: false, canRetryOpen: true }),
+        setElevationPending: (on) => store.set({ elevationPending: on, status: "" }),
+        setDestination: (destination) => store.set({ destination, finishes: null }),
         addRecent: (a: RecentArea) => store.set((s) => ({ recentAreas: [a, ...s.recentAreas.filter((r) => r.id !== a.id)].slice(0, 8) })),
       });
     },
+    retryOpen() { if (lastTarget) void actions.openTarget(lastTarget); },
     openRecent(r: RecentArea) { return actions.pickRegion(r.id, r.bbox); },
     planHere() {
       if (!lastView) return Promise.resolve(store.set({ error: "Move the map to the area first." }));
       return actions.openTarget({ box: lastView.view });
     },
-    pickTrailhead(th: Trailhead) { store.set((s) => ({ form: { ...s.form, trailhead: th.id }, error: null, view: "plan" })); },
+    pickTrailhead(th: Trailhead) {
+      store.set((s) => ({ form: { ...s.form, trailhead: th.id }, error: null, view: "plan" }));
+      if (store.get().form.type === "one_way") void loadFinishes();
+    },
     tapPoint(lon: number, lat: number, trailName: string | null) {
       if (store.get().view !== "plan") return;
       store.set((s) => ({ form: { ...s.form, trailhead: `${lat.toFixed(5)},${lon.toFixed(5)}` }, error: null, status: tapMessage(trailName) }));
     },
     async generate(override?: GenerateRequest) {
       const s = store.get();
-      const built = override ? { request: override } : toRequest(s.form, s.trailheads);
+      const built = override ? { request: override } : toRequest(s.form, s.trailheads, s.destination?.ref ?? null);
       if ("error" in built) return store.set({ error: built.error });
       if (!s.region) return store.set({ error: "Pick a region first." });
       abort?.abort();
       abort = new AbortController();
       const timer = setTimeout(() => abort?.abort(), 120_000);
-      store.set({ busy: true, error: null, status: "Searching… this takes 5–20 s on a big network." });
+      store.set({ busy: true, error: null, status: "Searching… the first trips show in about 10 s." });
       try {
-        const run = await generate(s.region, built.request, abort.signal);
+        const signal = abort.signal;
+        const run = await runPlanJob({
+          startPlan, getPlan, cancelPlan, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+          // the first trips found: shown while the search goes on (status stays busy; not saved)
+          onPartial: (partial) => store.set({ run: partial, form: fromRun(partial), selected: 1, view: "compare", savedId: null, campsM: null }),
+        }, s.region, built.request, signal);
         store.set({ run, form: fromRun(run), selected: 1, view: "compare", busy: false, status: "", savedId: null, campsM: null });
       } catch (e) {
         const msg = (e as Error).name === "AbortError"
           ? "The search took longer than 2 minutes and was stopped. Try a narrower range or fewer must-visits."
           : e instanceof ApiError ? e.message : `Unexpected error: ${(e as Error).message}`;
-        store.set({ busy: false, status: "", error: msg }); // the previous run (if any) stays
+        store.set(afterFailedPlan(store.get().run, s.run, msg)); // the run from before this plan stays
       } finally { clearTimeout(timer); }
     },
     select(i: number) { store.set({ selected: i }); },
@@ -195,7 +224,14 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     sheet(gesture: "tap" | "up" | "down") { store.set((s) => ({ sheet: nextSheet(s.sheet, gesture) })); },
     // Edits typed into the plan panel: record them without re-rendering the panel (a re-render on blur
     // would replace the Generate button under the user's finger and lose the tap).
-    editForm(form: FormState) { editingInPanel = true; try { store.set({ form }); } finally { editingInPanel = false; } },
+    editForm(form: FormState, redraw = false) {
+      const before = store.get().form;
+      if (redraw) store.set({ form });
+      else { editingInPanel = true; try { store.set({ form }); } finally { editingInPanel = false; } }
+      if (form.type === "one_way" && (form.trailhead !== before.trailhead || form.total !== before.total || before.type !== "one_way")) {
+        void loadFinishes();
+      }
+    },
 
     async save() {
       const s = store.get();
@@ -370,6 +406,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     // don't touch other views, so buttons and form fields aren't replaced under the user's finger.
     if (live && (s.view !== "trip" || patchTrip(panel, prev, s))) { /* nothing else to redraw */ }
     else if (changed.length || formChanged) render();
+    if (s.finishes !== prev.finishes && s.view === "plan" && !(changed.length || formChanged)) patchFinishes(panel, s);  // in place
     if (s.run !== prev.run || s.selected !== prev.selected || s.view !== prev.view || s.campsM !== prev.campsM || s.savedId !== prev.savedId) syncMap(s);
   });
   // Tap cycles the sheet; a vertical drag of more than 30px on the handle moves it one step up or down.

@@ -20,3 +20,10 @@ export function notesHtml(lines: string[], cls = "note"): string {
 export function knownGapsHtml(gaps: string[]): string {
   return `<div class="warn" id="known-gaps"><b>Not checked by this tool:</b> ${gaps.map(esc).join("; ")}.</div>`;
 }
+
+const KIND_NAMES: Record<string, string> = { loop: "loop", lollipop: "lollipop", out_and_back: "out and back", one_way: "one way" };
+
+/** A trip's shape in words ("out and back", not "out_and_back"). */
+export function kindName(kind: string): string {
+  return KIND_NAMES[kind] ?? kind;
+}
