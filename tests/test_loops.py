@@ -611,3 +611,66 @@ def test_lollipops_are_still_tried_when_out_and_backs_fill_the_count(grid, tg):
 
     report = loops.search(tg, grid.ids["T"], 2 * KM, 12 * KM, kinds=("loop", "lollipop", "out_and_back"), count=1)
     assert report["out_and_backs_found"] >= 1 and report["stems_tried"] > 0
+
+
+# --- the search's shortest paths: a hand-written Dijkstra, exact and several times faster than the callable ---
+
+
+def _random_loop_graph(n_nodes=600, seed=3):
+    import random
+
+    import networkx as nx
+
+    rng = random.Random(seed)
+    H = nx.MultiGraph()
+    for i in range(n_nodes):
+        H.add_node(i)
+    for i in range(n_nodes):
+        for _ in range(3):
+            j = rng.randrange(n_nodes)
+            if j != i:
+                H.add_edge(i, j, key=f"{i}-{j}-{rng.randrange(9)}", length_m=round(rng.uniform(100, 3000), 3))
+    return H
+
+
+def test_search_dijkstra_matches_networkx_with_used_edges_forbidden_nodes_and_cutoff():
+    import networkx as nx
+
+    from backcountry.loops import _dijkstra, _weight
+
+    H = _random_loop_graph()
+    used = {k for _, _, k in list(H.edges(keys=True))[::7]}
+    forbidden = set(range(0, 600, 11)) - {5}
+    for source, cutoff in ((5, None), (5, 4000.0), (17, 2500.0)):
+        want_d, want_p = nx.single_source_dijkstra(H, source, cutoff=None if cutoff is None else cutoff + 1e-6,
+                                                   weight=_weight(set(used), set(forbidden)))
+        got_d, got_p = _dijkstra(H, source, used=used, forbidden=forbidden, cutoff=cutoff)
+        assert set(got_d) == set(want_d)
+        for v in want_d:
+            assert got_d[v] == pytest.approx(want_d[v], abs=1e-6)
+            # paths may differ only on exact ties; their lengths may not
+            assert sum(min(H[a][b][k]["length_m"] for k in H[a][b] if k not in used) for a, b in zip(got_p[v], got_p[v][1:])) \
+                == pytest.approx(want_d[v], abs=1e-6)
+
+
+def test_search_dijkstra_is_faster_than_the_callable_one():
+    import time
+
+    import networkx as nx
+
+    from backcountry.loops import _dijkstra, _weight
+
+    H = _random_loop_graph(1500)
+    used = {k for _, _, k in list(H.edges(keys=True))[::5]}
+
+    def timed(fn):  # the best of three, so a busy machine can't make this flaky
+        best = float("inf")
+        for _ in range(3):
+            t0 = time.perf_counter()
+            for src in range(40):
+                fn(src)
+            best = min(best, time.perf_counter() - t0)
+        return best
+    theirs = timed(lambda src: nx.single_source_dijkstra(H, src, cutoff=6000.0, weight=_weight(set(used), set())))
+    ours = timed(lambda src: _dijkstra(H, src, used=used, cutoff=6000.0))
+    assert ours < 0.7 * theirs, (ours, theirs)

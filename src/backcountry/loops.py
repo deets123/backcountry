@@ -22,6 +22,7 @@ Two shapes:
 import math
 import time
 from dataclasses import dataclass, field
+from heapq import heappop, heappush
 
 import networkx as nx
 
@@ -178,17 +179,90 @@ def _weight(used: set, forbidden: set):
     return w
 
 
+def _adjacency(H) -> dict:
+    """Each node's (neighbour, key, length) list, cheapest first, built once per loop graph (the search runs
+    thousands of shortest-path searches on the same graph, and a plain list beats networkx's dict-of-dicts
+    with a weight callable several times over)."""
+    stamp = len(H)  # O(1); the loop graph is never changed once the search starts (number_of_edges is O(E))
+    cached = H.graph.get("_search_adj")
+    if cached is None or cached[0] != stamp:
+        adj = {u: [] for u in H.nodes}
+        for u, v, k, d in H.edges(keys=True, data=True):
+            adj[u].append((v, k, d["length_m"]))
+            if u != v:
+                adj[v].append((u, k, d["length_m"]))
+        for lst in adj.values():
+            lst.sort(key=lambda t: (t[2], t[1]))
+        H.graph["_search_adj"] = (stamp, adj)
+    return H.graph["_search_adj"][1]
+
+
 def _dijkstra(H, source, used=frozenset(), forbidden=frozenset(), cutoff=None):
-    """Shortest paths from source; with `cutoff`, only to nodes at most that far (a leg can't be longer)."""
-    cutoff = None if cutoff is None else cutoff + 1e-6  # equal-length ties stay in
-    return nx.single_source_dijkstra(H, source, cutoff=cutoff, weight=_weight(set(used), set(forbidden)))
+    """Shortest paths from source, hiding used edge keys and forbidden nodes; with `cutoff`, only to nodes at
+    most that far (a leg can't be longer). Exact; ties break by node id, the same on every platform."""
+    if source in forbidden:
+        return {source: 0.0}, {source: [source]}
+    adj = _adjacency(H)
+    limit = None if cutoff is None else cutoff + 1e-6  # equal-length ties stay in
+    dist, pred, done = {source: 0.0}, {source: None}, set()
+    heap = [(0.0, source)]
+    while heap:
+        d, u = heappop(heap)
+        if u in done:
+            continue
+        done.add(u)
+        for v, k, w in adj[u]:
+            if v in forbidden or k in used:
+                continue
+            nd = d + w
+            if limit is not None and nd > limit:
+                break  # the list is sorted by length: nothing cheaper follows
+            if v not in dist or nd < dist[v]:
+                dist[v] = nd
+                pred[v] = u
+                heappush(heap, (nd, v))
+    return dist, _Paths(pred)
+
+
+class _Paths(dict):
+    """Shortest paths as a dict node -> node list, built from predecessors only when asked for (copying a path
+    on every relaxation is what made the search slow on big networks)."""
+
+    def __init__(self, pred: dict):
+        super().__init__()
+        self._pred = pred
+
+    def __contains__(self, v):
+        return v in self._pred
+
+    def __getitem__(self, v):
+        if v not in self._pred:
+            raise KeyError(v)
+        path, at = [], v
+        while at is not None:
+            path.append(at)
+            at = self._pred[at]
+        return path[::-1]
+
+    def get(self, v, default=None):
+        return self[v] if v in self._pred else default
+
+    def __iter__(self):
+        return iter(self._pred)
+
+    def __len__(self):
+        return len(self._pred)
+
+    def keys(self):
+        return self._pred.keys()
 
 
 def _steps(H, nodes, used):
     """Super-edge steps along a node path, choosing the shortest unused key between neighbours."""
+    adj = _adjacency(H)  # each node's edges cheapest first: the first unused one to b is the shortest
     steps = []
     for a, b in zip(nodes, nodes[1:]):
-        k = min((k for k in H[a][b] if k not in used), key=lambda k: H[a][b][k]["length_m"])
+        k = next(k for v, k, _ in adj[a] if v == b and k not in used)
         steps.append((a, b, k))
     return steps
 
