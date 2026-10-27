@@ -59,7 +59,7 @@ def test_gpx_waypoints_start_end_camps_and_junctions(outputs):
     _, plan, paths, _ = outputs
     gpx = gpxpy.parse(paths["gpx"].read_text())
     names = [w.name for w in gpx.waypoints]
-    assert names[:2] == ["Start", "End"] and "Camp 1" in names and "Camp 2" in names
+    assert names[:2] == ["Start", "Finish"] and "Camp 1" in names and "Camp 2" in names  # A to B: ends differ
     jcts = [w for w in gpx.waypoints if w.name.startswith("Jct")]
     assert jcts and all("FR 1" in w.description or "Override Trail" in w.description for w in jcts)
     assert all("osm:" not in w.description for w in gpx.waypoints)
@@ -81,7 +81,7 @@ def test_geojson_one_feature_per_day_plus_points(outputs):
     points = [f for f in fc["features"] if f["geometry"]["type"] == "Point"]
     assert [f["properties"]["name"] for f in lines] == [f"Day {d.index}" for d in plan.days]
     assert all("gain_ft" in f["properties"] and "length_m" in f["properties"] for f in lines)
-    assert {p["properties"]["name"] for p in points} >= {"Start", "End", "Camp 1", "Camp 2"}
+    assert {p["properties"]["name"] for p in points} >= {"Start", "Finish", "Camp 1", "Camp 2"}
 
 
 def test_map_colors_days_and_shows_features(outputs):

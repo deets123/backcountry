@@ -447,7 +447,9 @@ def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_k
     c = Candidate(kind=kind, start=route.nodes[0], keys=[e["key"] for e in route.edges], nodes=list(route.nodes),
                   stem_keys=[k for k in stem_keys if k in lengths], route=route, length_m=route.length_m,
                   road_m=route.road_m, last_resort_m=route.last_resort_m,
-                  repeated_m=sum(lengths[k] for k in stem_keys if k in lengths), lengths=lengths)
+                  repeated_m=sum(lengths[k] for k in stem_keys if k in lengths), lengths=lengths,
+                  finish=route.nodes[-1] if kind == "one_way" else None,
+                  turnaround=route.nodes[len(route.nodes) // 2] if kind == "out_and_back" else None)
     steps = _Steps(region, raw, tg, req, dem, raw_dir)
     if req.nights is None:
         steps.day_hike(c)
@@ -457,24 +459,27 @@ def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_k
     report = {"candidates": [c], "loops_found": 0, "lollipops_found": 0, "stems_tried": 0, "via_pairs_tried": 0,
               "scored": 1, "seconds": 0.0, "widened": False, "truncated": False, "avoided_edges": 0, "notes": [],
               "must_visit_notes": [], "followed": True}
+    if kind == "one_way":
+        report["finish"] = {"node": c.finish, "how": f"osm:node/{c.finish}"}
     return PlanResult(report=report, start={"node": c.start, "how": f"osm:node/{c.start}", "snap_m": 0.0}, request=req)
 
 
-def _resolve_finish(tg, region, req: "GenerateRequest", start: int) -> int | None:
+def _resolve_finish(tg, region, req: "GenerateRequest", start: int) -> tuple[int | None, str | None]:
     """A one-way trip's finish node, checked: on the network, not the start, on the start's piece of it."""
     import networkx as nx
 
     if req.type != "one_way":
-        return None
+        return None, None
     try:
-        node = resolve_point(tg, region, req.finish)["node"]
+        found = resolve_point(tg, region, req.finish)
     except ValueError as e:
         raise RequestError("finish", str(e))
+    node = found["node"]
     if node == start:
         raise RequestError("finish", "The finish is the same as the start; pick another finish, or a loop.")
     if node not in nx.node_connected_component(tg.graph, start):
         raise RequestError("finish", "The finish isn't on the same trail network as the start.")
-    return node
+    return node, found["how"]
 
 
 MAX_FINISHES = 5
@@ -565,7 +570,7 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
             avoided_keys(tg, req.avoid)
         except ValueError as e:
             raise RequestError("avoid", str(e))
-    finish_node = _resolve_finish(tg, region, req, start["node"])
+    finish_node, finish_how = _resolve_finish(tg, region, req, start["node"])
     dest, dest_kw, dest_notes = _destination_search(tg, start["node"], req, index)
     steps = _Steps(region, raw, tg, req, dem, raw_dir)
     split_s = [0.0]  # time spent planning days, inside and after the search
@@ -607,6 +612,8 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
                         no_roads=req.no_roads, weights=steps.weights, evaluate=evaluate, avoid=req.avoid,
                         must_visit=musts, direction=req.direction, on_snapshot=snapshot if on_snapshot else None,
                         finish=finish_node, **kw, **search_kw)
+    if finish_node is not None:
+        report["finish"] = {"node": finish_node, "how": finish_how}
     if dest is not None:
         report["destination"] = dest.summary()
         report["notes"] += dest_notes

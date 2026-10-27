@@ -734,9 +734,13 @@ def route_waypoints(route, from_text: str, to_text: str, plan=None) -> list[dict
         return float(np.interp(dist, prof["d_m"], prof["z_m"])) if prof else None
 
     (lon0, lat0), (lon1, lat1) = route.line_wgs84.coords[0], route.line_wgs84.coords[-1]
-    wps = [{"name": "Start", "desc": from_text, "lat": lat0, "lon": lon0, "dist_m": 0.0, "ele": ele(0.0), "kind": "start"},
-           {"name": "End", "desc": to_text, "lat": lat1, "lon": lon1, "dist_m": route.length_m, "ele": ele(route.length_m),
-            "kind": "end"}]
+    x0, y0 = route.line_utm.coords[0][:2]
+    x1, y1 = route.line_utm.coords[-1][:2]
+    apart = math.hypot(x1 - x0, y1 - y0) > 1.0  # one way: start and finish are different places
+    wps = [{"name": "Start", "desc": f"Start: {from_text}" if apart else from_text, "lat": lat0, "lon": lon0, "dist_m": 0.0,
+            "ele": ele(0.0), "kind": "start"},
+           {"name": "Finish" if apart else "End", "desc": f"Finish: {to_text}" if apart else to_text, "lat": lat1,
+            "lon": lon1, "dist_m": route.length_m, "ele": ele(route.length_m), "kind": "end"}]
     for c in (plan.camps if plan else []):
         wps.append({"name": f"Camp {c.index}", "kind": "camp", "lat": c.lat, "lon": c.lon, "dist_m": c.dist_m,
                     "ele": ele(c.dist_m),

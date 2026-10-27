@@ -93,8 +93,18 @@ def plan_payload(plan) -> dict | None:
     }
 
 
-def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str) -> dict:
-    title = f"{start_text} to {start_text} (loop)"
+def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str, finish_text: str | None = None) -> dict:
+    one_way = c.kind == "one_way"
+    end_text = (finish_text or "the finish") if one_way else f"{start_text} (loop)"
+    title = (f"{start_text} to {end_text} (one way)" if one_way
+             else f"{start_text} out and back" if c.kind == "out_and_back" else f"{start_text} to {start_text} (loop)")
+    description = gpx_description(c.route, osm_retrieved_at)
+    if one_way:
+        description += " One way: the start and finish are different trailheads. Shuttle drive: unknown."
+    finish = None
+    if one_way and c.finish is not None:
+        lon, lat = c.route.line_wgs84.coords[-1]
+        finish = {"node": c.finish, "lat": lat, "lon": lon, "name": finish_text}
     pieces = route_pieces(c.route, c.plan)
     for p in pieces:
         p["points"] = [list(pt) for pt in p["points"]]
@@ -106,7 +116,9 @@ def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str) -> dict
         "route": {"nodes": list(c.route.nodes), "keys": [e["key"] for e in c.route.edges],  # to follow it on newer data
                   "stem_keys": list(c.stem_keys)},
         "pieces": pieces,
-        "waypoints": route_waypoints(c.route, start_text, f"{start_text} (loop)", c.plan),
+        "waypoints": route_waypoints(c.route, start_text, end_text, c.plan),
+        "finish": finish,
+        "turnaround": c.turnaround,
         "plan": plan_payload(c.plan),
         "level": candidate_level(c),
         "rating": c.rating,
@@ -115,7 +127,7 @@ def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str) -> dict
         "features": c.features or [],
         "profile": c.route.profile,
         "title": title,
-        "description": gpx_description(c.route, osm_retrieved_at),
+        "description": description,
         "notes": list(c.route.notes),
         "record": candidate_record(i, c),
     }
@@ -138,7 +150,7 @@ def run_payload(run_id: str, region, result, raw, tg, generated_at: str, diff: s
         "run_id": run_id, "region": region.id, "request": result.request.to_dict(), "generated_at": generated_at,
         "start": result.start,
         "search": {k: v for k, v in report.items() if k != "candidates"},
-        "candidates": [candidate_payload(i, c, result.start["how"], tg.retrieved_at)
+        "candidates": [candidate_payload(i, c, result.start["how"], tg.retrieved_at, (report.get("finish") or {}).get("how"))
                        for i, c in enumerate(report["candidates"], 1)],
         "data_sources": data_sources(region, raw, result),
         "data_cut": raw.get("cut"),

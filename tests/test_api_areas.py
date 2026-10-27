@@ -457,3 +457,36 @@ def test_trailheads_destination_is_validated(api, bad):
     area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
     run_worker(client)
     assert client.get(f"/api/regions/{area_id}/trailheads", params={"destination": bad}).status_code == 400
+
+
+def test_old_saved_run_without_new_fields_opens_and_updates(planned):
+    from conftest import add_cut
+
+    client, a, run = planned
+    path = client.app.state.settings.runs_dir / f"{run['run_id']}.json"
+    old = json.loads(path.read_text())
+    for key in ("destination", "finish"):
+        old["request"].pop(key, None)
+    for c in old["candidates"]:
+        c.pop("finish", None), c.pop("turnaround", None)
+    path.write_text(json.dumps(old))
+    assert client.get(f"/api/runs/{run['run_id']}").status_code == 200
+    assert client.get(f"/api/runs/{run['run_id']}/candidates/1.gpx").status_code == 200
+    add_cut(client.app.state.settings, a, "2026-11-20")
+    body = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
+    assert body["ok"] is True
+
+
+def test_one_way_trip_updates_to_newer_data(api):
+    from conftest import add_cut
+
+    client, _ = api
+    a = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    run = client.post(f"/api/regions/{a}/generate", json={"trailhead": "10.2495,-149.8505", "total": "5-12",
+                                                          "type": "one_way", "finish": "1029"}).json()
+    assert run["candidates"] and run["candidates"][0]["kind"] == "one_way"
+    add_cut(client.app.state.settings, a, "2026-11-20")
+    body = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
+    assert body["ok"] is True and body["run"]["candidates"][0]["kind"] == "one_way"
+    assert body["run"]["candidates"][0]["finish"]["node"] == 1029

@@ -141,3 +141,37 @@ def test_day_targets_reach_the_split(grid):
     plan = result.report["candidates"][0].plan
     assert plan.targets[0]["miles"] == [0.5, 1.0] and plan.targets[1]["miles"] == [0.5, 4.0]
     assert plan.days[0].length_m <= 1.0 * 1609.344 + 1 or any("Day 1:" in v for v in plan.violations)
+
+
+def test_one_way_gpx_has_start_and_finish(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["T"]), "total": "2.5-4.4", "type": "one_way",
+                                     "finish": str(grid.ids["g22"])})
+    result = plan_trip(REGION, raw, tg, req)
+    run = run_payload("r1", REGION, result, raw, tg, "2026-10-27T00:00:00Z", None)
+    p = run["candidates"][0]
+    names = [w["name"] for w in p["waypoints"]]
+    assert names[:2] == ["Start", "Finish"] and "End" not in names
+    assert p["waypoints"][1]["desc"].startswith("Finish: ") and p["waypoints"][0]["desc"].startswith("Start: ")
+    assert p["finish"]["node"] == grid.ids["g22"] and p["kind"] == "one_way"
+    assert "Shuttle drive: unknown." in p["description"]
+    assert "(loop)" not in p["title"] and "one way" in p["title"]
+    gpx = gpxpy.parse(build_gpx(p["title"], p["description"], p["pieces"], p["waypoints"]))
+    assert {w.name for w in gpx.waypoints} >= {"Start", "Finish"}
+
+
+def test_loop_gpx_unchanged(planned):
+    raw, tg, result = planned
+    p = candidate_payload(1, result.report["candidates"][0], "osm:node/1000", tg.retrieved_at)
+    assert [w["name"] for w in p["waypoints"]][:2] == ["Start", "End"] and p["finish"] is None
+    assert p["title"].endswith("(loop)") and "Shuttle" not in p["description"]
+
+
+def test_out_and_back_payload_names_its_turnaround(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["g00"]), "total": "1.5-2.2", "type": "out_and_back"})
+    c = plan_trip(REGION, raw, tg, req).report["candidates"][0]
+    p = candidate_payload(1, c, "osm:node/1000", tg.retrieved_at)
+    assert p["kind"] == "out_and_back" and p["turnaround"] == c.turnaround and "out and back" in p["title"]

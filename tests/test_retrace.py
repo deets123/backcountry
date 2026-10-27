@@ -100,3 +100,16 @@ def test_changes_describe_miles_levels_camps_and_water():
         "Day 1: 10.0 mi, Moderate → 10.4 mi, Hard", "Camp 1 moves 0.4 mi later along the route",
         "Water on the map, now along the route: drinking water",
         "Water on the map, no longer along the route: Hidden Spring"]
+
+
+def test_retrace_follows_an_out_and_back():
+    from backcountry.loops import out_and_backs
+
+    b = square()
+    b.way(4, ["M", "F"], highway="path", name="Spur")
+    tg = build_graph(b.doc(), crs=CRS)
+    c = next(c for c in out_and_backs(tg, b.ids["A"], 1900, 2100) if c.turnaround == b.ids["F"])
+    s = {"route": {"nodes": list(c.route.nodes), "keys": [e["key"] for e in c.route.edges]},
+         "segments": route_segments(c.route), "length_m": c.route.length_m}
+    out = retrace(build_graph(b.doc(), crs=CRS), s)
+    assert out["ok"] and out["keys"] == s["route"]["keys"] and out["nodes"] == s["route"]["nodes"]
