@@ -6,6 +6,7 @@ candidate. Both callers then only format and store the result.
 """
 
 import re
+import time
 from dataclasses import dataclass, field, replace
 
 from backcountry import ingest
@@ -422,6 +423,7 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -
 
     `dem="auto"` loads the cached DEM from `raw_dir` (default: the repo's data/raw); pass a DEM or None to override.
     """
+    t0 = time.perf_counter()
     try:
         start = resolve_point(tg, region, req.trailhead)
     except ValueError as e:
@@ -433,19 +435,35 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -
         except ValueError as e:
             raise RequestError("avoid", str(e))
     steps = _Steps(region, raw, tg, req, dem, raw_dir)
-    evaluate = steps.evaluate
+    split_s = [0.0]  # time spent planning days, inside and after the search
 
+    def timed(fn):
+        def run(c):
+            t = time.perf_counter()
+            try:
+                return fn(c)
+            finally:
+                split_s[0] += time.perf_counter() - t
+        return run
+
+    t1 = time.perf_counter()
     lo, hi = req.total_m
     # the level filter drops loops after the search, so it asks for more to choose from
     report = search(tg, start["node"], lo, hi, kinds=req.kinds, count=req.count * 4 if req.level else req.count,
                     no_roads=req.no_roads,
-                    weights=steps.weights, evaluate=evaluate if req.nights is not None else None,
+                    weights=steps.weights, evaluate=timed(steps.evaluate) if req.nights is not None else None,
                     avoid=req.avoid, must_visit=musts, direction=req.direction)
+    t2 = time.perf_counter()
     if req.nights is None:
         for c in report["candidates"]:
-            steps.day_hike(c)
+            timed(steps.day_hike)(c)
+    t3 = time.perf_counter()
     if req.level:
         _filter_by_level(report, req)
     for c in report["candidates"]:
         steps.suggest(c)
+    # seconds per step, for scripts/measure-speed (search excludes the day planning done inside it)
+    in_search = split_s[0] - (t3 - t2)
+    report["timings"] = {"resolve": round(t1 - t0, 2), "search": round(max(0.0, t2 - t1 - in_search), 2),
+                         "day_split": round(split_s[0], 2), "finish": round(time.perf_counter() - t3, 2)}
     return PlanResult(report=report, start=start, request=req)

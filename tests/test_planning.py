@@ -251,3 +251,13 @@ def test_level_suggestion_names_the_level(grid):
     c = result.report["candidates"][0]
     assert "Day 1 came out easy, not hard" in c.plan.violations
     assert c.suggestion["text"] == "Setting day 1 to easy would fix it."  # moderate (one step) still misses on the flat
+
+
+@pytest.mark.parametrize("nights", [None, 1])
+def test_plan_trip_reports_timings(grid, nights):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    body = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1"} | ({"nights": 1, "daily": "0.5-4"} if nights else {})
+    timings = plan_trip(REGION, raw, tg, GenerateRequest.from_dict(body)).report["timings"]
+    assert set(timings) == {"resolve", "search", "day_split", "finish"}
+    assert all(isinstance(v, float) and v >= 0 for v in timings.values())

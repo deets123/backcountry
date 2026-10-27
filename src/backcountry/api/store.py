@@ -5,8 +5,9 @@ import logging
 import os
 import random
 import threading
+import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,6 +53,7 @@ class LoadedRegion:
     summary: dict
     dem: object = None
     cut: str | None = None  # extract date of a generated area's data; None for hand-made regions
+    timings: dict = field(default_factory=dict)  # seconds to build the graph, its QA summary and load the DEM
     builds = 0  # class-level counter, for tests
 
     @property
@@ -140,9 +142,14 @@ class RegionStore:
                 raw = ingest.load_raw(region, self.settings.raw_dir, cut)
             except FileNotFoundError as e:  # names `backcountry ingest`
                 raise NotFound(str(e)) from e
+            t0 = time.perf_counter()
             tg = build_graph(raw, region.crs)
-            loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=qa_summary(tg),
-                                  dem=ingest.load_dem(region, raw_dir=self.settings.raw_dir), cut=cut)
+            t1 = time.perf_counter()
+            summary = qa_summary(tg)
+            t2 = time.perf_counter()
+            dem = ingest.load_dem(region, raw_dir=self.settings.raw_dir)
+            timings = {"graph": round(t1 - t0, 2), "qa": round(t2 - t1, 2), "dem_load": round(time.perf_counter() - t2, 2)}
+            loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=summary, dem=dem, cut=cut, timings=timings)
             LoadedRegion.builds += 1
             self._loaded[key] = loaded
             while len(self._loaded) > max(1, self.settings.max_loaded):
