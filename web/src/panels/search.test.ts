@@ -71,6 +71,7 @@ function deps(over: Partial<OpenDeps> = {}): OpenDeps & { calls: string[] } {
     setStatus: (m) => calls.push(`status ${m}`),
     setError: (m) => calls.push(`error ${m}`),
     addRecent: (a) => calls.push(`recent ${a.id}`),
+    setElevationPending: (on) => calls.push(`elevation ${on ? "pending" : "ready"}`),
     ...over,
   };
 }
@@ -126,5 +127,32 @@ describe("bindSearch", () => {
       await vi.advanceTimersByTimeAsync(300);
       expect(root.querySelector("#search-results")!.textContent).toContain("Testpark National Park");
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("opening in two steps", () => {
+  it("trails status opens the region and keeps polling until ready", async () => {
+    const answers = [status("preparing"), status("trails", { message: "Adding elevation…" }), status("trails", { message: "Adding elevation…" }), status("ready")];
+    const d = deps({ areaStatus: async () => answers.shift()! });
+    await openSearchResult(park, d);
+    expect(d.calls).toEqual(['open {"ref":"relation/3003"}', "status Finding trails in Testpark National Park…",
+      "pick testpark-national-park-r3003", "elevation pending", "elevation ready", "recent testpark-national-park-r3003"]);
+    expect(answers).toEqual([]);
+  });
+  it("an area answering trails at once opens its trails at once", async () => {
+    const d = deps({
+      openArea: async () => ({ area_id: "a1", name: "A", status: "trails", message: "Adding elevation…", bbox: status("ready").bbox! }),
+      areaStatus: async () => status("ready"),
+    });
+    await openSearchResult(park, d);
+    expect(d.calls.slice(0, 3)).toEqual(["status Adding elevation…", "pick a1", "elevation pending"]);
+  });
+  it("elevation failing after the trails showed keeps the trails and says what happened", async () => {
+    const answers = [status("trails"), status("failed")];
+    const d = deps({ areaStatus: async () => answers.shift()! });
+    await openSearchResult(park, d);
+    expect(d.calls).toContain("pick testpark-national-park-r3003");
+    expect(d.calls.at(-1)).toBe("error No trails were found there.");
+    expect(d.calls.filter((c) => c.startsWith("pick")).length).toBe(1);
   });
 });

@@ -4,7 +4,7 @@ import { createStore, INITIAL } from "../store";
 import type { Trailhead } from "../types";
 import { bindPlan, renderPlan, tapMessage } from "./plan";
 
-const NO_SEARCH = { setQuery() {}, async searchAreas() {}, async openTarget() {}, async openRecent() {}, async planHere() {} };
+const NO_SEARCH = { setQuery() {}, async searchAreas() {}, async openTarget() {}, async openRecent() {}, async planHere() {}, retryOpen() {} };
 const th = (over: Partial<Trailhead>): Trailhead => ({ id: "x", name: "X", node: 1, source: "yaml", verified: false, in_graph: true,
   lat: 39, lon: -79, component: "C0", ...over });
 
@@ -151,3 +151,17 @@ describe("plan panel search", () => {
   });
 });
 
+
+describe("elevation still coming", () => {
+  it("Plan is disabled while elevation is coming, and says why", () => {
+    const html = renderPlan({ ...INITIAL, region: "a1", elevationPending: true });
+    expect(html).toMatch(/id="generate"[^>]*disabled/);
+    expect(html).toContain("Adding elevation…");
+    expect(renderPlan({ ...INITIAL, region: "a1" })).not.toMatch(/id="generate"[^>]*disabled/);
+  });
+  it("a failed open offers to try again", () => {
+    const html = renderPlan({ ...INITIAL, error: "Couldn't get the trail data ready for this area. Try again later.", canRetryOpen: true });
+    expect(html).toContain('id="retry-open"');
+    expect(renderPlan({ ...INITIAL, error: "x" })).not.toContain('id="retry-open"');
+  });
+});

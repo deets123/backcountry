@@ -5,7 +5,7 @@ export type SearchResult =
       bbox: [number, number, number, number]; center: [number, number] };
 export interface RecentArea { id: string; name: string; type_label: string | null; state: string | null; bbox: Region["bbox"] }
 export interface AreaStatus {
-  status: "ready" | "preparing" | "queued" | "failed" | "unknown"; message: string | null; name?: string; bbox?: Region["bbox"];
+  status: "ready" | "preparing" | "queued" | "trails" | "failed" | "unknown"; message: string | null; name?: string; bbox?: Region["bbox"];
 }
 export interface AreaOpened { area_id: string; name: string; status: AreaStatus["status"]; message: string; bbox: Region["bbox"] }
 

@@ -96,7 +96,9 @@ ${renderSearch(s)}
 <label>Must visit (trail names or trailhead ids, one per line)<textarea name="mustVisit" rows="2">${esc(f.mustVisit.join("\n"))}</textarea></label>
 <label>Avoid (trail names, one per line)<textarea name="avoid" rows="2">${esc(f.avoid.join("\n"))}</textarea></label>
 <label>Pin camps (miles in, or lat,lon; one per line)<textarea name="camps" rows="2">${esc(f.camps.join("\n"))}</textarea></label>
-<button class="primary" id="generate"${s.busy ? " disabled" : ""}>${s.busy ? "Searching…" : "Generate loops"}</button>
+${s.elevationPending ? `<p class="status">Adding elevation…</p>` : ""}
+${s.error && s.canRetryOpen ? `<button type="button" id="retry-open">Try again</button>` : ""}
+<button class="primary" id="generate"${s.busy || s.elevationPending ? " disabled" : ""}>${s.busy ? "Searching…" : "Generate loops"}</button>
 <div class="status${s.error ? " error" : ""}" id="status">${esc([s.status, s.error].filter(Boolean).join(" "))}</div>
 ${s.run ? `<button class="link" id="back-to-compare">Back to the last results</button>` : ""}`;
 }
@@ -107,7 +109,7 @@ export function tapMessage(trailName: string | null): string {
   return `Start set to the tapped point ${on}. Type a trail name under "must visit" or "avoid" to use it.`;
 }
 
-export interface PlanActions extends SearchActions { generate(): void; backToCompare(): void; editForm(form: FormState): void; showSaved(): void }
+export interface PlanActions extends SearchActions { generate(): void; backToCompare(): void; editForm(form: FormState): void; showSaved(): void; retryOpen(): void }
 
 export function bindPlan(root: HTMLElement, store: Store, actions: PlanActions): void {
   const lines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
@@ -169,5 +171,6 @@ export function bindPlan(root: HTMLElement, store: Store, actions: PlanActions):
   bindSearch(root, store.get, actions);
   root.querySelector("#to-saved")?.addEventListener("click", () => actions.showSaved());
   root.querySelector("#generate")?.addEventListener("click", () => actions.generate());
+  root.querySelector("#retry-open")?.addEventListener("click", () => actions.retryOpen());
   root.querySelector("#back-to-compare")?.addEventListener("click", () => actions.backToCompare());
 }

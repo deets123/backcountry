@@ -362,3 +362,51 @@ def test_capped_park_says_it_is_only_part(tmp_path, index_path, monkeypatch):
     run_worker(client)
     assert client.get(f"/api/areas/{r['area_id']}/status").json()["name"] == "Part of Testpark National Park"
     assert any(a["name"] == "Part of Testpark National Park" for a in client.get("/api/regions").json()["recent_areas"])
+
+
+# --- two steps: trails first, elevation behind them --------------------------------------------
+
+
+def test_area_shows_trails_before_elevation(tmp_path, index_path):
+    seen = {}
+
+    def dem(region, bounds, **kw):
+        st = client.get(f"/api/areas/{region.id}/status").json()
+        seen["status"], seen["message"] = st["status"], st["message"]
+        seen["trails"] = client.get(f"/api/regions/{region.id}/trails").status_code
+        seen["trailheads"] = client.get(f"/api/regions/{region.id}/trailheads").status_code
+
+    client, _ = make_client(tmp_path, index_path, dem=dem)
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    assert seen == {"status": "trails", "message": "Adding elevation…", "trails": 200, "trailheads": 200}
+    assert client.get(f"/api/areas/{area_id}/status").json()["status"] == "ready"
+
+
+def test_cut_without_elevation_is_not_ready(tmp_path, index_path):
+    fail = FakeDem(fail=True)
+    client, _ = make_client(tmp_path, index_path, dem=fail)
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    assert client.get(f"/api/areas/{area_id}/status").json()["status"] == "failed"
+    cut_files = sorted((tmp_path / "raw" / area_id).glob("extract_*.json"))
+    assert cut_files  # the trails were kept
+    before = {p.name: p.stat().st_mtime_ns for p in cut_files}
+    fail.fail = False
+    again = client.post("/api/areas", json={"ref": "relation/3003"}).json()
+    assert again["status"] == "trails" and again["message"] == "Adding elevation…"
+    run_worker(client)
+    assert client.get(f"/api/areas/{area_id}/status").json()["status"] == "ready"
+    assert {p.name: p.stat().st_mtime_ns for p in cut_files} == before  # elevation only: the cut wasn't redone
+    assert fail.calls == [area_id, area_id]
+
+
+def test_ready_area_is_reloaded_with_its_elevation(tmp_path, index_path):
+    client, _ = make_client(tmp_path, index_path)
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    forgotten = []
+    store = client.app.state.regions
+    orig = store.forget
+    store.forget = lambda rid: (forgotten.append(rid), orig(rid))
+    run_worker(client)
+    assert forgotten == [area_id]

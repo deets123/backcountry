@@ -144,17 +144,18 @@ def test_prepare_twice_is_quick_and_same(index, dirs):
     assert len(list((dirs["raw_dir"] / spec.id).glob("extract_*.json"))) == 1
 
 
-def test_interrupted_cut_leaves_no_cache(index, dirs):
+def test_interrupted_elevation_keeps_the_trails_but_is_not_ready(index, dirs):
     def broken(region, bounds, **kw):
         raise RuntimeError("USGS unreachable")
 
     spec = areas.area_from_ref(index, "relation/3003")
     with pytest.raises(RuntimeError):
         areas.prepare_area(spec, index, dem_fetch=broken, **dirs)
-    assert not list((dirs["raw_dir"] / spec.id).glob("extract_*.json"))
+    assert len(list((dirs["raw_dir"] / spec.id).glob("extract_*.json"))) == 1  # the trails can be shown
     region = load_region(spec.id, areas_dir=dirs["areas_dir"])
-    with pytest.raises(FileNotFoundError):
-        ingest.load_raw(region, dirs["raw_dir"])
+    assert not areas.elevation_done(region, dirs["raw_dir"], MINI_DATE)
+    out = areas.prepare_area(spec, index, dem_fetch=no_dem(), **dirs)  # the next try fetches only elevation
+    assert out["elevation_only"] is True and areas.elevation_done(region, dirs["raw_dir"], MINI_DATE)
 
 
 def test_prepare_clears_leftovers_of_an_interrupted_run(index, dirs):

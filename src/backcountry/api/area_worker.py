@@ -19,6 +19,7 @@ from backcountry.region import load_region
 
 DEFAULT_LIMITS = {"max_queue": 3, "per_hour": 6, "disk_gb": 40.0}
 FAILED = "Couldn't get the trail data ready for this area. Try again later."
+ELEVATION = "Adding elevation…"
 log = logging.getLogger("backcountry.api")
 
 
@@ -87,7 +88,12 @@ class AreaWorker:
         return ingest.cuts(region, self.settings.raw_dir)
 
     def _ready(self, area_id: str) -> bool:
-        return bool(self._cuts(area_id))
+        """Its newest cut has elevation (an area with trails but no elevation yet isn't ready)."""
+        cuts = self._cuts(area_id)
+        if not cuts:
+            return False
+        region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+        return areas.elevation_done(region, self.settings.raw_dir, cuts[-1])
 
     def _index_date(self) -> str | None:
         try:
@@ -100,29 +106,33 @@ class AreaWorker:
             con.close()
 
     def request(self, spec: areas.AreaSpec) -> dict:
-        """Ready if the area has a cut of the current index. An area opened before a refresh gets a new cut
-        (quick: its elevation is cached; not counted against the hourly cap), or opens on its older cut when
-        the queue is full. A new area is queued within the limits."""
+        """Ready if the area has a cut of the current index with its elevation. Trails without elevation (the
+        server stopped mid-way) get only their elevation. An area opened before a refresh gets a new cut (quick:
+        its elevation is cached; not counted against the hourly cap), or opens on its older cut when the queue
+        is full. A new area is queued within the limits."""
         with self._lock:
             current = self.status.get(spec.id)
-            if current and current["status"] in ("queued", "preparing"):
+            if current and current["status"] in ("queued", "preparing", "trails"):
                 return current
             cuts, date = self._cuts(spec.id), self._index_date()
             if cuts and (date is None or date in cuts):
-                return self._set(spec, "ready")
-            now = time.monotonic()
-            while self._started and now - self._started[0] > 3600:
-                self._started.popleft()
-            if self._queue.qsize() >= self.limits["max_queue"]:
-                if cuts:
-                    return self._set(spec, "ready")  # usable on its older data; refreshed on a later open
-                raise Busy("The server is busy setting up other areas. Try again in a few minutes.")
-            if not cuts:
-                if len(self._started) >= self.limits["per_hour"]:
-                    raise Busy("Lots of new areas were opened in the last hour. Try again later, or pick one opened recently.")
-                self._make_room()
-                self._started.append(now)
-            st = self._set(spec, "queued")
+                if self._ready(spec.id):
+                    return self._set(spec, "ready")
+                st = self._set(spec, "trails", ELEVATION)
+            else:
+                now = time.monotonic()
+                while self._started and now - self._started[0] > 3600:
+                    self._started.popleft()
+                if self._queue.qsize() >= self.limits["max_queue"]:
+                    if cuts:
+                        return self._set(spec, "ready")  # usable on its older data; refreshed on a later open
+                    raise Busy("The server is busy setting up other areas. Try again in a few minutes.")
+                if not cuts:
+                    if len(self._started) >= self.limits["per_hour"]:
+                        raise Busy("Lots of new areas were opened in the last hour. Try again later, or pick one opened recently.")
+                    self._make_room()
+                    self._started.append(now)
+                st = self._set(spec, "queued")
             self._queue.put(spec)
         self._ensure_thread()
         return st
@@ -173,7 +183,7 @@ class AreaWorker:
         budget = self.limits["disk_gb"] * 1e9
         if self._usage() <= budget:
             return
-        keep = self._referenced() | {k for k, st in self.status.items() if st["status"] in ("queued", "preparing")}
+        keep = self._referenced() | {k for k, st in self.status.items() if st["status"] in ("queued", "preparing", "trails")}
         raw = self.settings.raw_dir or ingest.RAW_DIR
         for p in self._area_ids():
             if p.stem in keep:
@@ -207,15 +217,17 @@ class AreaWorker:
             self._prepare(self._queue.get())
 
     def _prepare(self, spec: areas.AreaSpec) -> None:
-        self._set(spec, "preparing")
+        if self.status.get(spec.id, {}).get("status") != "trails":
+            self._set(spec, "preparing")
         try:
             con = self.index()
             try:
                 out = areas.prepare_area(spec, con, raw_dir=self.settings.raw_dir, areas_dir=self.settings.areas,
-                                         dem_fetch=self.dem_fetch)
+                                         dem_fetch=self.dem_fetch, on_trails=lambda: self._set(spec, "trails", ELEVATION))
             finally:
                 con.close()
             log.info("area %s ready: %s", spec.id, out)
+            self.store.forget(spec.id)  # loaded while elevation was coming: reload with it
             self._set(spec, "ready", "")
         except ValueError as e:  # our own plain messages (e.g. no trails there)
             self._set(spec, "failed", str(e))

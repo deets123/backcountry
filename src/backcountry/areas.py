@@ -168,16 +168,32 @@ def write_area_region(spec: AreaSpec, areas_dir: Path | None = None) -> Path:
     return path
 
 
+ELEVATION_DONE = "elevation_done_{date}"  # beside a cut: its elevation step finished (the area is ready)
+
+
+def elevation_done(region, raw_dir: Path | None, date: str) -> bool:
+    return (ingest.region_raw_dir(region, raw_dir) / ELEVATION_DONE.format(date=date)).exists()
+
+
 def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Path | None = None,
-                 dem_fetch=ingest.fetch_dem) -> dict:
-    """Cut the area's trails from the index and fetch its elevation; the cut is written last, so an interrupted
-    preparation leaves nothing that looks ready."""
+                 dem_fetch=ingest.fetch_dem, on_trails=None) -> dict:
+    """Cut the area's trails from the index, then fetch its elevation, in two steps: the cut is written as soon as
+    the graph is built (the trails can be shown; `on_trails()` is called), and a small marker once elevation is
+    done (the area is ready). An area with this cut but no marker gets only its elevation."""
     date = osm_index.index_meta(con)["extract_date"]
     write_area_region(spec, areas_dir)
     region = load_region(spec.id, regions_dir=Path("/nonexistent"), areas_dir=areas_dir)
+    out_dir = ingest.region_raw_dir(region, raw_dir)
     if date in ingest.cuts(region, raw_dir):
-        return {"area_id": spec.id, "cut": date, "already": True}
-    for left in ingest.region_raw_dir(region, raw_dir).glob("*.tmp"):
+        if elevation_done(region, raw_dir, date):
+            return {"area_id": spec.id, "cut": date, "already": True}
+        tg = build_graph(ingest.load_raw(region, raw_dir, date), region.crs)
+        t1 = time.monotonic()
+        dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=corridor_cells(tg))
+        (out_dir / ELEVATION_DONE.format(date=date)).write_text(date)
+        return {"area_id": spec.id, "cut": date, "already": False, "elevation_only": True,
+                "seconds": {"elevation": round(time.monotonic() - t1, 2)}}
+    for left in out_dir.glob("*.tmp"):
         left.unlink(missing_ok=True)  # an interrupted earlier run's half-written files (they count toward disk use)
     t0 = time.monotonic()
     b = spec.bbox
@@ -185,15 +201,17 @@ def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Pa
     tg = build_graph(raw, region.crs)
     if not any(not d["is_road"] for *_, d in tg.graph.edges(data=True)):
         raise ValueError("No trails were found there.")
-    t1 = time.monotonic()
-    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=corridor_cells(tg))
-    t2 = time.monotonic()
-    out_dir = ingest.region_raw_dir(region, raw_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     raw = raw | {"region": spec.id, "area": asdict(spec) | {"bbox": vars(spec.bbox)}}
     path = out_dir / f"{ingest.CUT_PREFIX}_{raw['retrieved_at'].replace('-', '').replace(':', '')}.json"
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(raw))
     os.replace(tmp, path)
+    t1 = time.monotonic()
+    if on_trails is not None:
+        on_trails()
+    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=corridor_cells(tg))
+    (out_dir / ELEVATION_DONE.format(date=date)).write_text(date)
+    t2 = time.monotonic()
     return {"area_id": spec.id, "cut": date, "already": False, "edges": tg.graph.number_of_edges(),
             "seconds": {"cut_and_graph": round(t1 - t0, 2), "elevation": round(t2 - t1, 2)}}

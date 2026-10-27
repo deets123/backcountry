@@ -84,15 +84,24 @@ export function bindSearch(root: HTMLElement, get: () => State, actions: SearchA
   root.querySelector("#plan-here")?.addEventListener("click", () => void actions.planHere());
 }
 
-export interface WaitDeps { areaStatus(id: string): Promise<AreaStatus>; sleep(ms: number): Promise<void>; now?: () => number }
+export interface WaitDeps {
+  areaStatus(id: string): Promise<AreaStatus>; sleep(ms: number): Promise<void>; now?: () => number;
+  /** Called once, the first time the trails are ready but elevation is still coming. */
+  onTrails?(st: AreaStatus): Promise<void> | void;
+}
 
 /** Poll an area's status until it is ready, failed or unknown (the server restarted), or ten minutes pass. */
 export async function waitForArea(id: string, deps: WaitDeps): Promise<AreaStatus> {
   const now = deps.now ?? (() => Date.now());
   const start = now();
+  let trails = false;
   for (;;) {
     const st = await deps.areaStatus(id);
     if (st.status === "ready" || st.status === "failed" || st.status === "unknown") return st;
+    if (st.status === "trails" && !trails) {
+      trails = true;
+      await deps.onTrails?.(st);
+    }
     if (now() - start >= GIVE_UP_MS) return { ...st, status: "failed", message: SLOW };
     await deps.sleep(POLL_MS);
   }
@@ -104,6 +113,8 @@ export interface OpenDeps extends WaitDeps {
   setStatus(message: string): void;
   setError(message: string): void;
   addRecent(a: RecentArea): void;
+  /** Trails are on the map but elevation is still coming: planning waits for it. */
+  setElevationPending(on: boolean): void;
 }
 
 /** Open a search result or map box: hand-made regions directly; anything else is prepared first. */
@@ -112,14 +123,23 @@ export async function openSearchResult(t: Target, deps: OpenDeps): Promise<void>
   try {
     const opened = await deps.openArea("box" in t ? { box: t.box } : { ref: t.ref });
     if (opened.status !== "ready") deps.setStatus(opened.message);
-    const st = opened.status === "ready" ? { status: "ready" as const, message: null } : await waitForArea(opened.area_id, deps);
+    let shown = false;  // the trails are on the map already (elevation was still coming)
+    const showTrails = async (bbox: Region["bbox"]) => {
+      shown = true;
+      await deps.pickRegion(opened.area_id, bbox);
+      deps.setElevationPending(true);
+    };
+    if (opened.status === "trails") await showTrails(opened.bbox);
+    const st = opened.status === "ready" ? { status: "ready" as const, message: null }
+      : await waitForArea(opened.area_id, { ...deps, onTrails: (s) => (shown ? undefined : showTrails(s.bbox ?? opened.bbox)) });
     if (st.status !== "ready") {
       return deps.setError(st.status === "unknown" ? "The server restarted while setting up that area. Try again." : (st.message ?? SLOW));
     }
     const bbox = st.bbox ?? opened.bbox;
+    if (shown) deps.setElevationPending(false);
     deps.addRecent({ id: opened.area_id, name: st.name ?? opened.name, type_label: "kind" in t ? t.type_label : "Area",
       state: "kind" in t ? t.state : null, bbox });
-    await deps.pickRegion(opened.area_id, bbox);
+    if (!shown) await deps.pickRegion(opened.area_id, bbox);
   } catch (e) {
     deps.setError(e instanceof ApiError ? e.message : (e as Error).message);
   }

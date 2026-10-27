@@ -48,6 +48,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   let lastAlongM: number | null = null;
   let pendingUpdate: (() => void) | null = null;
   let lastView: { view: Box; zoom: number } | null = null;
+  let lastTarget: Target | null = null;  // the last area opened, for "Try again"
 
   function updateMapNote() {
     const s = store.get();
@@ -101,7 +102,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       const b = s0.regions.find((r) => r.id === id)?.bbox ?? s0.recentAreas.find((r) => r.id === id)?.bbox ?? bbox;
       if (!b) return;
       store.set({ region: id, trailheads: [], run: null, savedId: null, campsM: null, view: "plan", status: "Loading trails…", error: null, busy: false,
-        searchQuery: "", searchResults: null });
+        searchQuery: "", searchResults: null, elevationPending: false, canRetryOpen: false });
       map?.fitBounds([b.west, b.south, b.east, b.north]);
       try {
         const [ths, trails] = await Promise.all([getTrailheads(id), getTrails(id)]);
@@ -120,14 +121,18 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       } catch (e) { store.set({ error: (e as Error).message }); }
     },
     openTarget(t: Target) {
+      lastTarget = t;
+      store.set({ canRetryOpen: false });
       return openSearchResult(t, {
         openArea, areaStatus, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         pickRegion: (id, bbox) => actions.pickRegion(id, bbox),
         setStatus: (message) => store.set({ status: message, error: null, busy: true }),
-        setError: (message) => store.set({ error: message, status: "", busy: false }),
+        setError: (message) => store.set({ error: message, status: "", busy: false, elevationPending: false, canRetryOpen: true }),
+        setElevationPending: (on) => store.set({ elevationPending: on, status: "" }),
         addRecent: (a: RecentArea) => store.set((s) => ({ recentAreas: [a, ...s.recentAreas.filter((r) => r.id !== a.id)].slice(0, 8) })),
       });
     },
+    retryOpen() { if (lastTarget) void actions.openTarget(lastTarget); },
     openRecent(r: RecentArea) { return actions.pickRegion(r.id, r.bbox); },
     planHere() {
       if (!lastView) return Promise.resolve(store.set({ error: "Move the map to the area first." }));
