@@ -522,3 +522,92 @@ def test_the_snapshot_day_plans_only_a_few(grid, tg, monkeypatch):
     loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, on_snapshot=snaps.append, first_s=8,
                  clock=_ticking_clock(5), evaluate=lambda c: seen.append(c) or 0.0)
     assert snaps and snaps[0]["evaluated"] == 2 < len(seen)  # the final pass still plans every trip
+
+
+# --- no count caps anywhere in the search: best first, and only the clock stops it ----------------------
+
+
+def _big_grid(n: int = 5):
+    """An n x n grid of junctions 1 km apart with a spur trailhead T: every junction is a possible stem."""
+    from conftest import RawBuilder
+
+    b = RawBuilder()
+    for i in range(n):
+        for j in range(n):
+            b.node(f"g{i}{j}", 1000 * i, 1000 * j)
+    b.node("T", -500, 0)
+    w = 100
+    for i in range(n):
+        b.way(w, [f"g{i}{j}" for j in range(n)], highway="path", name=f"Col {i}"); w += 1
+        b.way(w, [f"g{j}{i}" for j in range(n)], highway="path", name=f"Row {i}"); w += 1
+    b.way(w, ["T", "g00"], highway="path", name="Spur Trail")
+    return b
+
+
+def test_every_junction_in_reach_is_tried_as_a_stem(monkeypatch):
+    from backcountry import loops
+
+    assert not hasattr(loops, "MAX_STEMS")
+    b = _big_grid(5)
+    tg = build_graph(b.doc(), crs=CRS)
+    report = loops.search(tg, b.ids["T"], 3 * KM, 30 * KM, kinds=("lollipop",), count=1)
+    H = loops.loop_graph(tg, b.ids["T"], reach_m=30 * KM * (1 + loops.WIDEN) / 2).graph
+    import networkx as nx
+
+    dist = nx.single_source_dijkstra_path_length(H, b.ids["T"], weight="length_m")
+    stems = [v for v in dist if v != b.ids["T"] and 2 * dist[v] < 30 * KM and H.degree(v) >= 3]
+    assert report["stems_tried"] == len(stems) > 8 and report["truncated"] is False
+
+
+def test_stems_stop_at_the_deadline_and_say_so():
+    from backcountry import loops
+
+    b = _big_grid(5)
+    tg = build_graph(b.doc(), crs=CRS)
+    report = loops.search(tg, b.ids["T"], 3 * KM, 30 * KM, kinds=("lollipop",), count=1, max_seconds=20,
+                          clock=_ticking_clock(3))
+    assert 0 < report["stems_tried"] < 9 and report["truncated"] is True
+    assert any("time budget" in n for n in report["notes"])
+
+
+def test_out_and_backs_and_one_ways_have_no_count_caps():
+    from backcountry import loops
+
+    assert not hasattr(loops, "MAX_OUT_AND_BACKS") and not hasattr(loops, "MAX_ONE_WAY_VIAS")
+    b = _big_grid(5)
+    tg = build_graph(b.doc(), crs=CRS)
+    obs = loops.out_and_backs(tg, b.ids["T"], 1 * KM, 30 * KM)
+    G = tg.graph
+    ends = [n for n in G.nodes if n != b.ids["T"] and (G.degree(n) == 1 or G.degree(n) >= 3)]
+    assert len(obs) == len(ends) == 22  # every trail end and junction in range (three corners are pass-throughs)
+    cut = loops.out_and_backs(tg, b.ids["T"], 1 * KM, 30 * KM, deadline=10, report={}, clock=_ticking_clock(3))
+    assert 0 < len(cut) < 22
+
+
+def test_cheap_trip_shapes_are_found_before_the_slow_lollipop_search_eats_the_budget(monkeypatch):
+    from backcountry import loops
+
+    order = []
+    real_loops, real_oab = loops.waypoint_loops, loops.out_and_backs
+
+    def spy_loops(H, start, lo, hi, forbidden=frozenset(), *a, **k):
+        order.append("lollipop stem" if forbidden else "loops")
+        return real_loops(H, start, lo, hi, forbidden, *a, **k)
+
+    def spy_oab(*a, **k):
+        order.append("out-and-backs")
+        return real_oab(*a, **k)
+    monkeypatch.setattr(loops, "waypoint_loops", spy_loops)
+    monkeypatch.setattr(loops, "out_and_backs", spy_oab)
+    b = _big_grid(5)
+    tg = build_graph(b.doc(), crs=CRS)
+    report = loops.search(tg, b.ids["T"], 3 * KM, 30 * KM, kinds=("loop", "lollipop", "out_and_back"), count=3)
+    assert order[:2] == ["loops", "out-and-backs"] and order[2:] and set(order[2:]) == {"lollipop stem"}
+    assert report["out_and_backs_found"] > 0 and report["stems_tried"] == len(order) - 2
+
+
+def test_lollipops_are_still_tried_when_out_and_backs_fill_the_count(grid, tg):
+    from backcountry import loops
+
+    report = loops.search(tg, grid.ids["T"], 2 * KM, 12 * KM, kinds=("loop", "lollipop", "out_and_back"), count=1)
+    assert report["out_and_backs_found"] >= 1 and report["stems_tried"] > 0

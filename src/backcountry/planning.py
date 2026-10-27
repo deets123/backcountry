@@ -350,7 +350,8 @@ def _destination_notes(tg, report: dict, dest, req: "GenerateRequest", evaluate,
     obs = [c for c in out_and_backs(tg, start, 0.0, math.inf, req.no_roads, excluded, through=dest.node)
            if c.turnaround == dest.node]
     if not obs:
-        report["notes"].append(f"No trip from this start reaches {dest.name} within {_mi(lo)}–{_mi(hi)} mi.")
+        report["notes"].append(f"The search ran out of time before finding a trip to {dest.name}." if report.get("truncated")
+                               else f"No trip from this start reaches {dest.name} within {_mi(lo)}–{_mi(hi)} mi.")
         return
     short = min(obs, key=lambda c: c.length_m)
     short.penalty = penalty(short.length_m, short.road_m, short.last_resort_m, short.repeated_m, *req.total_m, Weights())
@@ -359,8 +360,12 @@ def _destination_notes(tg, report: dict, dest, req: "GenerateRequest", evaluate,
     report["candidates"] = [short]
     shortest = f"The shortest out and back to it is {short.length_m / M_PER_MI:.1f} mi."
     lo_m, hi_m = req.total_m
-    report["notes"].append(shortest if lo_m <= short.length_m <= hi_m else
-                           f"No trip from this start reaches {dest.name} within {_mi(lo)}–{_mi(hi)} mi. {shortest}")
+    if report.get("truncated"):  # the clock stopped the search: there may well be a trip that fits
+        report["notes"].append(f"The search ran out of time before finding a trip to {dest.name} within "
+                               f"{_mi(lo)}–{_mi(hi)} mi. {shortest}")
+    else:
+        report["notes"].append(shortest if lo_m <= short.length_m <= hi_m else
+                               f"No trip from this start reaches {dest.name} within {_mi(lo)}–{_mi(hi)} mi. {shortest}")
 
 
 @dataclass

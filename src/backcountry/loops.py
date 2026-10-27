@@ -30,7 +30,6 @@ from backcountry.scoring import Weights, overlap, penalty
 
 MAX_SECONDS = 60.0  # search time budget; the report says when it was hit
 MAX_DETOUR_M = 1609.0  # a must-visit spot can be reached by an out-and-back of at most this (one way)
-MAX_STEMS = 8  # nearest junctions tried as lollipop stems
 WIDEN = 0.25  # if nothing fits the range, look this much wider and report the deviation
 SNAPSHOT_EVALUATED = 12  # the first look day-plans only this many (the best by distance, roads, repeats)
 FIRST_RESULTS_S = 8.0  # after this long, hand over the best trips found so far while the search goes on
@@ -274,14 +273,17 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
            max_detour_m: float = MAX_DETOUR_M, finish: int | None = None) -> dict:
     """Find, score, and pick candidates.
 
+    Trips are enumerated a family at a time (loops, then the cheap out-and-backs and one-ways, then lollipops,
+    the slow family) and each family is scored and day-planned (`evaluate`) as soon as it is found, best first.
+    Only the clock stops any of it; then the report says so, and a trip never planned in full is never offered.
+
     `evaluate(candidate)` may add penalty (e.g. a day plan's). `avoid`: names/way ids to exclude.
     `must_visit`: dicts {"node": n} or {"name": trail}; a node off the loop gets an out-and-back detour
-    from the nearest point of the loop (at most MAX_DETOUR_M one way). `direction`: "cw" or "ccw".
+    from the nearest point of the loop (at most `max_detour_m` one way). `direction`: "cw" or "ccw".
     `on_snapshot(report)`: called once, `first_s` into the search (by `clock`), with the trips found so far
     scored and picked the same way (`report["partial"]` True); not called if the search ends sooner.
     `keep(candidate)`: only candidates it accepts are picked (a destination's range and reach). `through`: the
-    node out-and-backs must pass (a destination). `max_detour_m`: the longest must-visit detour, one way.
-    `finish`: where one-way trips end.
+    node out-and-backs must pass (a destination). `finish`: where one-way trips end.
     """
     t0 = clock()
     deadline = t0 + max_seconds
@@ -290,49 +292,56 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     H = lg.graph
     report = {"loop_graph": {"nodes": H.number_of_nodes(), "edges": H.number_of_edges(), "pruned": lg.pruned,
                              "merged": lg.merged, "reach_m": lg.reach_m}, "loops_found": 0, "lollipops_found": 0,
-              "out_and_backs_found": 0, "one_ways_found": 0, "stems_tried": 0, "via_pairs_tried": 0, "truncated": False, "widened": False,
-              "avoided_edges": len(excluded), "must_visit_notes": [], "notes": [], "partial": False}
+              "out_and_backs_found": 0, "one_ways_found": 0, "stems_tried": 0, "via_pairs_tried": 0, "truncated": False,
+              "widened": False, "avoided_edges": len(excluded), "must_visit_notes": [], "notes": [], "partial": False}
+    musts = _MustVisits(tg, must_visit, no_roads, excluded, max_detour_m) if must_visit else None
+    mid = (min_m + max_m) / 2
+    order = lambda c: (c.penalty, abs(c.length_m - mid), c.length_m)  # noqa: E731
+    evaluated: list[Candidate] = []  # scored and, with `evaluate`, day-planned: the only trips that can be offered
+    totals = {"found": 0, "kept": 0, "detoured": 0}
 
-    def choose(found: list[Candidate], rep: dict, limit: int | None = None) -> list[Candidate]:
-        if must_visit:
-            found = _apply_must_visit(tg, found, must_visit, no_roads, excluded, rep, max_detour_m)
+    def prepare(cands: list[Candidate], limit: int | None = None, register: bool = True) -> list[Candidate]:
+        """Must-visits, the destination's filter, direction and base penalty, then day plans best first until
+        the clock (or `limit` of them, for the first look). Registered trips join `evaluated`."""
+        if register:
+            totals["found"] += len(cands)
+        if musts is not None:
+            cands = musts.apply(cands)
         if keep is not None:
-            found = [c for c in found if keep(c)]
+            cands = [c for c in cands if keep(c)]
         if direction:  # only trips that come back to the start have a way round; one way and out and back don't
-            found = [c if c.kind not in ("loop", "lollipop") or orientation(c.route) == direction else _reversed(tg, c)
-                     for c in found]
-        scored = len(found)
-        mid = (min_m + max_m) / 2
-        order = lambda c: (c.penalty, abs(c.length_m - mid), c.length_m)  # noqa: E731
-        for c in found:
+            cands = [c if c.kind not in ("loop", "lollipop") or orientation(c.route) == direction else _reversed(tg, c)
+                     for c in cands]
+        if register:
+            totals["kept"] += len(cands)
+            totals["detoured"] += sum(1 for c in cands if c.detour_keys)
+        for c in cands:
             c.penalty = penalty(c.length_m, c.road_m, c.last_resort_m, c.repeated_m, min_m, max_m, weights)
-        if evaluate is not None:
-            # every trip gets its days planned, best first by distance, roads and repeats; only the clock can
-            # stop it, and then the report says so (trips not planned in full are never offered)
-            found.sort(key=order)
-            done = []
-            for c in found:
-                if limit is not None and len(done) >= limit:
-                    break
+        cands.sort(key=order)
+        done = []
+        for c in cands:
+            if limit is not None and len(done) >= limit:
+                break
+            if evaluate is not None:
                 if limit is None and clock() > deadline:
-                    rep["truncated"] = True
+                    report["truncated"] = True
                     break
                 c.penalty += evaluate(c)
-                done.append(c)
-            found = done
-        rep["evaluated"] = len(found) if evaluate is not None else 0
-        found.sort(key=order)
+            done.append(c)
+        if register:
+            evaluated.extend(done)
+        return done
+
+    def pick(cands: list[Candidate]) -> list[Candidate]:
         chosen = []
-        for c in found:
+        for c in sorted(cands, key=order):
             if all(c.overlap(o) < max_overlap for o in chosen):
                 chosen.append(c)
             if len(chosen) == count:
                 break
-        rep["scored"] = scored
         return chosen
 
     snap = {"due": clock() + first_s, "done": on_snapshot is None}
-    so_far: list[Candidate] = []  # candidates from finished waypoint searches
 
     def ticker(make):
         """A waypoint_loops tick: once it's time, score what's found so far and hand it over."""
@@ -340,44 +349,27 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
             if snap["done"] or clock() < snap["due"]:
                 return
             snap["done"] = True
-            rep = dict(report, must_visit_notes=[], notes=list(report["notes"]), partial=True)
-            rep["candidates"] = choose(list(so_far) + [make(steps) for steps, _ in loops], rep, limit=SNAPSHOT_EVALUATED)
+            fresh = prepare([make(steps) for steps, _ in loops], limit=SNAPSHOT_EVALUATED, register=False)
+            rep = dict(report, must_visit_notes=[], notes=list(report["notes"]), partial=True,
+                       evaluated=(len(evaluated) + len(fresh)) if evaluate is not None else 0, scored=totals["kept"])
+            rep["candidates"] = pick(evaluated + fresh)
             rep["seconds"] = clock() - t0
             on_snapshot(rep)
         return tick
 
-    def collect(lo: float, hi: float) -> list[Candidate]:
-        found = []
+    def collect(lo: float, hi: float) -> int:
+        """Enumerate every family in [lo, hi], preparing each as it comes. Returns how many trips were found."""
+        n, loops_n = 0, 0
         if "loop" in kinds:
             tick = ticker(lambda steps: _candidate(tg, H, "loop", start, steps, []))
-            for steps, _ in waypoint_loops(H, start, lo, hi, deadline=deadline, report=report, tick=tick, clock=clock):
-                found.append(_candidate(tg, H, "loop", start, steps, []))
-            so_far.extend(found)
-            report["loops_found"] += len(found)
-        if "lollipop" in kinds and (len(found) < count or "loop" not in kinds):
-            dist, paths = _dijkstra(H, start)
-            stems = [v for v in sorted(dist, key=dist.get) if v != start and 2 * dist[v] < hi and H.degree(v) >= 3]
-            for v in stems[:MAX_STEMS]:
-                report["stems_tried"] += 1
-                stem = _steps(H, paths[v], set())
-                forbidden = set(paths[v][:-1])
-
-                def make(steps, stem=stem):
-                    return _candidate(tg, H, "lollipop", start, stem + steps + [(b, a, k) for a, b, k in stem[::-1]], stem)
-
-                loops = waypoint_loops(H, v, lo - 2 * dist[v], hi - 2 * dist[v], forbidden, deadline, report,
-                                       tick=ticker(make), clock=clock)
-                report["lollipops_found"] += len(loops)
-                for steps, _ in loops:
-                    c = make(steps)
-                    found.append(c)
-                    so_far.append(c)
-        if "one_way" in kinds and finish is not None:
-            ows = one_ways(tg, start, finish, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report,
-                           clock=clock)
-            report["one_ways_found"] += len(ows)
-            found += ows
-            so_far.extend(ows)
+            loops = [_candidate(tg, H, "loop", start, steps, [])
+                     for steps, _ in waypoint_loops(H, start, lo, hi, deadline=deadline, report=report, tick=tick, clock=clock)]
+            loops_n = len(loops)
+            report["loops_found"] += loops_n
+            n += loops_n
+            prepare(loops)
+        # The cheap shapes next (a few shortest-path runs each), so if the clock runs out it only ever cuts the
+        # slow lollipop search, which comes last.
         if "out_and_back" in kinds:
             obs = out_and_backs(tg, start, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report,
                                 clock=clock)
@@ -388,14 +380,38 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
                 obs += [c for c in out_and_backs(tg, start, lo, hi, no_roads, excluded, deadline=deadline, report=report,
                                                  clock=clock) if tuple(c.keys) not in walked]
             report["out_and_backs_found"] += len(obs)
-            found += obs
-            so_far.extend(obs)
-        return found
+            n += len(obs)
+            prepare(obs)
+        if "one_way" in kinds and finish is not None:
+            ows = one_ways(tg, start, finish, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report,
+                           clock=clock)
+            report["one_ways_found"] += len(ows)
+            n += len(ows)
+            prepare(ows)
+        if "lollipop" in kinds and (loops_n < count or "loop" not in kinds):
+            dist, paths = _dijkstra(H, start)
+            stems = [v for v in sorted(dist, key=dist.get) if v != start and 2 * dist[v] < hi and H.degree(v) >= 3]
+            for v in stems:  # every junction in reach, nearest first; only the clock stops it
+                if deadline and clock() > deadline:
+                    report["truncated"] = True
+                    break
+                report["stems_tried"] += 1
+                stem = _steps(H, paths[v], set())
+                forbidden = set(paths[v][:-1])
+
+                def make(steps, stem=stem):
+                    return _candidate(tg, H, "lollipop", start, stem + steps + [(b, a, k) for a, b, k in stem[::-1]], stem)
+
+                loops = waypoint_loops(H, v, lo - 2 * dist[v], hi - 2 * dist[v], forbidden, deadline, report,
+                                       tick=ticker(make), clock=clock)
+                report["lollipops_found"] += len(loops)
+                n += len(loops)
+                prepare([make(steps) for steps, _ in loops])
+        return n
 
     found = collect(min_m, max_m)
     if not found and not report["truncated"]:
         report["widened"] = True
-        so_far.clear()
         found = collect(min_m * (1 - WIDEN), max_m * (1 + WIDEN))
     if not found:
         if H.degree(start) < 2 and "lollipop" not in kinds:
@@ -407,16 +423,17 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
         else:
             report["notes"].append("No trip of this kind fits even a 25% wider range with these restrictions.")
     snap["done"] = True
-    chosen = choose(found, report)
+    if musts is not None:
+        report["must_visit_notes"] += musts.notes(start, totals)
     if report["truncated"]:
         report["notes"].append("The search hit its time budget, so some trips were never examined or planned in full.")
-    report.update(candidates=chosen, seconds=clock() - t0)
+    report.update(candidates=pick(evaluated), evaluated=len(evaluated) if evaluate is not None else 0,
+                  scored=totals["kept"], seconds=clock() - t0)
     return report
 
 
 # --- out-and-back ---------------------------------------------------------------------------------------
 
-MAX_OUT_AND_BACKS = 200  # turnarounds made into candidates, closest to the range's middle first
 
 
 def out_and_backs(tg, start: int, lo: float, hi: float, no_roads: bool = False, exclude_keys=frozenset(),
@@ -441,7 +458,7 @@ def out_and_backs(tg, start: int, lo: float, hi: float, no_roads: bool = False, 
             found.append((abs(2 * one_way - (lo + hi) / 2), x, path, keys, one_way))
     found.sort(key=lambda f: (f[0], f[1]))
     out = []
-    for _, x, path, keys, one_way in found[:MAX_OUT_AND_BACKS]:
+    for _, x, path, keys, one_way in found:  # closest to the range's middle first; only the clock stops it
         if deadline and clock() > deadline:
             if report is not None:
                 report["truncated"] = True
@@ -457,7 +474,6 @@ def out_and_backs(tg, start: int, lo: float, hi: float, no_roads: bool = False, 
 
 # --- one way --------------------------------------------------------------------------------------------
 
-MAX_ONE_WAY_VIAS = 60  # junctions tried as "via" points for other ways to the finish
 LAST_RESORT_CAP = 10.0  # routing costs can be up to this times the distance (last-resort roads)
 
 
@@ -485,8 +501,9 @@ def _one_way_candidate(tg, start, finish, keys, nodes) -> Candidate:
 def one_ways(tg, start: int, finish: int, lo: float, hi: float, no_roads: bool = False, exclude_keys=frozenset(),
              through: int | None = None, deadline=None, report=None, clock=time.time) -> list[Candidate]:
     """From start to finish, length in [lo, hi]: the preferred route, the next best way round each stretch of it,
-    and other ways through one junction (the second leg avoids the first leg's trails). With `through`: start -> through -> finish; a `through` on a spur
-    is walked out and back (those edges are the candidate's detour_keys)."""
+    and other ways through one junction (the second leg avoids the first leg's trails). With `through`:
+    start -> through -> finish; a `through` on a spur is walked out and back (those edges are the candidate's
+    detour_keys)."""
     R = routing_graph(tg, no_roads, exclude_keys=exclude_keys)
     if start not in R or finish not in R:
         return []
@@ -509,58 +526,67 @@ def one_ways(tg, start: int, finish: int, lo: float, hi: float, no_roads: bool =
     if lo <= real(best) <= hi:
         out.append(_one_way_candidate(tg, start, finish, _path_keys(R, best), best))
     seen.add(tuple(_path_keys(R, best)))
-    # Other ways round: block one stretch of the best route at a time and take the next best way (spread along
-    # the route when it has many stretches).
-    stretches = list(zip(best, best[1:]))
-    step = max(1, len(stretches) // MAX_ONE_WAY_VIAS)
-    for a, b in stretches[::step]:
+
+    def alt_edge(a, b):
+        """Another trail joining the same two junctions (the routing graph keeps only the lightest), or None."""
+        others = [(edge_weight(d), k) for k, d in G[a][b].items() if k != R[a][b]["key"] and k not in exclude_keys
+                  and not (no_roads and d["is_road"])]
+        return min(others) if others else None
+
+    def path_keys(path, swapped):
+        return [swapped[k] if (k := R[x][y]["key"]) in swapped else k for x, y in zip(path, path[1:])]
+
+    def length(path, swapped):
+        return sum(G[x][y][k]["length_m"] for (x, y), k in zip(zip(path, path[1:]), path_keys(path, swapped)))
+
+    # Other ways round: the next best way with one stretch of the best route blocked (a parallel trail takes a
+    # blocked one's place), every stretch in turn. No graph copies: the block is a weight.
+    for a, b in zip(best, best[1:]):
         if deadline and clock() > deadline:
             if report is not None:
                 report["truncated"] = True
             return out
-        R2 = R.copy()
-        # another trail joining the same two junctions takes the blocked one's place (the routing graph keeps
-        # only the lightest of parallel trails)
-        others = [(edge_weight(d), k) for k, d in G[a][b].items() if k != R[a][b]["key"] and k not in exclude_keys
-                  and not (no_roads and d["is_road"])]
-        if others:
-            w, k = min(others)
-            R2[a][b].update(w=w, key=k)
-        else:
-            R2.remove_edge(a, b)
+        alt = alt_edge(a, b)
+        swapped = {R[a][b]["key"]: alt[1]} if alt else {}
+
+        def blocked(u, v, d, a=a, b=b, alt=alt):
+            return (alt[0] if alt else None) if {u, v} == {a, b} else d["w"]
         try:
-            alt = nx.shortest_path(R2, start, finish, weight="w")
+            path = nx.shortest_path(R, start, finish, weight=blocked)
         except nx.NetworkXNoPath:
             continue
-        keys = _path_keys(R2, alt)
+        keys = path_keys(path, swapped)
         if tuple(keys) in seen:
             continue
         seen.add(tuple(keys))
-        if lo <= sum(G[x][y][k]["length_m"] for (x, y), k in zip(zip(alt, alt[1:]), keys)) <= hi:
-            out.append(_one_way_candidate(tg, start, finish, keys, alt))
+        if lo <= length(path, swapped) <= hi:
+            out.append(_one_way_candidate(tg, start, finish, keys, path))
+    # ...and ways through one other junction: out to it, then to the finish avoiding the first leg's trails.
     dist_s, paths_s = nx.single_source_dijkstra(R, start, weight="w")
     dist_f = nx.single_source_dijkstra_path_length(R, finish, weight="w")
     mid = (lo + hi) / 2
     vias = sorted((a for a in dist_s if a not in (start, finish) and a in dist_f and G.degree(a) >= 3
                    and dist_s[a] + dist_f[a] <= hi * LAST_RESORT_CAP), key=lambda a: (abs(dist_s[a] + dist_f[a] - mid), a))
-    for a in vias[:MAX_ONE_WAY_VIAS]:
+    for a in vias:  # closest to the range's middle first; only the clock stops it
         if deadline and clock() > deadline:
             if report is not None:
                 report["truncated"] = True
             break
         leg1 = paths_s[a]
-        R2 = R.copy()
-        R2.remove_edges_from(zip(leg1, leg1[1:]))
+        first = {frozenset(e) for e in zip(leg1, leg1[1:])}
+
+        def avoiding(u, v, d, first=first):
+            return None if frozenset((u, v)) in first else d["w"]
         try:
-            leg2 = nx.shortest_path(R2, a, finish, weight="w")
+            leg2 = nx.shortest_path(R, a, finish, weight=avoiding)
         except nx.NetworkXNoPath:
             continue
         nodes = leg1 + leg2[1:]
-        keys = _path_keys(R, leg1) + [R2[x][y]["key"] for x, y in zip(leg2, leg2[1:])]
+        keys = path_keys(nodes, {})
         if tuple(keys) in seen or len(set(nodes)) != len(nodes):  # no repeats: a walk that crosses itself isn't one
             continue
         seen.add(tuple(keys))
-        if lo <= real(leg1) + sum(G[x][y][R2[x][y]["key"]]["length_m"] for x, y in zip(leg2, leg2[1:])) <= hi:
+        if lo <= length(nodes, {}) <= hi:
             out.append(_one_way_candidate(tg, start, finish, keys, nodes))
     return out
 
@@ -584,52 +610,60 @@ def _reversed(tg, c: Candidate) -> Candidate:
                      turnaround=c.turnaround, finish=c.finish)
 
 
-def _apply_must_visit(tg, found, must_visit, no_roads, excluded, report, max_detour_m=MAX_DETOUR_M) -> list[Candidate]:
-    """Keep candidates that pass every must-visit spot, adding an out-and-back detour where needed."""
-    R = routing_graph(tg, no_roads, exclude_keys=excluded)
-    reach = {}  # node -> (dist from v to every node, paths)
-    for m in must_visit:
-        if "node" in m and m["node"] in R:
-            reach[m["node"]] = nx.single_source_dijkstra(R, m["node"], weight="w")
-    kept = []
-    for c in found:
-        ok = True
-        for m in must_visit:
-            if "name" in m:
-                if not any((e["name"] or "").lower() == m["name"].lower() for e in c.route.edges):
+class _MustVisits:
+    """The must-visit spots, with the paths to them worked out once; `apply` keeps the candidates that pass
+    every spot, adding an out-and-back detour where needed."""
+
+    def __init__(self, tg, must_visit, no_roads, excluded, max_detour_m=MAX_DETOUR_M):
+        self.tg, self.specs, self.max_detour_m = tg, list(must_visit), max_detour_m
+        self.R = routing_graph(tg, no_roads, exclude_keys=excluded)
+        self.reach = {}  # node -> (dist from v to every node, paths)
+        for m in self.specs:
+            if "node" in m and m["node"] in self.R:
+                self.reach[m["node"]] = nx.single_source_dijkstra(self.R, m["node"], weight="w")
+
+    def apply(self, found) -> list[Candidate]:
+        kept = []
+        for c in found:
+            ok = True
+            for m in self.specs:
+                if "name" in m:
+                    if not any((e["name"] or "").lower() == m["name"].lower() for e in c.route.edges):
+                        ok = False
+                        break
+                    continue
+                v = m["node"]
+                if v in c.route.nodes:
+                    continue
+                if v not in self.reach or c.start not in self.reach[v][0]:
                     ok = False
                     break
+                dist, paths = self.reach[v]
+                on_route = [n for n in set(c.route.nodes) if n in dist]
+                if not on_route:
+                    ok = False
+                    break
+                j = min(on_route, key=dist.get)
+                if dist[j] > self.max_detour_m:
+                    ok = False
+                    break
+                c = _with_detour(self.tg, c, j, paths[j][::-1], self.R)  # path from j out to v
+            if ok:
+                kept.append(c)
+        return kept
+
+    def notes(self, start: int, totals: dict) -> list[str]:
+        out = []
+        for m in self.specs:
+            if m.get("internal"):
                 continue
-            v = m["node"]
-            if v in c.route.nodes:
-                continue
-            if v not in reach or c.start not in reach[v][0]:
-                ok = False
-                break
-            dist, paths = reach[v]
-            on_route = [n for n in set(c.route.nodes) if n in dist]
-            if not on_route:
-                ok = False
-                break
-            j = min(on_route, key=dist.get)
-            if dist[j] > max_detour_m:
-                ok = False
-                break
-            c = _with_detour(tg, c, j, paths[j][::-1], R)  # path from j out to v
-        if ok:
-            kept.append(c)
-    start = found[0].start if found else None
-    for m in must_visit:
-        if m.get("internal"):
-            continue
-        label = m.get("name") or f"node {m['node']}"
-        if "node" in m and (m["node"] not in reach or (start is not None and start not in reach[m["node"]][0])):
-            report["must_visit_notes"].append(f"must-visit {label}: not reachable from the start (not in the graph, "
-                                              "in another piece of the network, or cut off by --avoid/--no-roads)")
-        n_ok = sum(1 for c in kept)
-        report["must_visit_notes"].append(f"must-visit {label}: {n_ok} of {len(found)} loops can include it"
-                                          + f" ({sum(1 for c in kept if c.detour_keys)} with an out-and-back detour)")
-    return kept
+            label = m.get("name") or f"node {m['node']}"
+            if "node" in m and (m["node"] not in self.reach or start not in self.reach[m["node"]][0]):
+                out.append(f"must-visit {label}: not reachable from the start (not in the graph, in another piece of "
+                           "the network, or cut off by --avoid/--no-roads)")
+            out.append(f"must-visit {label}: {totals['kept']} of {totals['found']} loops can include it"
+                       f" ({totals['detoured']} with an out-and-back detour)")
+        return out
 
 
 def _with_detour(tg, c: Candidate, j: int, path_nodes: list[int], R) -> Candidate:

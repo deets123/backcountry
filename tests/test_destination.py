@@ -27,10 +27,10 @@ def park(index_path, tmp_path_factory):
     return region, raw, build_graph(raw, region.crs)
 
 
-def plan(index, park, **body):
+def plan(index, park, search=None, **body):
     region, raw, tg = park
     req = GenerateRequest.from_dict({"trailhead": "10.2495,-149.8505"} | body)  # Rim Trailhead
-    return plan_trip(region, raw, tg, req, dem=None, index=index)
+    return plan_trip(region, raw, tg, req, dem=None, index=index, **(search or {}))
 
 
 def test_peak_destination_resolves_to_the_nearest_trail_node(index, park):
@@ -145,3 +145,12 @@ def test_destination_adds_no_must_visit_wording(index, park):
     for body in ({"total": "33-38", "nights": 1, "daily": "10-25", "type": "loop"}, {"total": "18-24", "avoid": ["Peak Spur"]}):
         r = plan(index, park, destination="node/1060", **body)
         assert r.report["must_visit_notes"] == [], r.report["must_visit_notes"]
+
+
+def test_a_search_that_ran_out_of_time_never_claims_nothing_reaches_the_destination(index, park):
+    r = plan(index, park, {"max_seconds": 0.0}, total="18-24", destination="node/1060")
+    assert r.report["truncated"] is True
+    notes = " ".join(r.report["notes"])
+    assert "No trip from this start reaches" not in notes
+    assert "ran out of time" in notes and "shortest out and back to it is" in notes
+    assert r.report["candidates"] and r.report["candidates"][0].turnaround == 1029
