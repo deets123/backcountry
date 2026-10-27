@@ -803,6 +803,10 @@ Spec: `docs/superpowers/specs/2026-10-25-any-us-area-design.md`. Plan: `docs/sup
 - Security: users only send a search result, box or point; the index is read-only; downloads come from fixed
   hosts (Geofabrik, the USGS bucket) and are parsed, never run; search text never reaches SQL unparameterised.
 - Engine fix found on the way: a ring trail whose only junction is the start is now offered as a loop.
+- After the final review: an area opened before a `refresh` gets the newer data on its next open (or when a saved
+  trip there checks for an update); labels come from OSM's `protection_title`, so Lake Mead is a National Recreation
+  Area, not a National Park; retrace walks through a junction that went away; the elevation cache is written
+  atomically; "Not now" on an update offer is no longer remembered; a park too big to open whole says "Part of …".
 
 **Measured on this laptop (2026-10-27)**
 - Download 12.2 GB in 13 min. Build about 7 h 10 min (my estimate was 30–90 min), peak memory 4.4 GB, 26 GB
@@ -835,8 +839,8 @@ Spec: `docs/superpowers/specs/2026-10-25-any-us-area-design.md`. Plan: `docs/sup
 4. Trail lengths match OSM's own geometry (geodesic, within 0.2%). NPS mileage notes are **not built**.
 5. Security tests pass (URLs, `../`, shell and SQL text, huge boxes, boxes outside the US, request floods, unlisted
    hosts).
-6. Dolly Sods, Pemi, saved and offline trips are unchanged. Tests: pytest 547 + 25 skipped without data, and the
-   heavy run (`scripts/heavy-tests --eval`) 566 passed, 6 skipped; web 168 unit and 11 end-to-end. Chat eval
+6. Dolly Sods, Pemi, saved and offline trips are unchanged. Tests: pytest 555 + 25 skipped without data, and the
+   heavy run (`scripts/heavy-tests`) 574 passed, 6 skipped; web 168 unit and 11 end-to-end. Chat eval
    (qwen3:14b) 36/41, the same five misses as before this piece (shorter/longer days, Breathed Mountain, "less climbing").
 
 **Known gaps and next steps**
@@ -846,7 +850,9 @@ Spec: `docs/superpowers/specs/2026-10-25-any-us-area-design.md`. Plan: `docs/sup
   Canyon the search hit its 90 s limit and found no loop that includes Angels Landing. The time comes from the
   number of waypoint pairs in reach, not the area size.
 - The index build takes about 7 hours. A monthly refresh means leaving the laptop plugged in overnight.
-- Some type labels come from OSM tags and read oddly: a few state and historical parks are labelled "National
-  Park" (for example "Smokey Bear Historical Park").
+- Search: two different areas can look the same ("Mill Creek · Protected Area · Massachusetts" twice), and
+  "Lake Mead" lists Spring Meadow Lake State Park before Lake Mead National Recreation Area.
+- A saved trip from before this piece (no recorded route) is offered newer data, but the review then says it
+  can't be followed; plan it again instead.
 - NPS published mileages aren't compared yet (acceptance check 4's second half).
 - Deferred: park rules, permits and closures (next after trip shapes); trip temperatures and gear.
