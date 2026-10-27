@@ -31,6 +31,7 @@ MAX_SECONDS = 60.0  # search time budget; the report says when it was hit
 MAX_DETOUR_M = 1609.0  # a must-visit spot can be reached by an out-and-back of at most this (one way)
 MAX_STEMS = 8  # nearest junctions tried as lollipop stems
 WIDEN = 0.25  # if nothing fits the range, look this much wider and report the deviation
+FIRST_RESULTS_S = 8.0  # after this long, hand over the best trips found so far while the search goes on
 
 
 @dataclass
@@ -189,8 +190,10 @@ def _steps(H, nodes, used):
     return steps
 
 
-def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, report=None):
-    """Edge-disjoint loops through `start` built from one or two via junctions, length in [lo, hi]."""
+def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, report=None, tick=None):
+    """Edge-disjoint loops through `start` built from one or two via junctions, length in [lo, hi].
+
+    `tick(loops)` is called before each via junction with the loops found so far (for early results)."""
     forbidden = set(forbidden)
     dist_s, paths_s = _dijkstra(H, start, forbidden=forbidden, cutoff=hi / 2)
     apsp = {}
@@ -202,6 +205,8 @@ def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, repor
             loops.append(([(start, start, k)], d["length_m"]))
     nodes = [n for n in sorted(dist_s, key=dist_s.get) if n != start and n not in forbidden and 2 * dist_s[n] <= hi]
     for i, a in enumerate(nodes):
+        if tick is not None:
+            tick(loops)
         if deadline and time.time() > deadline:
             if report is not None:
                 report["truncated"] = True
@@ -260,12 +265,15 @@ def _expand(H: nx.MultiGraph, super_steps) -> tuple[list[str], list[int]]:
 
 def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"), count: int = 3,
            no_roads: bool = False, weights: Weights = Weights(), max_overlap: float = 0.5,
-           max_seconds: float = MAX_SECONDS, evaluate=None, avoid=(), must_visit=(), direction: str | None = None) -> dict:
+           max_seconds: float = MAX_SECONDS, evaluate=None, avoid=(), must_visit=(), direction: str | None = None,
+           on_snapshot=None, first_s: float = FIRST_RESULTS_S, clock=time.time) -> dict:
     """Find, score, and pick candidates.
 
     `evaluate(candidate)` may add penalty (e.g. a day plan's). `avoid`: names/way ids to exclude.
     `must_visit`: dicts {"node": n} or {"name": trail}; a node off the loop gets an out-and-back detour
     from the nearest point of the loop (at most MAX_DETOUR_M one way). `direction`: "cw" or "ccw".
+    `on_snapshot(report)`: called once, `first_s` into the search (by `clock`), with the trips found so far
+    scored and picked the same way (`report["partial"]` True); not called if the search ends sooner.
     """
     t0 = time.time()
     deadline = t0 + max_seconds
@@ -273,15 +281,52 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     lg = loop_graph(tg, start, no_roads, excluded, reach_m=max_m * (1 + WIDEN) / 2)  # the widened retry fits too
     H = lg.graph
     report = {"loop_graph": {"nodes": H.number_of_nodes(), "edges": H.number_of_edges(), "pruned": lg.pruned,
-                             "merged": lg.merged, "reach_m": lg.reach_m}, "loops_found": 0, "lollipops_found": 0, "stems_tried": 0,
-              "via_pairs_tried": 0, "truncated": False, "widened": False, "avoided_edges": len(excluded),
-              "must_visit_notes": [], "notes": []}
+                             "merged": lg.merged, "reach_m": lg.reach_m}, "loops_found": 0, "lollipops_found": 0,
+              "stems_tried": 0, "via_pairs_tried": 0, "truncated": False, "widened": False,
+              "avoided_edges": len(excluded), "must_visit_notes": [], "notes": [], "partial": False}
+
+    def choose(found: list[Candidate], rep: dict) -> list[Candidate]:
+        if must_visit:
+            found = _apply_must_visit(tg, found, must_visit, no_roads, excluded, rep)
+        if direction:
+            found = [c if orientation(c.route) == direction else _reversed(tg, c) for c in found]
+        for c in found:
+            c.penalty = penalty(c.length_m, c.road_m, c.last_resort_m, c.repeated_m, min_m, max_m, weights)
+            if evaluate is not None:
+                c.penalty += evaluate(c)
+        mid = (min_m + max_m) / 2
+        found.sort(key=lambda c: (c.penalty, abs(c.length_m - mid), c.length_m))
+        chosen = []
+        for c in found:
+            if all(c.overlap(o) < max_overlap for o in chosen):
+                chosen.append(c)
+            if len(chosen) == count:
+                break
+        rep["scored"] = len(found)
+        return chosen
+
+    snap = {"due": clock() + first_s, "done": on_snapshot is None}
+    so_far: list[Candidate] = []  # candidates from finished waypoint searches
+
+    def ticker(make):
+        """A waypoint_loops tick: once it's time, score what's found so far and hand it over."""
+        def tick(loops):
+            if snap["done"] or clock() < snap["due"]:
+                return
+            snap["done"] = True
+            rep = dict(report, must_visit_notes=[], notes=list(report["notes"]), partial=True)
+            rep["candidates"] = choose(list(so_far) + [make(steps) for steps, _ in loops], rep)
+            rep["seconds"] = time.time() - t0
+            on_snapshot(rep)
+        return tick
 
     def collect(lo: float, hi: float) -> list[Candidate]:
         found = []
         if "loop" in kinds:
-            for steps, _ in waypoint_loops(H, start, lo, hi, deadline=deadline, report=report):
+            tick = ticker(lambda steps: _candidate(tg, H, "loop", start, steps, []))
+            for steps, _ in waypoint_loops(H, start, lo, hi, deadline=deadline, report=report, tick=tick):
                 found.append(_candidate(tg, H, "loop", start, steps, []))
+            so_far.extend(found)
             report["loops_found"] += len(found)
         if "lollipop" in kinds and (len(found) < count or "loop" not in kinds):
             dist, paths = _dijkstra(H, start)
@@ -290,16 +335,23 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
                 report["stems_tried"] += 1
                 stem = _steps(H, paths[v], set())
                 forbidden = set(paths[v][:-1])
-                loops = waypoint_loops(H, v, lo - 2 * dist[v], hi - 2 * dist[v], forbidden, deadline, report)
+
+                def make(steps, stem=stem):
+                    return _candidate(tg, H, "lollipop", start, stem + steps + [(b, a, k) for a, b, k in stem[::-1]], stem)
+
+                loops = waypoint_loops(H, v, lo - 2 * dist[v], hi - 2 * dist[v], forbidden, deadline, report,
+                                       tick=ticker(make))
                 report["lollipops_found"] += len(loops)
                 for steps, _ in loops:
-                    found.append(_candidate(tg, H, "lollipop", start,
-                                            stem + steps + [(b, a, k) for a, b, k in stem[::-1]], stem))
+                    c = make(steps)
+                    found.append(c)
+                    so_far.append(c)
         return found
 
     found = collect(min_m, max_m)
     if not found and not report["truncated"]:
         report["widened"] = True
+        so_far.clear()
         found = collect(min_m * (1 - WIDEN), max_m * (1 + WIDEN))
     if not found:
         if H.degree(start) < 2 and "lollipop" not in kinds:
@@ -310,24 +362,9 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
                                    "range, or fewer --avoid/--no-roads restrictions.")
         else:
             report["notes"].append("No loop or lollipop fits even a 25% wider range with these restrictions.")
-    if must_visit:
-        found = _apply_must_visit(tg, found, must_visit, no_roads, excluded, report)
-    if direction:
-        found = [c if orientation(c.route) == direction else _reversed(tg, c) for c in found]
-    for c in found:
-        c.penalty = penalty(c.length_m, c.road_m, c.last_resort_m, c.repeated_m, min_m, max_m, weights)
-        if evaluate is not None:
-            c.penalty += evaluate(c)
-    mid = (min_m + max_m) / 2
-    found.sort(key=lambda c: (c.penalty, abs(c.length_m - mid), c.length_m))
-
-    chosen = []
-    for c in found:
-        if all(c.overlap(o) < max_overlap for o in chosen):
-            chosen.append(c)
-        if len(chosen) == count:
-            break
-    report.update(candidates=chosen, scored=len(found), seconds=time.time() - t0)
+    snap["done"] = True
+    chosen = choose(found, report)
+    report.update(candidates=chosen, seconds=time.time() - t0)
     return report
 
 

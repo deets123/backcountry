@@ -261,3 +261,19 @@ def test_plan_trip_reports_timings(grid, nights):
     timings = plan_trip(REGION, raw, tg, GenerateRequest.from_dict(body)).report["timings"]
     assert set(timings) == {"resolve", "search", "day_split", "finish"}
     assert all(isinstance(v, float) and v >= 0 for v in timings.values())
+
+
+def test_plan_trip_snapshot_has_day_plans(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    t = [0.0]
+
+    def clock():
+        t[0] += 5
+        return t[0]
+
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["g00"]), "total": "1.2-5.6", "nights": 1, "daily": "0.5-4"})
+    snaps = []
+    final = plan_trip(REGION, raw, tg, req, on_snapshot=snaps.append, first_s=8, clock=clock)
+    assert len(snaps) == 1 and snaps[0].report["partial"] is True and final.report["partial"] is False
+    assert snaps[0].report["candidates"] and all(c.plan is not None for c in snaps[0].report["candidates"])

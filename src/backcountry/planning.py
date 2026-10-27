@@ -418,10 +418,13 @@ def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_k
     return PlanResult(report=report, start={"node": c.start, "how": f"osm:node/{c.start}", "snap_m": 0.0}, request=req)
 
 
-def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -> PlanResult:
+def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, on_snapshot=None,
+              **search_kw) -> PlanResult:
     """Resolve the start, search, and attach elevation/days/features.
 
     `dem="auto"` loads the cached DEM from `raw_dir` (default: the repo's data/raw); pass a DEM or None to override.
+    `on_snapshot(PlanResult)`: the first trips found, planned like the final ones, while the search goes on
+    (see loops.search; `search_kw` passes its `first_s` and `clock`).
     """
     t0 = time.perf_counter()
     try:
@@ -446,24 +449,33 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -
                 split_s[0] += time.perf_counter() - t
         return run
 
+    def finish(report: dict, timed_day_hike) -> None:
+        if req.nights is None:
+            for c in report["candidates"]:
+                timed_day_hike(c)
+        if req.level:
+            _filter_by_level(report, req)
+        for c in report["candidates"]:
+            steps.suggest(c)
+
+    def snapshot(report: dict) -> None:
+        finish(report, steps.day_hike)
+        on_snapshot(PlanResult(report=report, start=start, request=req))
+
     t1 = time.perf_counter()
     lo, hi = req.total_m
     # the level filter drops loops after the search, so it asks for more to choose from
     report = search(tg, start["node"], lo, hi, kinds=req.kinds, count=req.count * 4 if req.level else req.count,
                     no_roads=req.no_roads,
                     weights=steps.weights, evaluate=timed(steps.evaluate) if req.nights is not None else None,
-                    avoid=req.avoid, must_visit=musts, direction=req.direction)
+                    avoid=req.avoid, must_visit=musts, direction=req.direction,
+                    on_snapshot=snapshot if on_snapshot else None, **search_kw)
     t2 = time.perf_counter()
-    if req.nights is None:
-        for c in report["candidates"]:
-            timed(steps.day_hike)(c)
+    in_search = split_s[0]
+    finish(report, timed(steps.day_hike))
     t3 = time.perf_counter()
-    if req.level:
-        _filter_by_level(report, req)
-    for c in report["candidates"]:
-        steps.suggest(c)
-    # seconds per step, for scripts/measure-speed (search excludes the day planning done inside it)
-    in_search = split_s[0] - (t3 - t2)
+    # seconds per step, for scripts/measure-speed (day planning is counted once, in day_split)
     report["timings"] = {"resolve": round(t1 - t0, 2), "search": round(max(0.0, t2 - t1 - in_search), 2),
-                         "day_split": round(split_s[0], 2), "finish": round(time.perf_counter() - t3, 2)}
+                         "day_split": round(split_s[0], 2),
+                         "finish": round(max(0.0, t3 - t2 - (split_s[0] - in_search)), 2)}
     return PlanResult(report=report, start=start, request=req)

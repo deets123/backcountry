@@ -376,3 +376,36 @@ def test_search_reports_the_reach(grid, tg):
 
     report = search(tg, grid.ids["g00"], 2 * KM, 5 * KM)
     assert report["loop_graph"]["reach_m"] == pytest.approx(5 * KM * (1 + WIDEN) / 2)
+
+
+# --- first results early (speed) ---------------------------------------------------------
+
+
+def _ticking_clock(step):
+    t = [0.0]
+
+    def clock():
+        t[0] += step
+        return t[0]
+    return clock
+
+
+def test_snapshot_comes_after_first_s_with_scored_candidates(grid, tg):
+    from backcountry.loops import search
+
+    snaps = []
+    report = search(tg, grid.ids["g00"], 2 * KM, 9 * KM, on_snapshot=snaps.append, first_s=8, clock=_ticking_clock(5))
+    assert len(snaps) == 1
+    snap = snaps[0]
+    assert snap["partial"] is True and report["partial"] is False
+    assert snap["candidates"]
+    assert [c.penalty for c in snap["candidates"]] == sorted(c.penalty for c in snap["candidates"])
+    _check_invariants(tg, snap["candidates"])
+
+
+def test_no_snapshot_when_search_finishes_first(grid, tg):
+    from backcountry.loops import search
+
+    snaps = []
+    report = search(tg, grid.ids["g00"], 2 * KM, 9 * KM, on_snapshot=snaps.append, first_s=999)
+    assert snaps == [] and report["partial"] is False
