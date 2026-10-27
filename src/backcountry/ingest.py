@@ -519,7 +519,7 @@ def fetch_dem(
     tif_tmp, path = tif.with_name(tif.name + ".tmp"), out_dir / f"{stem}.json"
     with rasterio.open(tif_tmp, "w", driver="GTiff", height=array.shape[0], width=array.shape[1], count=1,
                        dtype="float32", crs=crs, transform=transform, nodata=float("nan"), compress="deflate",
-                       tiled=True) as dst:
+                       predictor=3, tiled=True) as dst:  # predictor 3 (floating point): about a third smaller
         dst.write(array, 1)
     meta = {
         "region": region.id,

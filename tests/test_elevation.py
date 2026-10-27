@@ -276,3 +276,35 @@ def test_corridor_cells_stay_near_the_area():
     cells = corridor_cells(tg, within=near)
     assert cells and all(box(*c).intersects(box(*near)) for c in cells)
     assert len(cells) < len(corridor_cells(tg))
+
+
+def test_corridor_cells_follow_an_outline_not_its_box():
+    from shapely.geometry import Polygon, box
+
+    from backcountry.elevation import corridor_cells
+
+    tg = _corridor_graph()
+    # an L around the border trail only: its box also holds the crossing trail's cells, the L doesn't
+    outline = Polygon([(-81.02, 36.12), (-80.99, 36.12), (-80.99, 36.25), (-80.85, 36.25), (-80.85, 36.26), (-81.02, 36.26)])
+    cells = corridor_cells(tg, within=outline)
+    assert cells and all(box(*c).intersects(outline) for c in cells)
+    assert len(cells) < len(corridor_cells(tg, within=outline.bounds))
+
+
+def test_dem_is_written_with_the_floating_point_predictor(tmp_path):
+    import rasterio
+
+    from backcountry import ingest
+    from backcountry.region import BBox, Region
+
+    region = Region(id="pred", name="Pred", crs=CRS, bbox=BBox(36.0, -81.3, 36.4, -80.7))
+    tg = _corridor_graph()
+    from backcountry.elevation import corridor_cells
+
+    path = ingest.fetch_dem(region, (-81.05, 36.0, -80.65, 36.35), raw_dir=tmp_path, cells=corridor_cells(tg),
+                            searcher=lambda d, b: [{"title": "USGS 1/3 Arc Second n37w082 20240101", "downloadURL": "u/a.tif",
+                                                    "publicationDate": "2024-01-01", "sourceId": "a"}],
+                            reader=_window_reader([]))
+    import json
+    with rasterio.open(path.parent / json.loads(path.read_text())["tif"]) as ds:
+        assert ds.tags(ns="IMAGE_STRUCTURE").get("PREDICTOR") == "3"

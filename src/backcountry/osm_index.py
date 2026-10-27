@@ -370,6 +370,12 @@ def popular_areas(con, max_km2: float = 5000.0) -> list[dict]:
     return out
 
 
+def area_shape(con, osm: str):
+    """An area's outline (lon/lat shapely geometry), or None."""
+    r = con.execute("SELECT wkb FROM areas WHERE osm = ?", (osm,)).fetchone()
+    return wkb.loads(r[0]) if r else None
+
+
 def area_by_osm(con, osm: str) -> dict | None:
     r = con.execute("SELECT * FROM areas WHERE osm = ? AND is_state = 0", (osm,)).fetchone()
     return _area_record(r) | {"state": state_at(con, *wkb.loads(r["wkb"]).representative_point().coords[0])} if r else None

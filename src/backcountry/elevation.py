@@ -141,13 +141,14 @@ def graph_bounds_ll(tg, pad_deg: float = 0.005) -> tuple[float, float, float, fl
 
 
 def corridor_cells(tg, cell_deg: float = DEM_CELL_DEG, buffer_m: float = CORRIDOR_M,
-                   within: tuple | None = None) -> list[tuple[float, float, float, float]]:
+                   within=None) -> list[tuple[float, float, float, float]]:
     """The grid cells (west, south, east, north; edges at multiples of cell_deg) that any edge, widened by
     buffer_m, touches. Elevation is read only for these, so the empty parts of a big park cost nothing.
-    `within` (west, south, east, north): only cells touching it (a cut's long roads run far outside an area)."""
+    `within` (a box: west, south, east, north; or a lon/lat shape): only cells touching it (a cut's long roads
+    run far outside an area)."""
     from shapely.geometry import box
 
-    limit = box(*within) if within else None
+    limit = None if within is None else box(*within) if isinstance(within, tuple) else within
     found = set()
     for *_, d in tg.graph.edges(data=True):
         line = d["geom_wgs84"]

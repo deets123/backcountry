@@ -176,8 +176,13 @@ def elevation_done(region, raw_dir: Path | None, date: str) -> bool:
     return (ingest.region_raw_dir(region, raw_dir) / ELEVATION_DONE.format(date=date)).exists()
 
 
-def _cells(tg, spec: AreaSpec) -> list:
+def _cells(tg, spec: AreaSpec, con=None) -> list:
+    """Elevation cells: near the area's outline when it has one (a park's box can be far bigger than the park),
+    else its box, ELEVATION_PAD_DEG past it either way."""
     b, p = spec.bbox, ELEVATION_PAD_DEG
+    shape = osm_index.area_shape(con, spec.osm) if con is not None and spec.osm and not spec.capped else None
+    if shape is not None:
+        return corridor_cells(tg, within=shape.simplify(0.005).buffer(p))
     return corridor_cells(tg, within=(b.west - p, b.south - p, b.east + p, b.north + p))
 
 
@@ -195,7 +200,7 @@ def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Pa
             return {"area_id": spec.id, "cut": date, "already": True}
         tg = build_graph(ingest.load_raw(region, raw_dir, date), region.crs)
         t1 = time.monotonic()
-        dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=_cells(tg, spec))
+        dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=_cells(tg, spec, con))
         (out_dir / ELEVATION_DONE.format(date=date)).write_text(date)
         return {"area_id": spec.id, "cut": date, "already": False, "elevation_only": True,
                 "seconds": {"elevation": round(time.monotonic() - t1, 2)}}
@@ -216,7 +221,7 @@ def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Pa
     t1 = time.monotonic()
     if on_trails is not None:
         on_trails()
-    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=_cells(tg, spec))
+    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=_cells(tg, spec, con))
     (out_dir / ELEVATION_DONE.format(date=date)).write_text(date)
     t2 = time.monotonic()
     return {"area_id": spec.id, "cut": date, "already": False, "edges": tg.graph.number_of_edges(),

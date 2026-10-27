@@ -236,3 +236,16 @@ def test_prepare_popular_skips_areas_without_trails(index, dirs, monkeypatch):
     monkeypatch.setattr(osm_index, "popular_areas", lambda con, *a: [osm_index.area_by_osm(con, "relation/3006")])
     out = areas.prepare_popular(index, budget_gb=1.0, dem_fetch=no_dem(), log=lambda *a: None, **dirs)
     assert out["prepared"] == [] and len(out["skipped"]) == 1
+
+
+def test_prepare_area_limits_elevation_to_the_outline(index, dirs):
+    from shapely.geometry import box
+
+    got = []
+
+    def fetch(region, bounds, **kw):
+        got.append(kw["cells"])
+    spec = areas.area_from_ref(index, "relation/3003")
+    areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)
+    shape = osm_index.area_shape(index, "relation/3003").buffer(areas.ELEVATION_PAD_DEG)
+    assert got[0] and all(box(*c).intersects(shape) for c in got[0])
