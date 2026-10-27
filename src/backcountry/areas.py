@@ -171,6 +171,8 @@ def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Pa
     region = load_region(spec.id, regions_dir=Path("/nonexistent"), areas_dir=areas_dir)
     if date in ingest.cuts(region, raw_dir):
         return {"area_id": spec.id, "cut": date, "already": True}
+    for left in ingest.region_raw_dir(region, raw_dir).glob("*.tmp"):
+        left.unlink(missing_ok=True)  # an interrupted earlier run's half-written files (they count toward disk use)
     t0 = time.monotonic()
     b = spec.bbox
     raw = osm_index.cut(con, (b.west, b.south, b.east, b.north), date)

@@ -155,6 +155,16 @@ def test_interrupted_cut_leaves_no_cache(index, dirs):
         ingest.load_raw(region, dirs["raw_dir"])
 
 
+def test_prepare_clears_leftovers_of_an_interrupted_run(index, dirs):
+    spec = areas.area_from_ref(index, "relation/3003")
+    folder = dirs["raw_dir"] / spec.id
+    folder.mkdir(parents=True)
+    (folder / "extract_20261020T000000Z.json.tmp").write_text('{"half": ')
+    (folder / "dem13_20261020T000000Z.tif.tmp").write_bytes(b"\0" * 100)
+    areas.prepare_area(spec, index, dem_fetch=no_dem(), **dirs)
+    assert not list(folder.glob("*.tmp"))
+
+
 def test_prepare_without_trails_refused(index, dirs):
     spec = areas.area_from_box(index, (-149.3, 10.6, -149.2, 10.7))  # Stateb: no trails
     with pytest.raises(ValueError, match="No trails were found there"):

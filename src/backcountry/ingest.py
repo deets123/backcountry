@@ -452,7 +452,10 @@ def fetch_dem(
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{prefix}_{retrieved_at.replace('-', '').replace(':', '')}"
     tif = out_dir / f"{stem}.tif"
-    with rasterio.open(tif, "w", driver="GTiff", height=array.shape[0], width=array.shape[1], count=1,
+    # Both files are written beside their final names and renamed, the metadata last (it is what marks a DEM
+    # as cached): a server killed mid-write leaves only *.tmp files, never a cache that can't be read.
+    tif_tmp, path = tif.with_name(tif.name + ".tmp"), out_dir / f"{stem}.json"
+    with rasterio.open(tif_tmp, "w", driver="GTiff", height=array.shape[0], width=array.shape[1], count=1,
                        dtype="float32", crs=crs, transform=transform, nodata=float("nan"), compress="deflate",
                        tiled=True) as dst:
         dst.write(array, 1)
@@ -468,8 +471,10 @@ def fetch_dem(
         "sources": [{"title": i["title"], "url": i["downloadURL"], "publication_date": i["publicationDate"]}
                     for i in items],
     }
-    path = out_dir / f"{stem}.json"
-    path.write_text(json.dumps(meta, indent=1))
+    json_tmp = path.with_name(path.name + ".tmp")
+    json_tmp.write_text(json.dumps(meta, indent=1))
+    os.replace(tif_tmp, tif)
+    os.replace(json_tmp, path)
     return path
 
 
