@@ -20,6 +20,8 @@
 <node id="1018" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.8" lon="-149.7"><tag k="place" v="locality"/><tag k="name" v="Bear Creek"/></node>
 <node id="1019" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.5" lon="-149.2"><tag k="place" v="locality"/><tag k="name" v="Bear Creek"/></node>
 <node id="1020" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.95" lon="-149.55"><tag k="place" v="locality"/><tag k="name" v="Far Corner"/></node>
+<node id="1050" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.7" lon="-149.3"><tag k="place" v="hamlet"/><tag k="name" v="Testpark"/></node>
+<node id="1051" version="3" timestamp="2026-01-15T00:00:00Z" lat="12.0" lon="-149.3"><tag k="place" v="locality"/><tag k="name" v="Testpark Bay"/></node>
 <node id="1021" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.25" lon="-149.85"></node>
 <node id="1022" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.25" lon="-149.75"></node>
 <node id="1023" version="3" timestamp="2026-01-15T00:00:00Z" lat="10.35" lon="-149.75"></node>

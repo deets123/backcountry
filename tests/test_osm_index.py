@@ -51,8 +51,9 @@ def test_cut_outside_has_no_ways(index):
 
 
 def test_search_park_ranks_first(index):
-    r = osm_index.search(index, "Testpark")
+    r = osm_index.search(index, "Testpark")  # a hamlet is named exactly "Testpark": the park still comes first
     assert [x["type_label"] for x in r[:2]] == ["National Park", "Protected Area"]
+    assert any(x["kind"] == "place" and x["name"] == "Testpark" for x in r[2:])
     assert r[0]["state"] == "Statea" and r[0]["kind"] == "area" and r[0]["osm"] == "relation/3003"
     w, s, e, n = r[0]["bbox"]
     assert (round(w, 2), round(s, 2), round(e, 2), round(n, 2)) == PARK_BBOX
@@ -63,6 +64,16 @@ def test_search_place_and_trail(index):
     assert peak["kind"] == "place" and peak["type_label"] == "Peak" and peak["center"] == list(LONE_PEAK)
     trail = osm_index.search(index, "Rim Trail")
     assert len(trail) == 1 and trail[0]["type_label"] == "Trail"  # two ways, one result
+
+
+def test_search_finds_areas_among_many_place_matches(index, monkeypatch):
+    monkeypatch.setattr(osm_index, "PLACE_CANDIDATES", 1)  # the US has hundreds of places named "Zion..."
+    r = osm_index.search(index, "Testpark")
+    assert [x["osm"] for x in r[:2]] == ["relation/3003", "relation/3004"]
+
+
+def test_search_leaves_out_places_outside_the_us(index):
+    assert not [x for x in osm_index.search(index, "Testpark") if x["name"] == "Testpark Bay"]
 
 
 def test_search_prefix(index):

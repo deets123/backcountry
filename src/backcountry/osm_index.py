@@ -29,6 +29,8 @@ from backcountry.ingest import OSM_ATTRIBUTION
 SOURCE = "OpenStreetMap via Geofabrik US extract"
 SCALE = 10_000_000  # OSM stores coordinates as 1e-7 degree integers
 MAX_QUERY_CHARS = 100
+AREA_CANDIDATES = 500  # name matches looked at per search; areas and places separately
+PLACE_CANDIDATES = 200
 
 FEATURE_NODE_TAGS = {"highway": ("trailhead",), "amenity": ("parking", "drinking_water"),
                      "tourism": ("camp_site", "camp_pitch"), "natural": ("spring", "water")}
@@ -365,26 +367,35 @@ def _fts_query(text: str) -> str | None:
 
 
 def search(con, text: str, limit: int = 10) -> list[dict]:
-    """Areas and places whose names match `text`: exact names first, then areas (parks first, larger first)."""
+    """US areas and places whose names match `text`: parks and other protected areas first (parks first, then
+    exact names, then larger), then places (exact names first). Typing "Zion" is asking for the park, not one
+    of the dozens of towns and churches named Zion, so areas are looked up on their own and never crowded out
+    by place matches. Results outside every US state are left out (they can't be opened)."""
     query = _fts_query(text)
     if query is None:
         return []
     want = " ".join(re.findall(r"\w+", text[:MAX_QUERY_CHARS])).lower()
     out, seen = [], set()
-    for row in con.execute("SELECT ref FROM names WHERE names MATCH ? LIMIT 200", (query,)):
-        kind, rid = row["ref"].split(":")
+    refs = [r["ref"] for r in con.execute("SELECT ref FROM names WHERE names MATCH ? AND ref LIKE 'a:%' LIMIT ?",
+                                          (query, AREA_CANDIDATES))]
+    refs += [r["ref"] for r in con.execute("SELECT ref FROM names WHERE names MATCH ? AND ref LIKE 'p:%' "
+                                           "ORDER BY rank LIMIT ?", (query, PLACE_CANDIDATES))]
+    for ref in refs:
+        kind, rid = ref.split(":")
         if kind == "a":
             r = con.execute("SELECT * FROM areas WHERE id = ?", (int(rid),)).fetchone()
             rec = _area_record(r) | {"state": state_at(con, *wkb.loads(r["wkb"]).representative_point().coords[0])}
         else:
             rec = _place_record(con, con.execute("SELECT * FROM places WHERE id = ?", (int(rid),)).fetchone())
+        if rec["state"] is None:
+            continue  # outside the US (the extract reaches a little over the borders)
         key = (rec["kind"], rec["name"].lower(), rec["type_label"], rec["state"]) if rec["kind"] == "place" else rec["osm"]
         if key in seen:
             continue  # a trail split into many ways is one result
         seen.add(key)
         out.append(rec)
     exact = lambda r: " ".join(re.findall(r"\w+", r["name"])).lower() == want  # noqa: E731
-    out.sort(key=lambda r: (not exact(r), r["kind"] != "area", not r.get("park", False), -r.get("area_km2", 0.0), r["name"]))
+    out.sort(key=lambda r: (r["kind"] != "area", not r.get("park", False), not exact(r), -r.get("area_km2", 0.0), r["name"]))
     return out[:limit]
 
 
