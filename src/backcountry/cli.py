@@ -466,11 +466,21 @@ def usdata_status():
 
 
 def _run_server(host: str, port: int) -> None:
+    import logging
+
     import uvicorn
 
     from backcountry.api.app import create_app
+    from backcountry.api.area_worker import status_summary
 
-    uvicorn.run(create_app(), host=host, port=port)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    app = create_app()
+    s = status_summary(app.state.settings, app.state.areas)
+    typer.echo(f"Index: {s['index_date'] or 'none (search finds hand-made regions only)'}. Areas on disk: {s['areas']} "
+               f"({s['used_gb']} GB; {s['prepared']} prepared ahead). Free disk: {s['free_gb']} GB. "
+               f"Limits: {s['limits']['disk_gb']:g} GB for areas, {s['limits']['min_free_gb']:g} GB kept free, "
+               f"{s['plan_jobs']} plans at once.")
+    uvicorn.run(app, host=host, port=port)
 
 
 @app.command()

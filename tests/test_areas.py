@@ -162,8 +162,13 @@ def test_prepare_clears_leftovers_of_an_interrupted_run(index, dirs):
     spec = areas.area_from_ref(index, "relation/3003")
     folder = dirs["raw_dir"] / spec.id
     folder.mkdir(parents=True)
+    import os
+    import time as _time
+
     (folder / "extract_20261020T000000Z.json.tmp").write_text('{"half": ')
     (folder / "dem13_20261020T000000Z.tif.tmp").write_bytes(b"\0" * 100)
+    for left in folder.glob("*.tmp"):  # an earlier run that died: its files are hours old
+        os.utime(left, (_time.time() - 7200, _time.time() - 7200))
     areas.prepare_area(spec, index, dem_fetch=no_dem(), **dirs)
     assert not list(folder.glob("*.tmp"))
 
@@ -284,3 +289,49 @@ def test_prepared_area_tops_up_elevation_when_the_cell_rule_changes(index, dirs)
     out = areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)
     assert out["elevation_only"] is True and len(got) == 2
     assert areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)["already"] is True and len(got) == 2
+
+
+# --- pruning, tmp names, tiny parks ---------------------------------------------------------------
+
+
+def test_prune_removes_old_cuts_and_elevation_no_trip_uses(dirs):
+    d = dirs["raw_dir"] / "some-area"
+    d.mkdir(parents=True)
+    for name in ("extract_20260101T000000Z.json", "extract_20260201T000000Z.json", "extract_20260301T000000Z.json",
+                 "dem13_20260101T000000Z.json", "dem13_20260101T000000Z.tif", "dem13_20260301T000000Z.json",
+                 "dem13_20260301T000000Z.tif", "elevation_done_2026-01-01", "elevation_done_2026-03-01"):
+        (d / name).write_text("x")
+    for name, cut in (("extract_20260101T000000Z.json", "2026-01-01"), ("extract_20260201T000000Z.json", "2026-02-01"),
+                      ("extract_20260301T000000Z.json", "2026-03-01")):
+        (d / name).write_text(json.dumps({"cut": cut}))
+    removed = areas.prune_area("some-area", dirs["raw_dir"], keep_cuts={"2026-02-01"})  # a saved trip uses February
+    left = sorted(p.name for p in d.iterdir())
+    assert "extract_20260301T000000Z.json" in left and "extract_20260201T000000Z.json" in left
+    assert "extract_20260101T000000Z.json" not in left and "elevation_done_2026-01-01" not in left
+    assert "dem13_20260301T000000Z.tif" in left and "dem13_20260101T000000Z.tif" not in left
+    assert {p.name for p in removed} == {"extract_20260101T000000Z.json", "dem13_20260101T000000Z.json",
+                                         "dem13_20260101T000000Z.tif", "elevation_done_2026-01-01"}
+
+
+def test_tmp_files_carry_the_pid_and_only_stale_ones_are_cleaned(index, dirs):
+    import os
+    import time as _time
+
+    p = dirs["raw_dir"] / "x" / "file.json"
+    assert areas.tmp_path(p).name == f"file.json.{os.getpid()}.tmp"
+    spec = areas.area_from_ref(index, "relation/3003")
+    d = dirs["raw_dir"] / spec.id
+    d.mkdir(parents=True)
+    fresh, stale = d / "other.json.999.tmp", d / "old.json.998.tmp"
+    fresh.write_text("x"), stale.write_text("x")
+    os.utime(stale, (_time.time() - 7200, _time.time() - 7200))
+    areas.prepare_area(spec, index, dem_fetch=no_dem(), **dirs)
+    assert fresh.exists() and not stale.exists()  # another process may still be writing the fresh one
+
+
+def test_prepare_popular_skips_parks_with_few_trail_miles(index, dirs, monkeypatch):
+    monkeypatch.setattr(osm_index, "popular_areas", lambda con, *a: [osm_index.area_by_osm(con, "relation/3003")])
+    out = areas.prepare_popular(index, budget_gb=1.0, dem_fetch=no_dem(), log=lambda *a: None, min_trail_mi=1000, **dirs)
+    assert out["prepared"] == [] and len(out["skipped"]) == 1 and "mi of trails" in out["skipped"][0]["reason"]
+    out = areas.prepare_popular(index, budget_gb=1.0, dem_fetch=no_dem(), log=lambda *a: None, min_trail_mi=1, **dirs)
+    assert len(out["prepared"]) == 1

@@ -11,7 +11,7 @@ from fastapi.responses import Response
 
 from backcountry import ingest
 from backcountry import osm_index
-from backcountry.api.area_worker import NoIndex
+from backcountry.api.area_worker import Busy, NoIndex
 from backcountry.api.store import NotFound
 from backcountry.chat.service import chat_turn, start_names, trail_names
 from backcountry.destination import check_ref, trail_distances
@@ -155,11 +155,15 @@ def area_status(area_id: str, request: Request):
 # --- trails and features ------------------------------------------------------------
 
 
+def _trails_doc(loaded) -> dict:
+    return {"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
+            "features": edges_features(loaded.tg, loaded.node_component)}
+
+
 @router.get("/regions/{region_id}/trails")
 def trails(region_id: str, request: Request):
     loaded = _regions(request).get(region_id)
-    return {"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
-            "features": edges_features(loaded.tg, loaded.node_component)}
+    return Response(loaded.trails_json(_trails_doc), media_type="application/json")  # encoded once per loaded area
 
 
 def _parse_bbox(text: str) -> tuple[float, float, float, float]:
@@ -180,9 +184,10 @@ def features(region_id: str, request: Request, bbox: str):
     def inside(lat, lon):
         return s <= lat <= n and w <= lon <= e
 
-    water = ingest.water_features(loaded.raw)
+    lists = loaded.lists()
+    water = lists["water"]
     return {
-        "camp_sites": [c for c in ingest.camp_sites(loaded.raw) if inside(c["lat"], c["lon"])],
+        "camp_sites": [c for c in lists["camp_sites"] if inside(c["lat"], c["lon"])],
         "water_points": [p for p in water["points"] if inside(p["lat"], p["lon"])],
         "streams": [l for l in water["lines"] if any(inside(lat, lon) for lon, lat in l["coords"])],
     }
@@ -360,7 +365,7 @@ def update_trip(run_id: str, request: Request, body: dict):
     runs = request.app.state.runs
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     new = run_payload(runs.new_id(), loaded.region, result, loaded.raw, loaded.tg, now, diff=None)
-    runs.save(new)
+    runs.save(new, pending=True)  # kept only if the user accepts it (POST /runs/{id}/keep)
     return {"ok": True, "run": new, "changes": trip_changes(c, new["candidates"][0])}
 
 
@@ -404,8 +409,25 @@ def candidate_geojson(run_id: str, n: int, request: Request):
 # --- chat ---------------------------------------------------------------------------------
 
 
+@router.post("/runs/{run_id}/keep")
+def keep_run(run_id: str, request: Request):
+    """The user accepted a reviewed update: its run stays (pending ones are cleaned up after a day)."""
+    request.app.state.runs.keep(run_id)
+    return {"ok": True}
+
+
 @router.post("/chat")
 def chat(request: Request, body: dict):
+    slots = request.app.state.chat_slots
+    if not slots.acquire(blocking=False):
+        raise Busy("The chat is answering other questions right now. Try again in a moment.")
+    try:
+        return _chat(request, body)
+    finally:
+        slots.release()
+
+
+def _chat(request: Request, body: dict):
     run_id, n = body.get("run_id"), body.get("candidate")
     message = body.get("message") if isinstance(body.get("message"), str) else ""
     message = message.strip()

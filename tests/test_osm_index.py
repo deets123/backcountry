@@ -204,3 +204,16 @@ def test_full_name_opens_the_park_alone(index):
     assert osm_index.name_group(index, "Testpark National Park") is None
     assert osm_index.name_group(index, "testpark np") is None
     assert osm_index.name_group(index, "Testrock") is None  # one area only
+
+
+def test_state_at_decodes_each_state_outline_once(index, monkeypatch):
+    from backcountry import osm_index as oi
+
+    calls = []
+    real = oi.wkb.loads
+    monkeypatch.setattr(oi.wkb, "loads", lambda b, *a, **k: calls.append(1) or real(b, *a, **k))
+    assert osm_index.state_at(index, -149.8, 10.3) == "Statea"
+    n = len(calls)
+    for _ in range(5):
+        osm_index.state_at(index, -149.8, 10.3)
+    assert len(calls) == n  # the outlines are kept, not decoded again per point

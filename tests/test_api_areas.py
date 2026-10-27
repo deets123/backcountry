@@ -544,3 +544,45 @@ def test_status_of_an_area_that_vanished_is_unknown_not_an_error(api):
     shutil.rmtree(client.app.state.settings.raw_dir / a, ignore_errors=True)
     assert client.get(f"/api/areas/{a}/status").json()["status"] == "unknown"
     assert client.get("/api/regions").status_code == 200
+
+
+# --- the disk ----------------------------------------------------------------------------------
+
+
+def test_a_new_area_is_refused_when_the_disk_is_nearly_full(tmp_path, index_path, monkeypatch):
+    from backcountry.api import area_worker
+
+    client, _ = make_client(tmp_path, index_path)
+    monkeypatch.setattr(area_worker.usdata, "disk_free_gb", lambda path: 1.0)  # below the 3 GB kept free
+    r = client.post("/api/areas", json={"ref": "relation/3003"})
+    assert r.status_code == 507 and "disk" in r.json()["error"].lower()
+
+
+def test_status_summary_reports_what_the_operator_needs(api):
+    client, _ = api
+    client.post("/api/areas", json={"ref": "relation/3003"})
+    run_worker(client)
+    from backcountry.api.area_worker import status_summary
+
+    s = status_summary(client.app.state.settings, client.app.state.areas)
+    assert s["index_date"] == MINI_DATE and s["areas"] == 1 and s["prepared"] == 0
+    assert s["free_gb"] > 0 and s["used_gb"] >= 0 and s["limits"]["disk_gb"] == 40.0
+
+
+# --- runs from "Review changes" don't pile up --------------------------------------------------------
+
+
+def test_review_runs_are_pending_until_kept_and_old_ones_are_cleaned(planned):
+    from conftest import add_cut
+
+    client, a, run = planned
+    add_cut(client.app.state.settings, a, "2026-11-20")
+    new = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()["run"]
+    runs = client.app.state.runs
+    assert runs._index()[new["run_id"]]["pending_review"] is True and "pending_review" not in runs._index()[run["run_id"]]
+    assert client.post(f"/api/runs/{new['run_id']}/keep").status_code == 200
+    assert "pending_review" not in runs._index()[new["run_id"]]
+    declined = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()["run"]
+    assert runs.clean_pending(older_than_s=0) == [declined["run_id"]]
+    assert client.get(f"/api/runs/{declined['run_id']}").status_code == 404
+    assert client.get(f"/api/runs/{new['run_id']}").status_code == 200

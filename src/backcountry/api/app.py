@@ -4,11 +4,13 @@ from pathlib import Path
 
 import logging
 import secrets
+import threading
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 
 from backcountry.api.area_worker import AreaWorker, Busy, NoIndex, NoRoom
 from backcountry.api.endpoints import router
@@ -17,6 +19,10 @@ from backcountry.api.store import NotFound, RegionStore, RunStore, Settings
 from backcountry.chat.models import ChatModel, ModelBadOutput, ModelTimeout, ModelUnavailable, model_from_env
 from backcountry.planning import RequestError
 from backcountry.region import REPO_ROOT
+
+
+MAX_BODY_BYTES = 1_000_000
+CHAT_SLOTS = 2
 
 
 def create_app(settings: Settings | None = None, web_dist: Path | None = None, chat_model: ChatModel | None = None,
@@ -41,7 +47,19 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = None, c
         return cached[0]
 
     app.state.chat_model = get_chat_model
+    app.state.chat_slots = threading.BoundedSemaphore(CHAT_SLOTS)  # a local model answers a few at a time
+    if app.state.runs:
+        app.state.runs.clean_pending()  # review runs nobody kept within a day
     app.include_router(router)
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+    @app.middleware("http")
+    async def body_limit(request: Request, call_next):
+        length = request.headers.get("content-length")
+        if (length and length.isdigit() and int(length) > MAX_BODY_BYTES) or (
+                not length and "chunked" in request.headers.get("transfer-encoding", "").lower()):
+            return JSONResponse(status_code=413, content={"error": "That request is too big (over 1 MB)."})
+        return await call_next(request)
 
     @app.exception_handler(RequestError)
     def bad_request(request: Request, exc: RequestError):

@@ -132,7 +132,7 @@ def test_store_bounds_loaded_areas_by_bytes(area_env, grid):
     store = RegionStore(settings)
     LoadedRegion.builds = 0
     a = store.get(spec.id)
-    assert a.bytes > 1
+    assert a.size_bytes > 1
     store.get("dolly_sods")
     store.get(spec.id)
     assert LoadedRegion.builds == 3
