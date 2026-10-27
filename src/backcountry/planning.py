@@ -5,11 +5,13 @@ loop search, and attaches elevation, day plans and along-route features to every
 candidate. Both callers then only format and store the result.
 """
 
+import math
 import re
 import time
 from dataclasses import dataclass, field, replace
 
 from backcountry import ingest
+from backcountry.destination import check_ref
 from backcountry.difficulty import LEVEL_TARGETS, LEVELS, level_index, rate_stretch, route_terrain
 from backcountry.elevation import densify
 from backcountry.features import along_route
@@ -154,6 +156,7 @@ class GenerateRequest:
     direction: str | None = None
     days: list[DayTarget] = field(default_factory=list)
     level: str | None = None  # trip-level filter: keep only loops whose hardest day is this level
+    destination: str | None = None  # a searched place's OSM ref: every trip goes to and through it
 
     @classmethod
     def from_dict(cls, data: dict) -> "GenerateRequest":
@@ -183,6 +186,7 @@ class GenerateRequest:
             camps_at_sites=_flag(data, "camps_at_sites"), must_visit=_strings(data, "must_visit"),
             avoid=_strings(data, "avoid"), direction=direction,
             days=_day_targets(data, nights, daily, total), level=_level(data.get("level"), "level"),
+            destination=check_ref(data["destination"]) if data.get("destination") is not None else None,
         )
 
     def to_dict(self) -> dict:
@@ -192,7 +196,7 @@ class GenerateRequest:
             "count": self.count, "no_roads": self.no_roads, "road_weight": self.road_weight,
             "repeat_weight": self.repeat_weight, "camps": list(self.camps), "camps_at_sites": self.camps_at_sites,
             "must_visit": list(self.must_visit), "avoid": list(self.avoid), "direction": self.direction,
-            "days": [t.to_dict() for t in self.days], "level": self.level,
+            "days": [t.to_dict() for t in self.days], "level": self.level, "destination": self.destination,
         }
 
     def targets_for(self, ndays: int) -> list[dict]:
@@ -318,6 +322,37 @@ def _filter_by_level(report: dict, req: "GenerateRequest") -> None:
         report["notes"].append(f"No loop here comes out {req.level}; showing the closest ({levels}).")
 
 
+def _empty_report() -> dict:
+    return {"candidates": [], "loops_found": 0, "lollipops_found": 0, "out_and_backs_found": 0, "stems_tried": 0,
+            "via_pairs_tried": 0, "scored": 0, "seconds": 0.0, "widened": False, "truncated": False,
+            "avoided_edges": 0, "notes": [], "must_visit_notes": [], "partial": False}
+
+
+def _destination_notes(tg, report: dict, dest, req: "GenerateRequest", evaluate, start: int) -> None:
+    """Side-trip notes; if nothing fits the range, the shortest out and back to the destination instead."""
+    from backcountry.loops import out_and_backs
+    from backcountry.scoring import penalty
+
+    for c in report["candidates"]:
+        if c.detour_keys and dest.kind != "trail":
+            miles = 2 * sum(c.lengths[k] for k in c.detour_keys) / M_PER_MI
+            c.route.notes.append(f"Side trip to {dest.name}, {miles:.1f} mi round trip.")
+    if report["candidates"]:
+        return
+    lo, hi = req.total
+    obs = [c for c in out_and_backs(tg, start, 0.0, math.inf, req.no_roads, through=dest.node)
+           if c.turnaround == dest.node]
+    if not obs:
+        return
+    short = min(obs, key=lambda c: c.length_m)
+    short.penalty = penalty(short.length_m, short.road_m, short.last_resort_m, short.repeated_m, *req.total_m, Weights())
+    if evaluate is not None:
+        short.penalty += evaluate(short)
+    report["candidates"] = [short]
+    report["notes"].append(f"No trip from this start reaches {dest.name} within {_mi(lo)}–{_mi(hi)} mi. "
+                           f"The shortest out and back to it is {short.length_m / M_PER_MI:.1f} mi.")
+
+
 @dataclass
 class PlanResult:
     report: dict
@@ -419,13 +454,35 @@ def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_k
     return PlanResult(report=report, start={"node": c.start, "how": f"osm:node/{c.start}", "snap_m": 0.0}, request=req)
 
 
-def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, on_snapshot=None,
+def _destination_search(tg, start: int, req: "GenerateRequest", index) -> tuple:
+    """(dest, search settings, notes) for a trip to a destination; dest None without one."""
+    from backcountry import destination as dmod
+
+    if req.destination is None:
+        return None, {}, []
+    if index is None:
+        raise RequestError("destination", "Destinations need the trail index on this server.")
+    dest = dmod.resolve(index, tg, req.destination)
+    lo, hi = req.total_m
+    if not dmod.reachable_from(tg, start, dest):
+        return dest, None, [f"{dest.name} can't be reached from this start on the mapped trails."]
+    spur = dmod.spur_m(tg, dest.node)
+    must = {"name": dest.trail_name} if dest.kind == "trail" else {"node": dest.node}
+    kw = {"keep": lambda c: lo <= c.length_m <= hi and dmod.reached(c.route, dest), "through": dest.node,
+          "max_detour_m": hi, "must": must,
+          # loops reach a spur's end by a side trip: look for loops that much shorter
+          "min_m": max(0.1 * lo, lo - 2 * spur) if spur < hi else lo}
+    return dest, kw, [dest.note] if dest.note else []
+
+
+def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, on_snapshot=None, index=None,
               **search_kw) -> PlanResult:
     """Resolve the start, search, and attach elevation/days/features.
 
     `dem="auto"` loads the cached DEM from `raw_dir` (default: the repo's data/raw); pass a DEM or None to override.
     `on_snapshot(PlanResult)`: the first trips found, planned like the final ones, while the search goes on
-    (see loops.search; `search_kw` passes its `first_s` and `clock`).
+    (see loops.search; `search_kw` passes its `first_s` and `clock`). `index`: the US index connection, needed
+    for a destination (its place is looked up there).
     """
     t0 = time.perf_counter()
     try:
@@ -438,6 +495,7 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
             avoided_keys(tg, req.avoid)
         except ValueError as e:
             raise RequestError("avoid", str(e))
+    dest, dest_kw, dest_notes = _destination_search(tg, start["node"], req, index)
     steps = _Steps(region, raw, tg, req, dem, raw_dir)
     split_s = [0.0]  # time spent planning days, inside and after the search
 
@@ -465,12 +523,24 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
 
     t1 = time.perf_counter()
     lo, hi = req.total_m
-    # the level filter drops loops after the search, so it asks for more to choose from
-    report = search(tg, start["node"], lo, hi, kinds=req.kinds, count=req.count * 4 if req.level else req.count,
-                    no_roads=req.no_roads,
-                    weights=steps.weights, evaluate=timed(steps.evaluate) if req.nights is not None else None,
-                    avoid=req.avoid, must_visit=musts, direction=req.direction,
-                    on_snapshot=snapshot if on_snapshot else None, **search_kw)
+    evaluate = timed(steps.evaluate) if req.nights is not None else None
+    if dest is not None and dest_kw is None:  # can't be reached at all
+        report = _empty_report()
+    else:
+        kw = dict(dest_kw or {})
+        if dest is not None:
+            musts = musts + [kw.pop("must")]
+            lo = kw.pop("min_m")
+        # the level filter drops loops after the search, so it asks for more to choose from
+        report = search(tg, start["node"], lo, hi, kinds=req.kinds, count=req.count * 4 if req.level else req.count,
+                        no_roads=req.no_roads, weights=steps.weights, evaluate=evaluate, avoid=req.avoid,
+                        must_visit=musts, direction=req.direction, on_snapshot=snapshot if on_snapshot else None,
+                        **kw, **search_kw)
+    if dest is not None:
+        report["destination"] = dest.summary()
+        report["notes"] += dest_notes
+        if dest_kw is not None:
+            _destination_notes(tg, report, dest, req, evaluate, start["node"])
     t2 = time.perf_counter()
     in_search = split_s[0]
     finish(report, timed(steps.day_hike))

@@ -2,6 +2,7 @@
 
 import json
 import re
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
@@ -12,6 +13,8 @@ from backcountry import osm_index
 from backcountry.api.area_worker import NoIndex
 from backcountry.api.store import NotFound
 from backcountry.chat.service import chat_turn, start_names, trail_names
+from backcountry.destination import check_ref, trail_distances
+from backcountry.destination import resolve as resolve_destination
 from backcountry.difficulty import rate_saved, segments_terrain
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
@@ -36,8 +39,27 @@ def regions(request: Request):
     return {"regions": _regions(request).summaries(), "recent_areas": _regions(request).recent_areas()}
 
 
+@contextmanager
+def _index_for(app, req_destination):
+    """An index connection when a destination needs looking up, else None."""
+    if req_destination is None:
+        yield None
+        return
+    try:
+        con = app.state.areas.index()
+    except NoIndex as e:
+        raise RequestError("destination", "Destinations need the trail index on this server.") from e
+    try:
+        yield con
+    finally:
+        con.close()
+
+
 @router.get("/regions/{region_id}/trailheads")
-def trailheads(region_id: str, request: Request):
+def trailheads(region_id: str, request: Request, destination: str | None = None):
+    """Trailheads; with `destination` (a search result's ref), each gets its trail distance to it, nearest first."""
+    if destination is not None:
+        check_ref(destination)
     loaded = _regions(request).get(region_id)
     G = loaded.tg.graph
     out = []
@@ -64,6 +86,13 @@ def trailheads(region_id: str, request: Request):
             "verified": False, "in_graph": True, "kinds": c["kinds"], "lat": c["lat"], "lon": c["lon"],
             "component": c["component"], "snap_m": c["snap_m"],
         })
+    if destination is not None:
+        with _index_for(request.app, destination) as con:
+            dist = trail_distances(loaded.tg, resolve_destination(con, loaded.tg, destination))
+        for t in out:
+            d = dist.get(t["node"]) if t["in_graph"] else None
+            t["to_destination_m"] = round(d, 1) if d is not None else None
+        out.sort(key=lambda t: (t["to_destination_m"] is None, t["to_destination_m"] or 0.0))
     return {"region": region_id, "trailheads": out}
 
 
@@ -175,8 +204,9 @@ def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None) -> dict:
         run = run_payload("partial", loaded.region, result, loaded.raw, loaded.tg, _now(), diff=None)
         on_snapshot(run | {"partial": True})
 
-    result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=app.state.settings.raw_dir,
-                       on_snapshot=snapshot if on_snapshot else None)
+    with _index_for(app, req.destination) as con:
+        result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=app.state.settings.raw_dir,
+                           on_snapshot=snapshot if on_snapshot else None, index=con)
     runs = app.state.runs
     previous = runs.latest(region_id, req.trailhead) if runs else None
     run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, _now(),

@@ -268,7 +268,8 @@ def _expand(H: nx.MultiGraph, super_steps) -> tuple[list[str], list[int]]:
 def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"), count: int = 3,
            no_roads: bool = False, weights: Weights = Weights(), max_overlap: float = 0.5,
            max_seconds: float = MAX_SECONDS, evaluate=None, avoid=(), must_visit=(), direction: str | None = None,
-           on_snapshot=None, first_s: float = FIRST_RESULTS_S, clock=time.time) -> dict:
+           on_snapshot=None, first_s: float = FIRST_RESULTS_S, clock=time.time, keep=None, through: int | None = None,
+           max_detour_m: float = MAX_DETOUR_M) -> dict:
     """Find, score, and pick candidates.
 
     `evaluate(candidate)` may add penalty (e.g. a day plan's). `avoid`: names/way ids to exclude.
@@ -276,6 +277,8 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     from the nearest point of the loop (at most MAX_DETOUR_M one way). `direction`: "cw" or "ccw".
     `on_snapshot(report)`: called once, `first_s` into the search (by `clock`), with the trips found so far
     scored and picked the same way (`report["partial"]` True); not called if the search ends sooner.
+    `keep(candidate)`: only candidates it accepts are picked (a destination's range and reach). `through`: the
+    node out-and-backs must pass (a destination). `max_detour_m`: the longest must-visit detour, one way.
     """
     t0 = time.time()
     deadline = t0 + max_seconds
@@ -289,7 +292,9 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
 
     def choose(found: list[Candidate], rep: dict) -> list[Candidate]:
         if must_visit:
-            found = _apply_must_visit(tg, found, must_visit, no_roads, excluded, rep)
+            found = _apply_must_visit(tg, found, must_visit, no_roads, excluded, rep, max_detour_m)
+        if keep is not None:
+            found = [c for c in found if keep(c)]
         if direction:
             found = [c if orientation(c.route) == direction else _reversed(tg, c) for c in found]
         scored = len(found)
@@ -362,7 +367,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
                     found.append(c)
                     so_far.append(c)
         if "out_and_back" in kinds:
-            obs = out_and_backs(tg, start, lo, hi, no_roads, excluded, deadline=deadline, report=report)
+            obs = out_and_backs(tg, start, lo, hi, no_roads, excluded, through=through, deadline=deadline, report=report)
             report["out_and_backs_found"] += len(obs)
             found += obs
             so_far.extend(obs)
@@ -447,7 +452,7 @@ def _reversed(tg, c: Candidate) -> Candidate:
                      last_resort_m=c.last_resort_m, repeated_m=c.repeated_m, lengths=c.lengths)
 
 
-def _apply_must_visit(tg, found, must_visit, no_roads, excluded, report) -> list[Candidate]:
+def _apply_must_visit(tg, found, must_visit, no_roads, excluded, report, max_detour_m=MAX_DETOUR_M) -> list[Candidate]:
     """Keep candidates that pass every must-visit spot, adding an out-and-back detour where needed."""
     R = routing_graph(tg, no_roads, exclude_keys=excluded)
     reach = {}  # node -> (dist from v to every node, paths)
@@ -475,7 +480,7 @@ def _apply_must_visit(tg, found, must_visit, no_roads, excluded, report) -> list
                 ok = False
                 break
             j = min(on_route, key=dist.get)
-            if dist[j] > MAX_DETOUR_M:
+            if dist[j] > max_detour_m:
                 ok = False
                 break
             c = _with_detour(tg, c, j, paths[j][::-1], R)  # path from j out to v

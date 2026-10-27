@@ -424,3 +424,36 @@ def test_user_areas_never_evict_prepared_ones(tmp_path, index_path):
     client.post("/api/areas", json={"box": [-149.75, 10.75, -149.65, 10.85]})
     assert (tmp_path / "areas" / f"{park}.yaml").exists() and (tmp_path / "raw" / park).exists()
     assert not (tmp_path / "raw" / wild).exists()
+
+
+# --- destinations -------------------------------------------------------------------------
+
+
+def test_trailheads_sorted_by_distance_to_destination(api):
+    client, _ = api
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    ths = client.get(f"/api/regions/{area_id}/trailheads", params={"destination": "node/1060"}).json()["trailheads"]
+    reach = [t["to_destination_m"] for t in ths]
+    known = [r for r in reach if r is not None]
+    assert known and known == sorted(known) and reach[:len(known)] == known  # reachable first, nearest first
+    plain = client.get(f"/api/regions/{area_id}/trailheads").json()["trailheads"]
+    assert all("to_destination_m" not in t for t in plain)
+
+
+def test_generate_with_a_destination(api):
+    client, _ = api
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    body = {"trailhead": "10.2495,-149.8505", "total": "18-24", "type": "out_and_back", "destination": "node/1060"}
+    run = client.post(f"/api/regions/{area_id}/generate", json=body).json()
+    assert run["search"]["destination"]["name"] == "Spur Top"
+    assert run["request"]["destination"] == "node/1060" and run["candidates"]
+
+
+@pytest.mark.parametrize("bad", ["../x", "node/1;ls", "http://x"])
+def test_trailheads_destination_is_validated(api, bad):
+    client, _ = api
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    assert client.get(f"/api/regions/{area_id}/trailheads", params={"destination": bad}).status_code == 400
