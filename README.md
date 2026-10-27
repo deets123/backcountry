@@ -126,10 +126,45 @@ are local only and never committed.
 
 ## Regions
 
-Two regions exist: `regions/dolly_sods.yaml` (Dolly Sods Wilderness, WV) and `regions/pemi.yaml`
+Two hand-made regions exist: `regions/dolly_sods.yaml` (Dolly Sods Wilderness, WV) and `regions/pemi.yaml`
 (Pemigewasset Wilderness, NH). A region is a bounding box, a projected CRS, and a trailhead list;
 nothing region-specific lives in the code. To add one, copy a yaml, adjust it, and run `ingest`,
-`dem`, and optionally `verify` for it.
+`dem`, and optionally `verify` for it. Any other US area comes from the local US index (next section).
+
+## Any US area
+
+The web app's "Where" box searches every US park, wilderness, forest and other protected area, plus peaks,
+places and named trails ("Zion", "Chesler Park", "Linville Gorge"), and "Plan in this map area" uses the map on
+screen. A park opens whole; a place opens the park it's in. The first time an area is opened the server cuts its
+trails out of a local US index and fetches its elevation from USGS (seconds to a few minutes; the phone just
+shows "Finding trails in …"); after that it opens at once.
+
+Operator setup, once (then about monthly):
+
+```
+uv run backcountry usdata refresh     # download the Geofabrik US extract (checksum-checked) and build the index
+uv run backcountry usdata status      # which extract and index are in use
+```
+
+`refresh` is `usdata download` then `usdata build`. Measured on this laptop (2026-10-27): the download is
+12.2 GB (13 min); the build took about 7 hours, peaks at 4.4 GB of memory, and needs about 26 GB of temporary
+space (deleted afterwards); the index is 23.3 GB. The build prints progress lines; from the second build on they
+include a percentage and time left. After a build, the downloaded `.osm.pbf` can be deleted (only a rebuild needs
+it). Older indexes and the areas cut from them are kept, so saved trips keep working; delete old `us-*.sqlite`
+files in `data/osm/` by hand when the new one is in use.
+
+Opened areas live in `data/raw/<area>/` and `data/areas/` (git-ignored): Zion about 110 MB, Yosemite 300 MB,
+Grand Canyon 1.4 GB. Areas over 5,000 km² (Yellowstone, Death Valley) open as a 24 km square around the spot you
+picked. Server limits (environment variables): `BACKCOUNTRY_AREA_MAX_QUEUE` (3 waiting), `BACKCOUNTRY_AREA_PER_HOUR`
+(6 new areas an hour), `BACKCOUNTRY_AREA_DISK_GB` (40; the least recently opened areas no saved trip uses are
+removed first). `BACKCOUNTRY_OSM_DIR` and `BACKCOUNTRY_AREAS_DIR` move the index and generated areas.
+
+Saved trips: when a saved trip is opened online and its area has newer trail data, the app offers to update it
+and says about how much it would download. "Review changes" re-plans the same route on the new data and lists what
+changed; only "Accept" replaces the trip. Nothing updates on its own.
+
+Users only ever send a search result, a box or a point. Downloads come from fixed hosts (Geofabrik, USGS) and are
+read as data, never run.
 
 ## Development
 
