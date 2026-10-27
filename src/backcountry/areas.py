@@ -18,7 +18,7 @@ from pathlib import Path
 import yaml
 
 from backcountry import ingest, osm_index
-from backcountry.elevation import graph_bounds_ll
+from backcountry.elevation import corridor_cells, graph_bounds_ll
 from backcountry.graph import build_graph
 from backcountry.region import AREAS_DIR, BBox, load_region
 
@@ -186,7 +186,7 @@ def prepare_area(spec: AreaSpec, con, raw_dir: Path | None = None, areas_dir: Pa
     if not any(not d["is_road"] for *_, d in tg.graph.edges(data=True)):
         raise ValueError("No trails were found there.")
     t1 = time.monotonic()
-    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir)
+    dem_fetch(region, graph_bounds_ll(tg), raw_dir=raw_dir, cells=corridor_cells(tg))
     t2 = time.monotonic()
     out_dir = ingest.region_raw_dir(region, raw_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

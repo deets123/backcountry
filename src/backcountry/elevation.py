@@ -26,6 +26,8 @@ from shapely.geometry import LineString
 SAMPLE_M = 30.48  # 100 ft, the spacing CalTopo uses for its profiles
 SMOOTH_SAMPLES = 3  # centered moving average over ~300 ft
 HYSTERESIS_M = 2.0  # ignore ups/downs smaller than ~6.6 ft
+DEM_CELL_DEG = 0.05  # elevation is read in grid cells this size (~5 km), only the ones trails pass through
+CORRIDOR_M = 150.0  # around each trail: wide enough for the samples' neighbouring pixels
 FT_PER_M = 3.28084
 
 
@@ -136,6 +138,25 @@ def graph_bounds_ll(tg, pad_deg: float = 0.005) -> tuple[float, float, float, fl
     bounds = [d["geom_wgs84"].bounds for *_, d in tg.graph.edges(data=True)]
     return (min(b[0] for b in bounds) - pad_deg, min(b[1] for b in bounds) - pad_deg,
             max(b[2] for b in bounds) + pad_deg, max(b[3] for b in bounds) + pad_deg)
+
+
+def corridor_cells(tg, cell_deg: float = DEM_CELL_DEG, buffer_m: float = CORRIDOR_M) -> list[tuple[float, float, float, float]]:
+    """The grid cells (west, south, east, north; edges at multiples of cell_deg) that any edge, widened by
+    buffer_m, touches. Elevation is read only for these, so the empty parts of a big park cost nothing."""
+    from shapely.geometry import box
+
+    found = set()
+    for *_, d in tg.graph.edges(data=True):
+        line = d["geom_wgs84"]
+        lat = (line.bounds[1] + line.bounds[3]) / 2
+        widened = line.buffer(buffer_m / (111_320.0 * max(0.1, math.cos(math.radians(lat)))))  # degrees, generous
+        w, s, e, n = widened.bounds
+        for i in range(math.floor(w / cell_deg), math.floor(e / cell_deg) + 1):
+            for j in range(math.floor(s / cell_deg), math.floor(n / cell_deg) + 1):
+                if widened.intersects(box(i * cell_deg, j * cell_deg, (i + 1) * cell_deg, (j + 1) * cell_deg)):
+                    found.add((i, j))
+    return [(round(i * cell_deg, 9), round(j * cell_deg, 9), round((i + 1) * cell_deg, 9), round((j + 1) * cell_deg, 9))
+            for i, j in sorted(found)]
 
 
 def annotate(tg, dem: DEM) -> dict:

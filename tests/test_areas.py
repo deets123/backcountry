@@ -185,3 +185,17 @@ def test_load_raw_by_cut(index, dirs, tmp_path):
     with pytest.raises(FileNotFoundError):
         ingest.load_raw(region, dirs["raw_dir"], cut="2025-01-01")
     assert ingest.cuts(region, dirs["raw_dir"]) == [MINI_DATE, "2026-11-20"]
+
+
+def test_prepare_area_asks_for_elevation_only_along_trails(index, dirs):
+    from backcountry.elevation import corridor_cells
+
+    got = []
+
+    def fetch(region, bounds, **kw):
+        got.append(kw.get("cells"))
+    spec = areas.area_from_ref(index, "relation/3003")
+    areas.prepare_area(spec, index, dem_fetch=fetch, **dirs)
+    region = load_region(spec.id, regions_dir=dirs["areas_dir"].parent / "none", areas_dir=dirs["areas_dir"])
+    tg = build_graph(ingest.load_raw(region, dirs["raw_dir"]), region.crs)
+    assert got == [corridor_cells(tg)] and got[0]
