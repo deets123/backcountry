@@ -98,3 +98,11 @@ def test_unknown_body_keys_and_huge_bodies_refused(tmp_path, index_path):
     assert client.post("/api/areas", json={"ref": "relation/3003", "raw_dir": "/tmp"}).status_code == 400
     assert client.post("/api/areas", json={"box": list(range(10_000))}).status_code == 400
     assert client.get("/api/search", params={"q": "a" * 10_000}).status_code == 400
+
+
+@pytest.mark.parametrize("refs", [["relation/3003"] * 7, ["relation/3003", "../x"], ["relation/999999"], [], "relation/3003",
+                                  [5]])
+def test_group_refs_are_validated(tmp_path, index_path, refs):
+    client, _ = client_for(tmp_path, index_path)
+    r = client.post("/api/areas", json={"refs": refs})
+    assert r.status_code == 400, r.text

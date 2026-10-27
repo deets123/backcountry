@@ -108,7 +108,7 @@ export async function waitForArea(id: string, deps: WaitDeps): Promise<AreaStatu
 }
 
 export interface OpenDeps extends WaitDeps {
-  openArea(body: { ref: string } | { box: [number, number, number, number] }): Promise<AreaOpened>;
+  openArea(body: { ref: string } | { refs: string[] } | { box: [number, number, number, number] }): Promise<AreaOpened>;
   pickRegion(id: string, bbox?: Region["bbox"]): Promise<void>;
   setStatus(message: string): void;
   setError(message: string): void;
@@ -124,7 +124,7 @@ export async function openSearchResult(t: Target, deps: OpenDeps): Promise<void>
   deps.setDestination("kind" in t && t.kind === "place" ? { ref: t.ref, name: t.name, center: t.center } : null);
   if ("kind" in t && t.kind === "region") return deps.pickRegion(t.id);
   try {
-    const opened = await deps.openArea("box" in t ? { box: t.box } : { ref: t.ref });
+    const opened = await deps.openArea("box" in t ? { box: t.box } : t.kind === "group" ? { refs: t.refs } : { ref: t.ref });
     if (opened.status !== "ready") deps.setStatus(opened.message);
     let shown = false;  // the trails are on the map already (elevation was still coming)
     const showTrails = async (bbox: Region["bbox"]) => {

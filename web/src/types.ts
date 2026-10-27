@@ -2,6 +2,9 @@
 export type SearchResult =
   | { kind: "region"; id: string; name: string; type_label: string; state: null }
   | { kind: "area" | "place"; ref: string; name: string; type_label: string; state: string | null;
+      bbox: [number, number, number, number]; center: [number, number] }
+  /** A short name touching areas share ("Zion": the park and nearby wilderness), opened together. */
+  | { kind: "group"; refs: string[]; name: string; type_label: string; state: string | null;
       bbox: [number, number, number, number]; center: [number, number] };
 export interface RecentArea { id: string; name: string; type_label: string | null; state: string | null; bbox: Region["bbox"] }
 export interface AreaStatus {

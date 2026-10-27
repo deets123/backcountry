@@ -64,13 +64,15 @@ class AreaWorker:
 
     def spec_for(self, body: dict) -> areas.AreaSpec:
         """The area a request names; ValueError (shown to the user) for anything else."""
-        keys = [k for k in ("ref", "box", "point") if k in body]
+        keys = [k for k in ("ref", "refs", "box", "point") if k in body]
         if len(keys) != 1 or len(body) != 1:
             raise ValueError("Send one of: a search result, a map box, or a point.")
         con = self.index()
         try:
             if keys[0] == "ref":
                 return areas.area_from_ref(con, body["ref"])
+            if keys[0] == "refs":
+                return areas.area_from_refs(con, body["refs"])
             value = body[keys[0]]
             if keys[0] == "box":
                 return areas.area_from_box(con, value)
@@ -146,7 +148,8 @@ class AreaWorker:
         region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
         a = region.area or {}
         spec = areas.AreaSpec(id=region.id, name=a.get("name") or region.name, type_label=a.get("type_label") or "Area",
-                              state=a.get("state"), bbox=region.bbox, osm=a.get("osm"), capped=bool(a.get("capped")))
+                              state=a.get("state"), bbox=region.bbox, osm=a.get("osm"), capped=bool(a.get("capped")),
+                              members=tuple(tuple(m) for m in a.get("members") or ()))
         self.request(spec)  # a known area: never Busy, at worst left for a later open
         return date
 

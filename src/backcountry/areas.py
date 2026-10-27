@@ -38,6 +38,7 @@ class AreaSpec:
     bbox: BBox
     osm: str | None
     capped: bool
+    members: tuple = ()  # a group ("Zion": park and nearby wilderness): ((osm ref, name), ...) of its areas
 
     @property
     def display_name(self) -> str:
@@ -123,6 +124,39 @@ def area_from_ref(con, osm: str) -> AreaSpec:
     return _from_spot(con, *place["center"])
 
 
+def area_from_refs(con, refs) -> AreaSpec:
+    """A search result's group of touching areas, each looked up again by its ref (the client's copy isn't
+    trusted). Opens as one area covering them all."""
+    if not isinstance(refs, list) or not 1 <= len(refs) <= osm_index.MAX_GROUP:
+        raise ValueError("That isn't a search result.")
+    found = []
+    for ref in refs:
+        if not isinstance(ref, str) or not _REF.match(ref):
+            raise ValueError("That isn't a search result.")
+        a = osm_index.area_by_osm(con, ref)
+        if a is None:
+            raise ValueError("That place isn't in the trail data.")
+        found.append(a)
+    if len(found) == 1:
+        return _from_area(con, found[0])
+    if sum(a["area_km2"] for a in found) > MAX_AREA_KM2:
+        raise ValueError("Those areas are too big to open together; open one of them instead.")
+    words = [a["name"].split() for a in found]
+    common = []
+    for ws in zip(*words):
+        if len({w.lower() for w in ws}) != 1:
+            break
+        common.append(ws[0])
+    name = osm_index.group_name(" ".join(common) or found[0]["name"], found)
+    w, s_, e, n = (min(a["bbox"][0] for a in found), min(a["bbox"][1] for a in found),
+                   max(a["bbox"][2] for a in found), max(a["bbox"][3] for a in found))
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:60].strip("-") or "area"
+    key = ",".join(sorted(a["osm"] for a in found))
+    return AreaSpec(id=f"{slug}-{hashlib.sha1(key.encode()).hexdigest()[:8]}", name=name, type_label="Areas",
+                    state=found[0]["state"], bbox=_padded([w, s_, e, n]), osm=None, capped=False,
+                    members=tuple((a["osm"], a["name"]) for a in found))
+
+
 def area_from_point(con, lon, lat) -> AreaSpec:
     _check_point(lon, lat)
     return _from_spot(con, float(lon), float(lat))
@@ -156,9 +190,10 @@ def write_area_region(spec: AreaSpec, areas_dir: Path | None = None) -> Path:
         "id": spec.id, "name": spec.display_name, "generated": True,
         "crs": utm_crs((b.west + b.east) / 2, (b.south + b.north) / 2),
         "bbox": {"south": b.south, "west": b.west, "north": b.north, "east": b.east},
-        "boundary_name_regex": re.escape(spec.name) if spec.osm else None,
+        "boundary_name_regex": (re.escape(spec.name) if spec.osm
+                                else "|".join(re.escape(n) for _, n in spec.members) if spec.members else None),
         "area": {"name": spec.name, "type_label": spec.type_label, "state": spec.state, "osm": spec.osm,
-                 "capped": spec.capped},
+                 "capped": spec.capped, **({"members": [list(m) for m in spec.members]} if spec.members else {})},
         "trailheads": [],
     }
     path = d / f"{spec.id}.yaml"
@@ -181,6 +216,11 @@ def _cells(tg, spec: AreaSpec, con=None) -> list:
     else its box, ELEVATION_PAD_DEG past it either way."""
     b, p = spec.bbox, ELEVATION_PAD_DEG
     shape = osm_index.area_shape(con, spec.osm) if con is not None and spec.osm and not spec.capped else None
+    if con is not None and spec.members:
+        from shapely.ops import unary_union
+
+        shapes = [osm_index.area_shape(con, ref) for ref, _ in spec.members]
+        shape = unary_union([x for x in shapes if x is not None]) if all(x is not None for x in shapes) else None
     if shape is not None:
         return corridor_cells(tg, within=shape.simplify(0.005).buffer(p))
     return corridor_cells(tg, within=(b.west - p, b.south - p, b.east + p, b.north + p))

@@ -401,11 +401,57 @@ def _fts_query(text: str) -> str | None:
     return " ".join(quoted)
 
 
+ABBREVIATIONS = {"np": "National Park", "nf": "National Forest", "nm": "National Monument",
+                 "nra": "National Recreation Area", "sp": "State Park", "w": "Wilderness", "wa": "Wilderness"}
+
+
+def expand_abbreviations(text: str) -> str:
+    """"Zion NP" -> "Zion National Park": whole words only, any case; the first word is never expanded."""
+    words = text.split()
+    return " ".join(w if i == 0 else ABBREVIATIONS.get(w.lower(), w) for i, w in enumerate(words))
+
+
+GROUP_TOUCH_DEG = 0.001  # about 100 m: areas this close count as touching
+MAX_GROUP = 6
+
+
+def name_group(con, text: str, max_km2: float = 5000.0) -> dict | None:
+    """A short name several touching areas share ("Zion": the park and the Zion Wilderness), as one group:
+    {"name", "areas"} with the best-ranked area first. None for a full area name, or when fewer than two
+    touching areas share it, or when together they're too big to open at once."""
+    want = expand_abbreviations(text.strip())
+    if not want:
+        return None
+    hits = [a for a in search(con, want, limit=50) if a["kind"] == "area"]
+    if any(a["name"].lower() == want.lower() for a in hits):
+        return None
+    prefix = want.lower() + " "
+    named = [a for a in hits if a["name"].lower().startswith(prefix)]
+    if len(named) < 2:
+        return None
+    best = named[0]
+    near = area_shape(con, best["osm"]).buffer(GROUP_TOUCH_DEG)
+    group = [best] + [a for a in named[1:] if near.intersects(area_shape(con, a["osm"]))][:MAX_GROUP - 1]
+    if len(group) < 2 or sum(a["area_km2"] for a in group) > max_km2:
+        return None
+    return {"name": group_name(want, group), "areas": group}
+
+
+def group_name(short: str, group: list[dict]) -> str:
+    parks = [a for a in group if a.get("park")]
+    wild = [a for a in group if "Wilderness" in (a["type_label"] or "") or "Wilderness" in a["name"]]
+    title = " ".join(w[:1].upper() + w[1:] for w in short.split())
+    if len(parks) == 1 and len(parks) + len(wild) == len(group):
+        return f"{title} (park and nearby wilderness)"
+    return f"{title} (nearby areas)"
+
+
 def search(con, text: str, limit: int = 10) -> list[dict]:
     """US areas and places whose names match `text`: parks and other protected areas first (parks first, then
     exact names, then larger), then places (exact names first). Typing "Zion" is asking for the park, not one
     of the dozens of towns and churches named Zion, so areas are looked up on their own and never crowded out
     by place matches. Results outside every US state are left out (they can't be opened)."""
+    text = expand_abbreviations(text[:MAX_QUERY_CHARS])
     query = _fts_query(text)
     if query is None:
         return []

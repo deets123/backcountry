@@ -49,7 +49,7 @@ export async function search(q: string): Promise<SearchResult[]> {
   return (await request<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`)).results;
 }
 
-export function openArea(body: { ref: string } | { box: [number, number, number, number] } | { point: [number, number] }): Promise<AreaOpened> {
+export function openArea(body: { ref: string } | { refs: string[] } | { box: [number, number, number, number] } | { point: [number, number] }): Promise<AreaOpened> {
   return request("/api/areas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
 

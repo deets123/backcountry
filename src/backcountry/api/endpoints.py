@@ -144,9 +144,16 @@ def search(request: Request, q: str = ""):
         return {"results": out, "index": False}
     try:
         found = osm_index.search(con, text)
+        group = osm_index.name_group(con, text)
     finally:
         con.close()
     curated = [re.compile(r.boundary_name_regex, re.I) for r in regions if r.boundary_name_regex]
+    if group and not any(c.search(a["name"]) for c in curated for a in group["areas"]):
+        g = group["areas"]
+        bbox = [min(a["bbox"][0] for a in g), min(a["bbox"][1] for a in g), max(a["bbox"][2] for a in g),
+                max(a["bbox"][3] for a in g)]
+        out.append({"kind": "group", "refs": [a["osm"] for a in g], "name": group["name"], "type_label": "Areas",
+                    "state": g[0]["state"], "bbox": bbox, "center": g[0]["center"]})
     for f in found:
         if f["kind"] == "area" and any(c.search(f["name"]) for c in curated):
             continue  # a hand-made region covers it (with its curated trailheads)

@@ -47,6 +47,7 @@ def test_search_regions_first(api):
 def test_search_finds_park_and_place(api):
     client, _ = api
     r = client.get("/api/search", params={"q": "Testpark"}).json()["results"]
+    r = [x for x in r if x["kind"] != "group"]  # "Testpark" alone also lists the park and its wilderness together
     assert r[0]["kind"] == "area" and r[0]["ref"] == "relation/3003" and r[0]["type_label"] == "National Park"
     assert r[0]["state"] == "Statea" and "bbox" in r[0]
     assert client.get("/api/search", params={"q": "Lone Peak"}).json()["results"][0]["kind"] == "place"
@@ -490,3 +491,25 @@ def test_one_way_trip_updates_to_newer_data(api):
     body = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
     assert body["ok"] is True and body["run"]["candidates"][0]["kind"] == "one_way"
     assert body["run"]["candidates"][0]["finish"]["node"] == 1029
+
+
+# --- short names ----------------------------------------------------------------------------------
+
+
+def test_short_name_is_listed_first_as_a_group(api):
+    client, _ = api
+    r = client.get("/api/search", params={"q": "Testpark"}).json()["results"]
+    assert r[0]["kind"] == "group" and r[0]["refs"] == ["relation/3003", "relation/3004"]
+    assert r[0]["name"] == "Testpark (park and nearby wilderness)" and r[0]["bbox"]
+    full = client.get("/api/search", params={"q": "Testpark National Park"}).json()["results"]
+    assert full[0]["kind"] == "area"
+
+
+def test_group_open_covers_both_areas(api):
+    client, _ = api
+    r = client.post("/api/areas", json={"refs": ["relation/3003", "relation/3004"]}).json()
+    assert r["name"] == "Testpark (park and nearby wilderness)"
+    run_worker(client)
+    assert client.get(f"/api/areas/{r['area_id']}/status").json()["status"] == "ready"
+    names = {f["properties"]["name"] for f in client.get(f"/api/regions/{r['area_id']}/trails").json()["features"]}
+    assert "Rim Trail" in names

@@ -173,3 +173,14 @@ describe("destinations", () => {
     expect(r.calls).toContain("destination none");
   });
 });
+
+describe("short-name groups", () => {
+  it("a group opens by its refs as one area and has no destination", async () => {
+    const group: SearchResult = { kind: "group", refs: ["relation/3003", "relation/3004"], name: "Testpark (park and nearby wilderness)",
+      type_label: "Areas", state: "Statea", bbox: [-149.95, 10.1, -149.6, 10.5], center: [-149.8, 10.3] };
+    const d = deps();
+    await openSearchResult(group, d);
+    expect(d.calls.slice(0, 2)).toEqual(["destination none", 'open {"refs":["relation/3003","relation/3004"]}']);
+    expect(renderSearch({ ...INITIAL, searchQuery: "Testpark", searchResults: [group] })).toContain("Areas · Statea");
+  });
+});

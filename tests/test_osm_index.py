@@ -172,3 +172,35 @@ def test_progress_percent_weights_stages_by_previous_time():
     p.tick("node")
     assert "13% overall" in lines[-1]  # 51 of 100 nodes = 5.1 of 40 previous seconds
     assert "of about 100" in lines[-1]
+
+
+# --- short names and abbreviations ------------------------------------------------------------
+
+
+def test_abbreviations_expand_whole_words():
+    from backcountry.osm_index import expand_abbreviations
+
+    assert expand_abbreviations("zion np") == "zion National Park"
+    assert expand_abbreviations("Pisgah NF") == "Pisgah National Forest"
+    assert expand_abbreviations("Lake Mead NRA") == "Lake Mead National Recreation Area"
+    assert expand_abbreviations("Bears Ears NM") == "Bears Ears National Monument"
+    assert expand_abbreviations("Custer SP") == "Custer State Park"
+    assert expand_abbreviations("Linville Gorge WA") == "Linville Gorge Wilderness"
+    assert expand_abbreviations("snp") == "snp" and expand_abbreviations("NPS trail") == "NPS trail"
+
+
+def test_abbreviated_search_finds_the_park(index):
+    assert osm_index.search(index, "testpark np")[0]["name"] == "Testpark National Park"
+
+
+def test_short_name_groups_touching_areas(index):
+    group = osm_index.name_group(index, "Testpark")
+    assert group is not None
+    assert [a["osm"] for a in group["areas"]] == ["relation/3003", "relation/3004"]
+    assert group["name"] == "Testpark (park and nearby wilderness)"
+
+
+def test_full_name_opens_the_park_alone(index):
+    assert osm_index.name_group(index, "Testpark National Park") is None
+    assert osm_index.name_group(index, "testpark np") is None
+    assert osm_index.name_group(index, "Testrock") is None  # one area only
