@@ -27,7 +27,7 @@ import networkx as nx
 from backcountry.route import Route, routing_graph, walk
 from backcountry.scoring import Weights, overlap, penalty
 
-MAX_SECONDS = 90.0  # search time budget; the report says when it was hit
+MAX_SECONDS = 60.0  # search time budget; the report says when it was hit
 MAX_DETOUR_M = 1609.0  # a must-visit spot can be reached by an out-and-back of at most this (one way)
 MAX_STEMS = 8  # nearest junctions tried as lollipop stems
 WIDEN = 0.25  # if nothing fits the range, look this much wider and report the deviation
@@ -39,6 +39,7 @@ class LoopGraph:
     start: int
     pruned: int = 0
     merged: int = 0
+    reach_m: float | None = None
 
 
 @dataclass
@@ -93,7 +94,9 @@ def orientation(route: Route) -> str:
     return "ccw" if area > 0 else "cw"
 
 
-def loop_graph(tg, start: int, no_roads: bool = False, exclude_keys=frozenset()) -> LoopGraph:
+def loop_graph(tg, start: int, no_roads: bool = False, exclude_keys=frozenset(), reach_m: float | None = None) -> LoopGraph:
+    """`reach_m`: drop junctions farther than this by trail from the start. A loop (or lollipop) no longer than
+    2 * reach_m never gets farther than reach_m from its start, so the search finds the same trips, faster."""
     G = tg.graph
     if start not in G:
         raise ValueError(f"start node {start} is not in the graph")
@@ -108,7 +111,7 @@ def loop_graph(tg, start: int, no_roads: bool = False, exclude_keys=frozenset())
         H.add_edge(u, v, key=k, keys=[k], path=[u, v], length_m=length,
                    road_m=length if d["is_road"] else 0.0,
                    last_resort_m=length if d["last_resort"] else 0.0)
-    lg = LoopGraph(H, start)
+    lg = LoopGraph(H, start, reach_m=reach_m)
 
     # Dead-end spurs can't be part of a cycle (the start is kept: it may need a stem).
     changed = True
@@ -136,6 +139,19 @@ def loop_graph(tg, start: int, no_roads: bool = False, exclude_keys=frozenset())
                        last_resort_m=da["last_resort_m"] + db["last_resort_m"])
             lg.merged += 1
             changed = True
+
+    # Out of reach: drop junctions too far to be on any trip, then the spurs that leaves. Done after merging, so
+    # the junctions left are the same ones the whole network has (merging again would hide via points).
+    if reach_m is not None:
+        near = nx.single_source_dijkstra_path_length(H, start, cutoff=reach_m, weight="length_m")
+        H.remove_nodes_from([n for n in list(H.nodes) if n not in near])
+        changed = True
+        while changed:
+            changed = False
+            for n in [n for n in H.nodes if n != start and H.degree(n) <= 1]:
+                H.remove_node(n)
+                lg.pruned += 1
+                changed = True
     return lg
 
 
@@ -158,8 +174,10 @@ def _weight(used: set, forbidden: set):
     return w
 
 
-def _dijkstra(H, source, used=frozenset(), forbidden=frozenset()):
-    return nx.single_source_dijkstra(H, source, weight=_weight(set(used), set(forbidden)))
+def _dijkstra(H, source, used=frozenset(), forbidden=frozenset(), cutoff=None):
+    """Shortest paths from source; with `cutoff`, only to nodes at most that far (a leg can't be longer)."""
+    cutoff = None if cutoff is None else cutoff + 1e-6  # equal-length ties stay in
+    return nx.single_source_dijkstra(H, source, cutoff=cutoff, weight=_weight(set(used), set(forbidden)))
 
 
 def _steps(H, nodes, used):
@@ -174,7 +192,7 @@ def _steps(H, nodes, used):
 def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, report=None):
     """Edge-disjoint loops through `start` built from one or two via junctions, length in [lo, hi]."""
     forbidden = set(forbidden)
-    dist_s, paths_s = _dijkstra(H, start, forbidden=forbidden)
+    dist_s, paths_s = _dijkstra(H, start, forbidden=forbidden, cutoff=hi / 2)
     apsp = {}
     loops, seen = [], set()
     # A ring with no junction on it but the start merges into one self-loop edge: that edge is a loop by itself.
@@ -191,7 +209,7 @@ def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, repor
         leg1 = _steps(H, paths_s[a], set())
         used1 = {k for *_, k in leg1}
         # One via: straight back from a on unused edges.
-        dist_a, paths_a = _dijkstra(H, a, used=used1, forbidden=forbidden)
+        dist_a, paths_a = _dijkstra(H, a, used=used1, forbidden=forbidden, cutoff=hi - dist_s[a])
         candidates_b = [None] + [b for b in nodes[i + 1:] if b in dist_a and dist_s[a] + dist_a[b] + dist_s[b] <= hi]
         for b in candidates_b:
             if report is not None:
@@ -209,7 +227,8 @@ def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, repor
                 back_nodes = None
             # Leg back to start on unused edges; the start may not be passed through mid-leg.
             if back_nodes is None:
-                dist_b, paths_b = _dijkstra(H, back_from, used=used2, forbidden=forbidden)
+                dist_b, paths_b = _dijkstra(H, back_from, used=used2, forbidden=forbidden,
+                                            cutoff=hi - dist_s[a] - dist_a[b])
                 if start not in dist_b:
                     continue
                 back_nodes = paths_b[start]
@@ -251,10 +270,10 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     t0 = time.time()
     deadline = t0 + max_seconds
     excluded = avoided_keys(tg, avoid) if avoid else set()
-    lg = loop_graph(tg, start, no_roads, excluded)
+    lg = loop_graph(tg, start, no_roads, excluded, reach_m=max_m * (1 + WIDEN) / 2)  # the widened retry fits too
     H = lg.graph
     report = {"loop_graph": {"nodes": H.number_of_nodes(), "edges": H.number_of_edges(), "pruned": lg.pruned,
-                             "merged": lg.merged}, "loops_found": 0, "lollipops_found": 0, "stems_tried": 0,
+                             "merged": lg.merged, "reach_m": lg.reach_m}, "loops_found": 0, "lollipops_found": 0, "stems_tried": 0,
               "via_pairs_tried": 0, "truncated": False, "widened": False, "avoided_edges": len(excluded),
               "must_visit_notes": [], "notes": []}
 

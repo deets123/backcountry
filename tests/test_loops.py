@@ -340,3 +340,39 @@ def test_ring_trail_behind_a_stem_is_a_lollipop():
     cands = find_candidates(tg, b.ids["T"], 4.5 * KM, 5.5 * KM, kinds=("loop", "lollipop"))
     assert [c.kind for c in cands] == ["lollipop"] and cands[0].length_m == pytest.approx(5000, abs=1)
     _check_invariants(tg, cands)
+
+
+# --- reach limit (speed) ----------------------------------------------------------------
+
+
+def test_loop_graph_drops_nodes_out_of_reach(grid, tg):
+    ids = grid.ids
+    H = loop_graph(tg, ids["T"], reach_m=2600).graph
+    for far in ("g12", "g21", "g22", "g02"):
+        assert ids[far] not in H, far
+    assert ids["g11"] in H and ids["g00"] in H
+
+
+@pytest.mark.parametrize("lo, hi", [(2 * KM, 5 * KM), (4 * KM, 7 * KM), (5 * KM, 9 * KM)])
+def test_reach_limit_finds_the_same_loops(grid, tg, lo, hi):
+    from backcountry.loops import _expand, waypoint_loops
+
+    def found(reach):
+        H = loop_graph(tg, grid.ids["g00"], reach_m=reach).graph
+        return {frozenset(_expand(H, steps)[0]) for steps, _ in waypoint_loops(H, grid.ids["g00"], lo, hi)}
+
+    assert found(hi / 2) == found(None)
+    assert found(None)
+
+
+def test_search_budget_is_60_seconds():
+    from backcountry import loops
+
+    assert loops.MAX_SECONDS == 60.0
+
+
+def test_search_reports_the_reach(grid, tg):
+    from backcountry.loops import WIDEN, search
+
+    report = search(tg, grid.ids["g00"], 2 * KM, 5 * KM)
+    assert report["loop_graph"]["reach_m"] == pytest.approx(5 * KM * (1 + WIDEN) / 2)
