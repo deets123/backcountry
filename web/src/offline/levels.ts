@@ -9,7 +9,8 @@ import type { SavedTrip } from "./db";
 const CURRENT = (levelsJson.rules as unknown as DifficultyRules).version;
 
 export interface DifficultyBody {
-  region: string; nights: number | null; camps_m: number[] | null;
+  region: string; cut: string | null;  // a generated area's extract date: rate on the data the trip was planned on
+  nights: number | null; camps_m: number[] | null;
   profile: { d_m: number[]; z_m: (number | null)[] }; segments: Run["candidates"][number]["segments"];
   geometry: [number, number][];  // the route's line: places terrain tags inside a trail whose ways are tagged differently
 }
@@ -40,7 +41,7 @@ export async function refreshLevels(trips: SavedTrip[], deps: LevelDeps): Promis
   for (const t of trips.filter(needsLevels)) {
     const c = t.run.candidates[t.index - 1]!;
     try {
-      const a = await deps.difficulty({ region: t.run.region, nights: c.plan?.nights ?? null,
+      const a = await deps.difficulty({ region: t.run.region, cut: t.run.data_cut ?? null, nights: c.plan?.nights ?? null,
         camps_m: c.plan ? c.plan.camps.map((cp) => cp.dist_m) : null, profile: c.profile!, segments: c.segments,
         geometry: c.geometry.coordinates });
       await deps.put(withLevels(t, a, deps.now()));

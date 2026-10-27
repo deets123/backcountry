@@ -371,6 +371,65 @@ def generate(
         typer.echo(f"diff:    {paths['diff']} (what changed since the previous run in this folder)")
 
 
+usdata_app = typer.Typer(help="The US OpenStreetMap extract and local index (operator setup; never run by users).",
+                         no_args_is_help=True)
+app.add_typer(usdata_app, name="usdata")
+LocationsOpt = typer.Option("sparse_file_array,{dir}/.nodes.tmp", "--locations",
+                            help="osmium node-location store while building ({dir} = the index folder; "
+                                 "flex_mem keeps them in RAM, fine for one state, not for the US)")
+
+
+@usdata_app.command("download")
+def usdata_download():
+    """Download the Geofabrik US extract (about 11 GB), kept only if its checksum matches."""
+    from backcountry import usdata
+
+    try:
+        path = usdata.download_extract(usdata.OSM_DIR)
+    except ingest.FetchError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"saved {path} ({path.stat().st_size / 1e9:.1f} GB). Next: backcountry usdata build")
+
+
+@usdata_app.command("build")
+def usdata_build(pbf: Path = typer.Option(None, "--pbf", help="Extract to index (default: the newest downloaded)"),
+                 locations: str = LocationsOpt):
+    """Build the local index from the extract: trails, roads, trailheads, water, boundaries, place names."""
+    from backcountry import usdata
+
+    pbf = pbf or usdata.newest_extract()
+    if pbf is None:
+        typer.echo("No US extract downloaded yet. Run `backcountry usdata download` first.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Building the index from {pbf.name} (outlines of parks and other areas are read first)", err=True)
+    out, counts = usdata.build(pbf, locations=locations, progress=lambda line: typer.echo(line, err=True))
+    typer.echo(f"built {out} ({out.stat().st_size / 1e9:.2f} GB): " + ", ".join(f"{v:,} {k}" for k, v in counts.items()))
+
+
+@usdata_app.command("refresh")
+def usdata_refresh(locations: str = LocationsOpt):
+    """Download a newer extract and build its index. Older index files and area cuts are kept."""
+    usdata_download()
+    usdata_build(pbf=None, locations=locations)
+
+
+@usdata_app.command("status")
+def usdata_status():
+    """Show which extract and index are in use."""
+    from backcountry import osm_index, usdata
+
+    idx = usdata.current_index()
+    if idx is None:
+        typer.echo("No index built yet. Run `backcountry usdata download`, then `backcountry usdata build`.")
+        return
+    con = osm_index.open_index(idx)
+    meta = osm_index.index_meta(con)
+    con.close()
+    typer.echo(f"index {idx.name}: extract {meta['extract_date']}, built {meta['built_at']}, "
+               + ", ".join(f"{v:,} {k}" for k, v in meta["counts"].items()))
+
+
 def _run_server(host: str, port: int) -> None:
     import uvicorn
 

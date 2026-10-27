@@ -3,6 +3,11 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+# The US OSM extract + local index, and generated areas (backcountry usdata / area prepare)
+data/osm/*
+!data/osm/.gitkeep
+data/areas/*
+!data/areas/.gitkeep
 out/
 
 # Python / tooling

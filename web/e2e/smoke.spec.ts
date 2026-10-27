@@ -110,3 +110,15 @@ test("set day 1 easy in the day strip and generate", async ({ page }) => {
   await page.click("#open-trip");
   await expect(page.locator(".days .day-row").first().locator(".lvl")).toBeVisible();  // a level chip (unknown without a DEM)
 });
+
+test("search for a place and open it", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".where")).toContainText("Dolly Sods");
+  await page.fill("#area-search", "Dolly");
+  const result = page.locator("#search-results [data-result]").first();
+  await expect(result).toContainText("Dolly Sods Wilderness");
+  await expect(result).toContainText("Region");
+  await result.click();
+  await expect(page.locator("select[name='trailhead'] optgroup[label='Other start points from the data'] option")).not.toHaveCount(0);
+  await expect(page.locator("#panel")).not.toContainText(/download|geofabrik/i);
+});

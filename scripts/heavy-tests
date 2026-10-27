@@ -28,6 +28,17 @@ if [ ! -d "$BACKCOUNTRY_RAW_DIR/dolly_sods" ]; then
   exit 1
 fi
 
+# The local US index and generated areas (backcountry usdata / any-area search), shared the same way.
+main="$(git worktree list --porcelain | awk 'NR==1 {print $2}')"
+for kind in osm areas; do
+  var="BACKCOUNTRY_$(echo "$kind" | tr a-z A-Z)_DIR"
+  if [ -z "${!var:-}" ]; then
+    dir="data/$kind"
+    if ! ls "$dir"/* >/dev/null 2>&1 && [ -d "$main/data/$kind" ]; then dir="$main/data/$kind"; fi
+    export "$var=$(cd "$dir" 2>/dev/null && pwd || echo "$dir")"
+  fi
+done
+
 echo "== pytest with the real cached data"
 uv run pytest -q
 

@@ -198,3 +198,54 @@ def build_grid() -> RawBuilder:
 @pytest.fixture
 def grid() -> RawBuilder:
     return build_grid()
+
+
+# --- a tiny local OSM index (tests/fixtures/mini.osm: made-up places in open ocean) -------------
+
+FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures"
+MINI_DATE = "2026-10-20"
+PARK_BBOX = (-149.95, 10.1, -149.6, 10.5)  # Testpark National Park's outer ring
+LONE_PEAK = (-149.8, 10.3)
+
+
+@pytest.fixture(scope="session")
+def index_path(tmp_path_factory):
+    from backcountry import osm_index
+
+    out = tmp_path_factory.mktemp("osm") / f"us-{MINI_DATE}.sqlite"
+    osm_index.build_index(FIXTURES / "mini.osm", out, MINI_DATE)
+    return out
+
+
+@pytest.fixture
+def index(index_path):
+    from backcountry import osm_index
+
+    con = osm_index.open_index(index_path)
+    yield con
+    con.close()
+
+
+@pytest.fixture
+def area_env(tmp_path, index):
+    """Testpark National Park prepared as a generated area (no DEM), plus API settings that see it."""
+    from backcountry import areas
+    from backcountry.api.store import Settings
+
+    raw_dir, areas_dir = tmp_path / "raw", tmp_path / "areas"
+    spec = areas.area_from_ref(index, "relation/3003")
+    areas.prepare_area(spec, index, raw_dir=raw_dir, areas_dir=areas_dir, dem_fetch=lambda *a, **k: None)
+    settings = Settings(raw_dir=raw_dir, runs_dir=tmp_path / "runs", regions_dir=None, areas_dir=areas_dir)
+    return settings, spec
+
+
+def add_cut(settings, area_id: str, date: str, mutate=None) -> None:
+    """Copy an area's cut under a later extract date, as a refresh would leave it; `mutate(elements)` edits it."""
+    import json as _json
+
+    d = settings.raw_dir / area_id
+    doc = _json.loads(sorted(d.glob("extract_*.json"))[-1].read_text())
+    doc["retrieved_at"], doc["osm_base"] = f"{date}T00:00:00Z", date
+    if mutate:
+        mutate(doc["response"]["elements"])
+    (d / f"extract_{date.replace('-', '')}T000000Z.json").write_text(_json.dumps(doc))

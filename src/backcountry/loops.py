@@ -177,6 +177,11 @@ def waypoint_loops(H, start, lo, hi, forbidden=frozenset(), deadline=None, repor
     dist_s, paths_s = _dijkstra(H, start, forbidden=forbidden)
     apsp = {}
     loops, seen = [], set()
+    # A ring with no junction on it but the start merges into one self-loop edge: that edge is a loop by itself.
+    for u, _, k, d in sorted(nx.selfloop_edges(H, keys=True, data=True), key=lambda e: e[2]):
+        if u == start and lo <= d["length_m"] <= hi:
+            seen.add(frozenset([k]))
+            loops.append(([(start, start, k)], d["length_m"]))
     nodes = [n for n in sorted(dist_s, key=dist_s.get) if n != start and n not in forbidden and 2 * dist_s[n] <= hi]
     for i, a in enumerate(nodes):
         if deadline and time.time() > deadline:

@@ -1,4 +1,14 @@
 // The piece-1 API's JSON shapes, field names as the API sends them.
+export type SearchResult =
+  | { kind: "region"; id: string; name: string; type_label: string; state: null }
+  | { kind: "area" | "place"; ref: string; name: string; type_label: string; state: string | null;
+      bbox: [number, number, number, number]; center: [number, number] };
+export interface RecentArea { id: string; name: string; type_label: string | null; state: string | null; bbox: Region["bbox"] }
+export interface AreaStatus {
+  status: "ready" | "preparing" | "queued" | "failed" | "unknown"; message: string | null; name?: string; bbox?: Region["bbox"];
+}
+export interface AreaOpened { area_id: string; name: string; status: AreaStatus["status"]; message: string; bbox: Region["bbox"] }
+
 export interface Region {
   id: string; name: string; crs: string;
   bbox: { south: number; west: number; north: number; east: number };
@@ -68,6 +78,7 @@ export interface Candidate {
   index: number; kind: "loop" | "lollipop"; length_m: number; gain_ft: number | null; loss_ft: number | null; road_m: number;
   last_resort_m: number; repeated_m: number; penalty: number; segments: Segment[];
   geometry: { type: "LineString"; coordinates: [number, number][] }; pieces: Piece[]; waypoints: Waypoint[];
+  route?: { nodes: number[]; keys: string[] };  // OSM nodes and graph edges walked: to follow it on newer data
   plan: Plan | null; features: RouteFeature[]; profile: { d_m: number[]; z_m: (number | null)[] } | null;
   title: string; description: string; notes: string[];
   /** Runs saved before levels existed have none of these. */
@@ -80,6 +91,7 @@ export interface Run {
     seconds: number; widened: boolean; truncated: boolean; avoided_edges: number; notes: string[]; must_visit_notes: string[] };
   candidates: Candidate[];
   data_sources: { name: string; retrieved_at: string | null; attribution: string }[];
+  data_cut?: string | null;  // generated areas: the extract date the trip was planned on
   known_gaps: string[]; diff: string | null;
   difficulty_rules?: DifficultyRules;
 }

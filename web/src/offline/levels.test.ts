@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import levelsJson from "../levels.json";
 import type { DifficultyRules, Rating, Run } from "../types";
 import type { SavedTrip } from "./db";
-import { needsLevels, refreshLevels, type DifficultyAnswer } from "./levels";
+import { needsLevels, refreshLevels, type DifficultyAnswer, type DifficultyBody } from "./levels";
 
 const rules = levelsJson.rules as unknown as DifficultyRules;
 const rating = (level: Rating["level"]): Rating => ({ level, reasons: [], effort: 50, steep: null, tagged: [], untagged_share: 1 });
@@ -37,7 +37,7 @@ describe("levels for saved trips", () => {
       candidates: [{ ...oldTrip().run.candidates[0]!, terrain: [] }] } }],
       { difficulty: async (body) => { sent.push(body); return answer; }, put: async (t) => { stored.push(t); }, now: () => "2026-10-22T00:00:00Z" });
     expect(done).toEqual(["r1-1"]);  // the second already has levels from these rules
-    expect(sent).toEqual([{ region: "dolly_sods", nights: 1, camps_m: [1500], profile: { d_m: [0, 1500, 3000], z_m: [1, 2, 3] },
+    expect(sent).toEqual([{ region: "dolly_sods", cut: null, nights: 1, camps_m: [1500], profile: { d_m: [0, 1500, 3000], z_m: [1, 2, 3] },
       segments: oldTrip().run.candidates[0]!.segments, geometry: [[-79.4, 39], [-79.4, 39.03]] }]);
     // the engine's camps (moved ones are re-rated on the phone) and the route's line (it places tags inside a trail)
     const c = stored[0]!.run.candidates[0]!;
@@ -60,4 +60,11 @@ describe("levels for saved trips", () => {
     t.run = { ...t.run, difficulty_rules: { ...rules, version: rules.version - 1 }, candidates: [{ ...t.run.candidates[0]!, terrain: [] }] };
     expect(needsLevels(t)).toBe(true);
   });
+  it("a trip from a generated area is re-rated on the data it was planned on", async () => {
+    const sent: DifficultyBody[] = [];
+    const trip = { ...oldTrip(), run: { ...oldTrip().run, region: "zion-national-park-r123", data_cut: "2026-10-20" } };
+    await refreshLevels([trip], { difficulty: async (body) => { sent.push(body); return answer; }, put: async () => {}, now: () => "x" });
+    expect(sent[0]!.cut).toBe("2026-10-20");
+  });
+
 });
