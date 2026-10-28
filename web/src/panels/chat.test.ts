@@ -66,3 +66,13 @@ describe("chat across runs", () => {
     expect(renderChat({ ...INITIAL, run, view: "trip", campsM: null })).not.toContain("not the ones you moved");
   });
 });
+
+describe("the chat log", () => {
+  it("labels messages from an earlier result so they aren't mistaken for this trip's", () => {
+    const chat: ChatMessage[] = [{ role: "assistant", text: "Zion answer", runId: "r2", proposal, status: "open" }, { role: "user", text: "this trip", runId: "r1" }];
+    const html = renderChat({ ...INITIAL, run, chat });
+    expect(html).toContain("this trip");
+    expect(html).toContain("From an earlier result");
+    expect(html).not.toContain('data-run="0"');
+  });
+});

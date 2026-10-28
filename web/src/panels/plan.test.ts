@@ -222,3 +222,18 @@ describe("direction", () => {
     expect(renderPlan({ ...INITIAL, form: { ...INITIAL.form, type: "loop" } })).toContain('name="direction"');
   });
 });
+
+describe("names, not ids", () => {
+  it("an unnamed start from the data is named in words, not by its node id", () => {
+    const html = renderPlan({ ...INITIAL, trailheads: [th({ id: "402290253", name: null, source: "data" })] });
+    expect(html).toContain("Unnamed start point (from the data, unverified)");
+    expect(html).not.toContain(">402290253");
+  });
+  it("an unnamed finish is named in words too", () => {
+    const finishes = [{ id: "402290253", name: null, node: 402290253, lat: 37, lon: -113, source: "data" as const, verified: false,
+      length_m: 1609.344 * 14.2, gain_ft: null, loss_ft: null, straight_line_m: 1000 }];
+    const html = renderPlan({ ...INITIAL, form: { ...INITIAL.form, type: "one_way", trailhead: "a" }, finishes });
+    expect(html).toContain("Unnamed trailhead");
+    expect(html).not.toContain("<b>402290253</b>");
+  });
+});

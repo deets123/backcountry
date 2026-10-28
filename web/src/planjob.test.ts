@@ -65,3 +65,47 @@ describe("giving up on a plan", () => {
     expect(cancelled).toEqual(["0123456789abcdef"]);
   });
 });
+
+describe("polling on a weak signal", () => {
+  const req = { trailhead: "x", total: "18-26" };
+  it("a dropped poll is retried, not fatal", async () => {
+    const polls = [() => { throw new ApiError("Can't reach the Backcountry server", 0); }, () => ({ status: "searching", run: null }),
+      () => { throw new ApiError("gateway", 502); }, () => ({ status: "done", run: run("r1", false) })];
+    const slept: number[] = [];
+    const final = await runPlanJob({
+      startPlan: async () => ({ job_id: "0123456789abcdef" }),
+      getPlan: async () => polls.shift()!() as never,
+      sleep: async (ms) => { slept.push(ms); }, onPartial: () => {},
+    }, "dolly_sods", req);
+    expect(final.run_id).toBe("r1");
+    expect(slept.length).toBeGreaterThanOrEqual(3);
+  });
+  it("a plan whose polls keep failing is cancelled on the server and fails with plain words", async () => {
+    const cancelled: string[] = [];
+    const p = runPlanJob({
+      startPlan: async () => ({ job_id: "0123456789abcdef" }),
+      getPlan: async () => { throw new ApiError("Can't reach the Backcountry server", 0); },
+      sleep: async () => {}, onPartial: () => {}, cancelPlan: async (id) => { cancelled.push(id); },
+    }, "dolly_sods", req);
+    await expect(p).rejects.toMatchObject({ message: expect.stringMatching(/server/i) });
+    expect(cancelled).toEqual(["0123456789abcdef"]);
+  });
+  it("a cancelled status fails the plan instead of polling for ever", async () => {
+    const p = runPlanJob({
+      startPlan: async () => ({ job_id: "0123456789abcdef" }),
+      getPlan: async () => ({ status: "cancelled", run: null }) as never,
+      sleep: async () => {}, onPartial: () => {},
+    }, "dolly_sods", req);
+    await expect(p).rejects.toBeInstanceOf(ApiError);
+  });
+  it("a stalled poll is given up on after its timeout and tried again", async () => {
+    let calls = 0;
+    const final = await runPlanJob({
+      startPlan: async () => ({ job_id: "0123456789abcdef" }),
+      getPlan: () => (++calls === 1 ? new Promise(() => {}) : Promise.resolve({ status: "done", run: run("r1", false) } as never)),
+      sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))), onPartial: () => {}, pollTimeoutMs: 20,
+    }, "dolly_sods", req);
+    expect(final.run_id).toBe("r1");
+    expect(calls).toBe(2);
+  });
+});

@@ -66,3 +66,13 @@ describe("a partial run", () => {
     expect(html).toMatch(/id="open-trip"[^>]*disabled/);
   });
 });
+
+describe("startLabel", () => {
+  it("never shows a node id", async () => {
+    const { startLabel } = await import("./compare");
+    const th = { id: "402290253", name: null, node: 402290253, source: "data" as const, verified: false, in_graph: true, lat: 39, lon: -79, component: "C0" };
+    expect(startLabel("402290253", [th])).toBe("an unnamed start point");
+    expect(startLabel("402290253", [])).toBe("an unnamed start point");
+    expect(startLabel("39.04,-79.38", [])).toBe("Map point 39.04,-79.38");
+  });
+});

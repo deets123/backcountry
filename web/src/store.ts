@@ -17,6 +17,8 @@ export interface State {
   offline: boolean; updateReady: boolean; mapNote: string | null;
   chat: ChatMessage[]; chatBusy: boolean; chatError: string | null;
   searchQuery: string; searchResults: SearchResult[] | null; recentAreas: RecentArea[];
+  /** A search that failed: shown inside the results box, so the keyboard stays. */
+  searchError: string | null;
   /** The open area's trails are shown but its elevation is still coming (planning waits). */
   elevationPending: boolean;
   /** The last area open failed: the plan panel offers to try it again. */
@@ -33,7 +35,7 @@ export const INITIAL: State = {
   error: null, busy: false, basemap: "topo", sheet: "half",
   saved: [], savedId: null, campsM: null, gps: { mode: "off" }, saving: null, tilesMissing: false, junctions: false, offline: false, updateReady: false, mapNote: null,
   chat: [], chatBusy: false, chatError: null,
-  searchQuery: "", searchResults: null, recentAreas: [], tripUpdate: null, elevationPending: false, canRetryOpen: false,
+  searchQuery: "", searchResults: null, searchError: null, recentAreas: [], tripUpdate: null, elevationPending: false, canRetryOpen: false,
   destination: null, finishes: null,
 };
 

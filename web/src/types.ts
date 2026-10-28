@@ -103,7 +103,9 @@ export interface Run {
   run_id: string; region: string; request: GenerateRequest & { total: [number, number]; daily: [number, number] | null };
   generated_at: string; start: { node: number; how: string; snap_m: number };
   search: { loops_found: number; lollipops_found: number; stems_tried: number; via_pairs_tried: number; scored: number;
-    seconds: number; widened: boolean; truncated: boolean; avoided_edges: number; notes: string[]; must_visit_notes: string[] };
+    seconds: number; widened: boolean; truncated: boolean; avoided_edges: number; notes: string[]; must_visit_notes: string[];
+    /** The searched place every trip went to and through, when there was one. */
+    destination?: { name: string; kind: string; center: [number, number]; note: string | null } | null };
   candidates: Candidate[];
   data_sources: { name: string; retrieved_at: string | null; attribution: string }[];
   data_cut?: string | null;  // generated areas: the extract date the trip was planned on
@@ -111,7 +113,7 @@ export interface Run {
   difficulty_rules?: DifficultyRules;
   partial?: boolean;  // the first trips found while the search goes on (not saved)
 }
-export interface PlanJob { status: "searching" | "done" | "failed"; run: Run | null; message?: string | null; field?: string | null }
+export interface PlanJob { status: "searching" | "done" | "failed" | "cancelled"; run: Run | null; message?: string | null; field?: string | null }
 export interface DifficultyRules {
   version: number;
   scales: Record<"day_hike" | "backpacking", { cutoffs: [number, number, number] }>;

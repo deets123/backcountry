@@ -184,3 +184,16 @@ describe("short-name groups", () => {
     expect(renderSearch({ ...INITIAL, searchQuery: "Testpark", searchResults: [group] })).toContain("Areas · Statea");
   });
 });
+
+describe("opens that are no longer wanted", () => {
+  it("a slower earlier open never replaces the park chosen later", async () => {
+    const d = deps({ current: () => false });  // by the time this one is ready, the user opened something else
+    await openSearchResult(park, d);
+    expect(d.calls.filter((c) => c.startsWith("pick") || c.startsWith("recent") || c.startsWith("error"))).toEqual([]);
+  });
+  it("a failed search says so inside the results, not as the page's error", () => {
+    const html = renderSearch({ ...INITIAL, searchQuery: "zi", searchResults: [], searchError: "The server is unreachable." });
+    expect(html).toContain("The server is unreachable.");
+    expect(html).not.toContain("No places match");
+  });
+});

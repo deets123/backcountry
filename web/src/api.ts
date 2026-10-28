@@ -21,6 +21,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const text = await res.text();
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = null; }
+  if (res.ok && body === null && text.trim()) {  // a sign-in page or the wrong address answering for the server
+    throw new ApiError("That answer didn't come from the Backcountry server. Are you on a Wi-Fi sign-in page, or is the address wrong?", 0);
+  }
   if (!res.ok) {
     const err = body as ApiErrorBody | null;
     throw new ApiError(err?.error ?? `The server answered ${res.status} without a reason.`, res.status, err?.field);
