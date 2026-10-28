@@ -142,6 +142,10 @@ Destination: web and phones, later the app stores, with offline use of saved tri
    **Destinations, trip shapes and speed** (built 2026-10-27; `docs/superpowers/specs/2026-10-27-trip-shapes-and-speed-design.md`):
    a searched place is the trip's destination; out-and-back and one-way trips with suggested finishes and shuttle
    links; "Zion" vs "Zion NP"; first trips in about 8 s, elevation only along trails, popular areas prepared ahead.
+   **Speed and accuracy, and the end-to-end review** (built 2026-10-27, branch `speed-accuracy`): no accuracy traded
+   for speed (features indexed per area, every trip day-planned, no count caps, elevation along every trail,
+   elevation left on disk); three fresh reviews of the engine, the server and the phone app, with their Critical
+   and Important findings fixed (one-way trails, names in GPX, memory and disk safety, weak-signal polling).
    Next: park rules, permits and closures (OSM already tags some, e.g. `access=permit` on the Angels Landing trail).
 5. **App-store packaging** (Capacitor), hosting, accounts.
 6. **Alerts and permit metadata** with provenance.

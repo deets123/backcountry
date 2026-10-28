@@ -137,7 +137,7 @@ The web app's "Where" box searches every US park, wilderness, forest and other p
 places and named trails ("Zion", "Chesler Park", "Linville Gorge"), and "Plan in this map area" uses the map on
 screen. A park opens whole; a place opens the park it's in. The first time an area is opened the server cuts its
 trails out of a local US index (seconds: the trails show at once) and then fetches elevation from USGS for the
-cells trails pass through ("Adding elevation…"; Zion 17 s, Yosemite 40 s, Grand Canyon 74 s on this laptop);
+cells trails pass through ("Adding elevation…"; Zion 17 s, Yosemite 48 s, Grand Canyon 92 s on this laptop);
 after that it opens at once. A short name opens touching areas together ("Zion": the park and the Zion
 Wilderness); a full name ("Zion National Park", "Zion NP") opens that one. NP, NF, NM, NRA, SP and W/WA are
 understood.
@@ -154,14 +154,30 @@ trip has Google Maps and Apple Maps buttons for the shuttle drive. The app never
 
 Planning shows the first trips after about 8 seconds while the search goes on, and stops by 60 seconds.
 
+**Speed and accuracy.** Nothing is traded for speed. The rule the code follows: work that doesn't depend on the
+request (an area's features, trailheads, outlines, trail GeoJSON) is done once per loaded area and indexed; the
+search only looks at junctions a trip can reach (a loop never gets farther from its start than half its length,
+so nothing is lost); every trip found gets its days planned, best first; and only the clock can stop a search,
+in which case the result says "The search hit its time budget". The one approximation left is the search itself,
+which composes trips from shortest paths between junctions, as it always has.
+
 Prepare popular areas ahead (national parks, then monuments and recreation areas, then the wilderness areas with
-the most trail miles), so they open at once. Long: run it overnight, plugged in:
+the most trail miles; areas with under 10 trail miles are skipped), so they open at once. Long: run it overnight,
+plugged in, and not while the server is answering friends (both write the same folders):
 
 ```
 caffeinate -i uv run backcountry areas prepare-popular   # stops at BACKCOUNTRY_PREPARED_GB (default 8)
 ```
 
-Prepared areas are listed in `data/areas/prepared.json`; areas people open never remove them.
+Prepared areas are listed in `data/areas/prepared.json`; areas people open never remove them. Run it again after
+a `usdata refresh` (prepared areas get the new trail data and their older cuts are pruned) and after an upgrade
+that changes how elevation is fetched (each area's elevation is fetched again, once).
+
+Running it for friends: `backcountry serve` prints the index in use, areas on disk, free disk and the limits at
+start, and logs what it does. A new area is refused when the disk is within 3 GB of full
+(`BACKCOUNTRY_AREA_MIN_FREE_GB`); request bodies over 1 MB are refused; the chat answers two questions at a
+time; a trip's "Review changes" run is kept only if the user accepts it. Anyone on your network can open any run
+by its id, so share the address only with people you'd share your trips with.
 
 Operator setup, once (then about monthly):
 
@@ -177,8 +193,8 @@ include a percentage and time left. After a build, the downloaded `.osm.pbf` can
 it). Older indexes and the areas cut from them are kept, so saved trips keep working; delete old `us-*.sqlite`
 files in `data/osm/` by hand when the new one is in use.
 
-Opened areas live in `data/raw/<area>/` and `data/areas/` (git-ignored): Zion about 55 MB, Yosemite 170 MB,
-Grand Canyon 310 MB. Areas over 5,000 km² (Yellowstone, Death Valley) open as a 24 km square, shown as "Part of
+Opened areas live in `data/raw/<area>/` and `data/areas/` (git-ignored): Zion about 60 MB, Yosemite 190 MB,
+Grand Canyon 360 MB. Elevation stays on disk; a loaded area keeps at most 256 MB of it in memory. Areas over 5,000 km² (Yellowstone, Death Valley) open as a 24 km square, shown as "Part of
 …": around the place or map spot you picked, or the park's middle when you search the park itself. After a
 `refresh`, an area opened before it gets the newer trail data the next time it is opened (or when a saved trip there
 checks for an update). Server limits (environment variables): `BACKCOUNTRY_AREA_MAX_QUEUE` (3 waiting), `BACKCOUNTRY_AREA_PER_HOUR`
