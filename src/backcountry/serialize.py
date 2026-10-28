@@ -93,11 +93,19 @@ def plan_payload(plan) -> dict | None:
     }
 
 
+def trip_title(kind: str, start_text: str, finish_text: str | None = None) -> tuple[str, str]:
+    """(title, end text) for a trip of this shape: "X to Y (one way)", "X out and back", "X to X (loop)"."""
+    if kind == "one_way":
+        end = finish_text or "the finish"
+        return f"{start_text} to {end} (one way)", end
+    if kind == "out_and_back":
+        return f"{start_text} out and back", f"{start_text} (out and back)"
+    return f"{start_text} to {start_text} ({kind})", f"{start_text} ({kind})"
+
+
 def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str, finish_text: str | None = None) -> dict:
     one_way = c.kind == "one_way"
-    end_text = (finish_text or "the finish") if one_way else f"{start_text} (loop)"
-    title = (f"{start_text} to {end_text} (one way)" if one_way
-             else f"{start_text} out and back" if c.kind == "out_and_back" else f"{start_text} to {start_text} (loop)")
+    title, end_text = trip_title(c.kind, start_text, finish_text)
     description = gpx_description(c.route, osm_retrieved_at)
     if one_way:
         description += " One way: the start and finish are different trailheads. Shuttle drive: unknown."
@@ -150,7 +158,8 @@ def run_payload(run_id: str, region, result, raw, tg, generated_at: str, diff: s
         "run_id": run_id, "region": region.id, "request": result.request.to_dict(), "generated_at": generated_at,
         "start": result.start,
         "search": {k: v for k, v in report.items() if k != "candidates"},
-        "candidates": [candidate_payload(i, c, result.start["how"], tg.retrieved_at, (report.get("finish") or {}).get("how"))
+        "candidates": [candidate_payload(i, c, result.start.get("name") or result.start["how"], tg.retrieved_at,
+                                         (report.get("finish") or {}).get("name") or (report.get("finish") or {}).get("how"))
                        for i, c in enumerate(report["candidates"], 1)],
         "data_sources": data_sources(region, raw, result),
         "data_cut": raw.get("cut"),

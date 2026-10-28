@@ -140,4 +140,8 @@ def build(pbf: Path, osm_dir: Path | None = None, locations: str = DEFAULT_LOCAT
 
 
 def disk_free_gb(path: Path) -> float:
-    return shutil.disk_usage(path if path.exists() else path.parent).free / 1e9
+    """Free space on the disk holding `path` (or the nearest ancestor that exists)."""
+    path = Path(path)
+    while not path.exists() and path.parent != path:
+        path = path.parent
+    return shutil.disk_usage(path).free / 1e9

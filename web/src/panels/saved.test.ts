@@ -23,3 +23,11 @@ describe("renderSaved", () => {
     expect(html).toContain("No saved trips yet"); expect(html).not.toContain('id="to-plan"');
   });
 });
+
+describe("trip shapes in the list", () => {
+  it("says \"out and back\", not out_and_back", () => {
+    const html = renderSaved({ ...INITIAL, view: "saved", saved: [t({ run: { candidates: [{ kind: "out_and_back", length_m: 1609.344 }] } as unknown as Run })] });
+    expect(html).toContain("out and back, 1.00 mi");
+    expect(html).not.toContain("out_and_back");
+  });
+});

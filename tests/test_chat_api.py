@@ -125,3 +125,45 @@ def test_a_level_change_reply_is_shown_with_its_proposal():
     out = chat_turn(model, run, 1, "day 1 easy, days 2 and 3 hard", [], [], [{"id": "bear_rocks", "name": "Bear Rocks Trailhead"}])
     assert out["withheld"] is None and out["reply"].startswith("I've set day 1 to easy")
     assert out["proposal"] and out["proposal"]["changes"][0].startswith("Day 1: not set → Easy")
+
+
+def test_chat_history_items_are_capped_in_length():
+    from backcountry.chat.service import HISTORY_ITEM_CHARS, _history
+
+    kept = _history([{"role": "user", "text": "x" * 50_000}, {"role": "assistant", "text": "fine"}])
+    assert len(kept[0]["content"]) == HISTORY_ITEM_CHARS == 2000 and kept[1]["content"] == "fine"
+
+
+def test_chat_runs_at_most_two_at_once(tmp_path, grid):
+    import threading
+
+    class Blocking:
+        name = "blocking"
+
+        def __init__(self):
+            self.release, self.started = threading.Event(), threading.Semaphore(0)
+
+        def complete(self, system, messages, schema, timeout_s=None):
+            self.started.release()
+            self.release.wait(5)
+            return {"reply": "ok", "kind": "explain", "changes": {}}
+
+    raw_dir = tmp_path / "raw" / "dolly_sods"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "overpass_20260101T000000Z.json").write_text(json.dumps(grid.doc()))
+    model = Blocking()
+    client = TestClient(create_app(Settings(raw_dir=tmp_path / "raw", runs_dir=tmp_path / "runs", regions_dir=None),
+                                   web_dist=tmp_path / "no-web", chat_model=model))
+    run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1",
+                                                                "type": "loop"}).json()
+    body = {"run_id": run["run_id"], "candidate": 1, "message": "why is day one long", "history": []}
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(client.post("/api/chat", json=body).status_code)) for _ in range(2)]
+    for t in threads:
+        t.start()
+    assert model.started.acquire(timeout=5) and model.started.acquire(timeout=5)
+    assert client.post("/api/chat", json=body).status_code == 429  # a third waits its turn, not a thread
+    model.release.set()
+    for t in threads:
+        t.join(5)
+    assert results == [200, 200]

@@ -9,6 +9,7 @@ from backcountry.chat.proposal import RESPONSE_SCHEMA, SYSTEM_PROMPT, ProposalEr
 from backcountry.scoring import M_PER_MI
 
 HISTORY = 6  # earlier messages sent along with the new one
+HISTORY_ITEM_CHARS = 2000  # ...each cut to this (a phone can't type more; a flood shouldn't fill the model's window)
 
 
 def trail_names(tg) -> list[str]:
@@ -20,7 +21,7 @@ def start_names(region) -> list[dict]:
 
 
 def _history(history: list[dict]) -> list[dict]:
-    kept = [{"role": h["role"], "content": str(h.get("text") or "").strip()} for h in history
+    kept = [{"role": h["role"], "content": str(h.get("text") or "").strip()[:HISTORY_ITEM_CHARS]} for h in history
             if isinstance(h, dict) and h.get("role") in ("user", "assistant")]
     return [m for m in kept if m["content"]][-HISTORY:]
 

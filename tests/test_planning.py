@@ -396,3 +396,32 @@ def test_out_and_back_with_a_detour_keeps_its_turnaround(grid):
     cands = plan_trip(REGION, raw, tg, req).report["candidates"]
     assert cands and all(c.turnaround is not None and c.turnaround in c.route.nodes for c in cands)
     assert all(c.route.nodes[0] == ids["T"] for c in cands)
+
+
+def test_a_route_too_short_to_split_gets_a_plan_with_a_violation_not_an_error(grid):
+    from conftest import RawBuilder
+
+    from backcountry.planning import plan_route
+    from backcountry.route import shortest_route
+
+    b = RawBuilder()
+    b.node("A", 0, 0), b.node("B", 50, 0)
+    b.way(1, ["A", "B"], highway="path", name="Short Trail")
+    raw = b.doc()
+    tg = build_graph(raw, crs=CRS)
+    route = shortest_route(tg, b.ids["A"], b.ids["B"])
+    req = GenerateRequest.from_dict({"trailhead": str(b.ids["A"]), "total": "0.01-0.1", "nights": 1, "daily": "0.5-4"})
+    result = plan_route(REGION, raw, tg, req, route, "one_way")
+    c = result.report["candidates"][0]
+    assert c.plan is not None and len(c.plan.days) == 2 and not c.plan.ok
+    assert any("under" in v or "short" in v.lower() for v in c.plan.violations + c.plan.notes)
+
+
+def test_too_many_pinned_camps_is_still_a_camps_error(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "nights": 1, "daily": "0.5-4",
+                                     "camps": ["1.0", "1.5"]})
+    with pytest.raises(RequestError) as e:
+        plan_trip(REGION, raw, tg, req)
+    assert e.value.field == "camps"

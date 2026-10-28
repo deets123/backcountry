@@ -1,7 +1,7 @@
 import { miles, shortDate } from "../format";
 import { megabytes } from "../offline/tiles";
 import type { State } from "../store";
-import { esc } from "./common";
+import { esc, kindName } from "./common";
 
 export function renderSaved(s: State): string {
   const status = [s.status, s.error].filter(Boolean).join(" ");
@@ -12,7 +12,7 @@ export function renderSaved(s: State): string {
   const total = s.saved.reduce((sum, t) => sum + t.bytes, 0);
   const cards = s.saved.map((t) => {
     const c = t.run.candidates[t.index - 1];
-    return `<div class="card saved-trip"><b>${esc(t.startName)}: ${esc(c?.kind ?? "trip")}, ${miles(c?.length_m)}</b>
+    return `<div class="card saved-trip"><b>${esc(t.startName)}: ${esc(c ? kindName(c.kind) : "trip")}, ${miles(c?.length_m)}</b>
 <div class="note">Saved ${shortDate(t.savedAt)} · ${megabytes(t.bytes)} · ${t.complete ? "complete" : "<b>incomplete</b>"} · ${t.persisted ? "storage kept" : "may be cleared if the phone runs low on storage"}${t.campsM ? " · camps moved by you" : ""}</div>
 <div class="row"><button class="primary" data-open="${esc(t.id)}">Open</button><button class="link" data-delete="${esc(t.id)}">Delete</button></div></div>`;
   }).join("");

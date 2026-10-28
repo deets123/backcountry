@@ -15,6 +15,7 @@ from shapely import STRtree
 from shapely.geometry import Point
 
 from backcountry.ingest import feature_center
+from backcountry.route import resolve_point
 
 SNAP_MAX_M = 200.0
 KIND_ORDER = ("osm_trailhead", "parking_nearby", "trail_road_junction")
@@ -84,3 +85,38 @@ def find_candidates(tg, raw: dict, node_component: dict, snap_max_m: float = SNA
         candidates.append(c)
     candidates.sort(key=lambda c: (KIND_ORDER.index(c["kinds"][0]), int(c["component"][1:]), c["names"][:1], c["id"]))
     return {"candidates": candidates, "unsnapped": unsnapped}
+
+
+def trailhead_list(region, tg, raw: dict, node_component: dict) -> list[dict]:
+    """The region's trailheads (yaml entries first), then start points found in the data."""
+    G = tg.graph
+    out = []
+    for th in region.trailheads:
+        node = th.get("node")
+        if node is None and th.get("lat") is not None:  # verified lat/lon entry: snap to the nearest graph node
+            try:
+                node = resolve_point(tg, region, f"{th['lat']},{th['lon']}")["node"]
+            except ValueError:
+                node = None
+        in_graph = node in G
+        out.append({
+            "id": th["id"], "name": th.get("name"), "node": node, "source": "yaml", "verified": bool(th.get("verified")),
+            "in_graph": in_graph, "usfs": th.get("usfs"), "note": th.get("note"),
+            "lat": G.nodes[node]["lat"] if in_graph else None, "lon": G.nodes[node]["lon"] if in_graph else None,
+            "component": node_component.get(node),
+        })
+    known = {t["node"] for t in out if t["node"] is not None}
+    for c in find_candidates(tg, raw, node_component)["candidates"]:
+        if c["id"] in known:
+            continue
+        out.append({
+            "id": str(c["id"]), "name": " | ".join(c["names"]) or None, "node": c["id"], "source": "data",
+            "verified": False, "in_graph": True, "kinds": c["kinds"], "lat": c["lat"], "lon": c["lon"],
+            "component": c["component"], "snap_m": c["snap_m"],
+        })
+    return out
+
+
+def trailhead_names(trailheads: list[dict]) -> dict[int, str]:
+    """node -> what to call a start or finish there (a yaml trailhead's name, or the data's), for output text."""
+    return {t["node"]: t["name"] for t in trailheads if t.get("node") is not None and t.get("name")}
