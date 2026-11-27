@@ -4,6 +4,7 @@ import type { State, Store } from "../store";
 import type { Candidate, Trailhead } from "../types";
 import { renderChat } from "./chat";
 import { esc, kindName, levelChip, notesHtml } from "./common";
+import { chipsHtml } from "./notices";
 
 export function segmentNames(c: Candidate): string[] {
   const out: string[] = [];
@@ -14,7 +15,7 @@ export function segmentNames(c: Candidate): string[] {
 export function cardHtml(c: Candidate, selected: boolean): string {
   const days = c.plan ? (c.plan.ok ? "days: OK" : "days: NOT all limits met") : "days: not planned";
   return `<div class="card${selected ? " selected" : ""}" data-index="${c.index}">
-  <div><span class="swatch" style="background:${candidateColor(c.index)}"></span><b>Candidate ${c.index}</b>: ${esc(kindName(c.kind))}${"level" in c ? ` · ${levelChip(c.level ?? null)}` : ""}</div>
+  <div><span class="swatch" style="background:${candidateColor(c.index)}"></span><b>Candidate ${c.index}</b>: ${esc(kindName(c.kind))}${"level" in c ? ` · ${levelChip(c.level ?? null)}` : ""}${chipsHtml(c.notices)}</div>
   <div>${miles(c.length_m)}, ${signedFeet(c.gain_ft, c.loss_ft)}</div>
   <div>road ${miles(c.road_m)}${c.repeated_m ? `, walked twice ${miles(c.repeated_m)}` : ""} · ${days} · penalty ${c.penalty.toFixed(2)}</div>
   <div class="note">${esc(segmentNames(c).join(" › "))}</div>

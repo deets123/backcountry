@@ -3,6 +3,7 @@ import type { State, Store } from "../store";
 import { feet, miles } from "../format";
 import type { Finish, Level, Trailhead, TripType } from "../types";
 import { esc, levelName } from "./common";
+import { parkLineHtml } from "./notices";
 import { bindSearch, renderSearch, type SearchActions } from "./search";
 
 const TYPES: [TripType, string][] = [["any", "Any"], ["loop", "Loop"], ["lollipop", "Lollipop"], ["out_and_back", "Out and back"],
@@ -122,6 +123,7 @@ export function renderPlan(s: State): string {
 <h1>Plan a trip</h1>
 ${s.saved.length ? `<button class="link" id="to-saved">Saved trips (${s.saved.length})</button>` : ""}
 ${renderSearch(s)}
+${parkLineHtml(s.parkNotices, false)}
 <div id="th-box">${renderStarts(s)}</div>
 <p class="note">Tap a TH badge or a grey start dot on the map, pick from the list, or tap anywhere on a trail to start there (snapped within 650 ft).</p>
 <label><input type="checkbox" name="dayHike"${f.dayHike ? " checked" : ""}> Day hike</label>

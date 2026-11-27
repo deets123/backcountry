@@ -40,6 +40,14 @@ table { border-collapse: collapse; width: 100%; font-size: 13px; } td, th { text
 .lvl { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 12px; font-weight: 600; background: #eee; color: var(--muted); }
 .lvl-easy { background: #e8f5e9; color: var(--easy); } .lvl-moderate { background: #e3f2fd; color: var(--moderate); }
 .lvl-hard { background: #fff3e0; color: var(--hard); } .lvl-strenuous { background: #ffebee; color: var(--strenuous); }
+/* Before you go: notices quoted from their sources */
+ul.notices { padding-left: 18px; margin: 6px 0; } ul.notices li { margin-bottom: 6px; font-size: 14px; } ul.notices li .note { display: block; }
+ul.notices li.matched { border-left: 3px solid #f9a825; padding-left: 8px; margin-left: -11px; list-style: none; }
+ul.notices li.notice-closure.matched { border-left-color: #b00020; }
+.chip { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px; font-size: 12px; font-weight: 600; background: #fff3e0; color: var(--hard); }
+.chip-closure { background: #ffebee; color: #b00020; }
+.new { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; background: #e3f2fd; color: var(--moderate); }
+#park-notices summary { font-size: 13px; color: var(--muted); cursor: pointer; margin: 6px 0; }
 .day-strip { display: flex; gap: 4px; margin-top: 8px; }
 .day-block { flex: 1 1 0; min-width: 64px; padding: 6px 4px; border: 2px solid var(--line); border-radius: 8px; background: #fafafa;
   font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }

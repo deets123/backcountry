@@ -245,3 +245,16 @@ describe("avoid trails that need a permit", () => {
       .toMatch(/name="avoidPermit" checked> Avoid trails that need a permit/);
   });
 });
+
+describe("park notices on the plan screen", () => {
+  it("shows the park line with a sheet of notices", () => {
+    const parkNotices = { configured: true, park: { code: "zion", name: "Zion National Park" }, pending: false, stale: false, error: null,
+      checked_at: "2026-11-26T10:04:00Z", notices: [{ kind: "closure" as const, text: "Watchman Trail closed: pending repairs.", applies_to: "park", matched: false,
+        source: { name: "National Park Service", ref: null, as_of: "2026-09-29", checked_at: "2026-11-26T10:04:00Z" }, links: [] }] };
+    const html = renderPlan({ ...INITIAL, region: "zion-x", trailheads: [th({ id: "a" })], parkNotices });
+    expect(html).toContain("Park notices:");
+    expect(html).toContain("1 closure");
+    expect(html).toContain("Watchman Trail closed: pending repairs.");
+    expect(renderPlan({ ...INITIAL, region: "dolly_sods", trailheads: [th({ id: "a" })] })).not.toContain("Park notices:");
+  });
+});

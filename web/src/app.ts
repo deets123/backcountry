@@ -1,5 +1,5 @@
-import { ApiError, areaStatus, cancelPlan, chat, difficulty, getFinishes, getPlan, getRegions, getTrailheads, getTrails, openArea, search, startPlan, updateCheck,
-  updateTrip } from "./api";
+import { ApiError, areaStatus, cancelPlan, chat, difficulty, getFinishes, getPlan, getRegionNotices, getRegions, getTrailheads, getTrails, openArea, search,
+  startPlan, updateCheck, updateTrip } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
 import { locate, type Fix } from "./gps";
@@ -72,6 +72,23 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     } catch (e) { if (ask === finishAsk) store.set({ finishes: [], error: (e as Error).message }); }
   }
 
+  /** The open area's park notices (closures, permits, fees): fetched when an area opens, asked again every 5 s while the
+   * server is still fetching them, for up to 2 minutes. A fetch that fails leaves the line off; the trip still gets its block. */
+  let noticesAsk = 0;
+  const NOTICES_POLL_MS = 5_000, NOTICES_GIVE_UP_MS = 120_000;
+  async function loadParkNotices(region: string) {
+    const ask = ++noticesAsk, started = Date.now();
+    store.set({ parkNotices: null });
+    while (ask === noticesAsk && store.get().region === region) {
+      let p;
+      try { p = await getRegionNotices(region); } catch { return; }
+      if (ask !== noticesAsk || store.get().region !== region) return;
+      store.set({ parkNotices: p });
+      if (!p.pending || Date.now() - started > NOTICES_GIVE_UP_MS) return;
+      await new Promise((r) => setTimeout(r, NOTICES_POLL_MS));
+    }
+  }
+
   async function refreshSaved() {
     try { store.set({ saved: await listTrips() }); } catch { /* no IndexedDB here: no saved trips */ }
   }
@@ -121,6 +138,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
         searchQuery: "", searchResults: null, searchError: null, elevationPending: false, canRetryOpen: false, finishes: null,
         form: moved ? { ...s0.form, trailhead: "", finish: "" } : s0.form });
       map?.fitBounds([b.west, b.south, b.east, b.north]);
+      void loadParkNotices(id);
       try {
         const dest = store.get().destination;
         const [ths, trails] = await Promise.all([getTrailheads(id, dest?.ref), getTrails(id)]);

@@ -76,3 +76,13 @@ describe("startLabel", () => {
     expect(startLabel("39.04,-79.38", [])).toBe("Map point 39.04,-79.38");
   });
 });
+
+describe("notice chips", () => {
+  it("shows a chip for a matched permit, ticket or closure notice", () => {
+    const notice = { kind: "permit" as const, text: "Permit to hike Angels Landing Trail, 0.4 mi of this trip.", applies_to: "trail: Angels Landing Trail",
+      matched: true, source: { name: "OpenStreetMap", ref: null, as_of: "2026-10-26", checked_at: null }, links: [] };
+    expect(cardHtml(cand({ notices: [notice] }), false)).toContain('class="chip chip-permit"');
+    expect(cardHtml(cand({ notices: [{ ...notice, matched: false }] }), false)).not.toContain("chip-permit");
+    expect(cardHtml(cand({}), false)).not.toContain("chip");
+  });
+});
