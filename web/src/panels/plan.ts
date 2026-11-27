@@ -141,6 +141,7 @@ ${renderSearch(s)}
 <div id="per-day">${renderPerDay(f, null)}</div>
 <label>Trip level<select name="tripLevel"><option value=""${f.tripLevel ? "" : " selected"}>Any</option>${LEVELS.map((l) => `<option value="${l}"${f.tripLevel === l ? " selected" : ""}>${levelName(l)}</option>`).join("")}</select></label>
 <label><input type="checkbox" name="noRoads"${f.noRoads ? " checked" : ""}> No roads at all</label>
+<label><input type="checkbox" name="avoidPermit"${f.avoidPermit ? " checked" : ""}> Avoid trails that need a permit</label>
 <label><input type="checkbox" name="campsAtSites"${f.campsAtSites ? " checked" : ""}> Camps only at known campsites</label>
 <label>Must visit (trail names or trailhead ids, one per line)<textarea name="mustVisit" rows="2">${esc(f.mustVisit.join("\n"))}</textarea></label>
 <label>Avoid (trail names, one per line)<textarea name="avoid" rows="2">${esc(f.avoid.join("\n"))}</textarea></label>

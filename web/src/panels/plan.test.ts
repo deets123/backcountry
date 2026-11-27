@@ -237,3 +237,11 @@ describe("names, not ids", () => {
     expect(html).not.toContain("<b>402290253</b>");
   });
 });
+
+describe("avoid trails that need a permit", () => {
+  it("has the switch, checked when the form says so", () => {
+    expect(renderPlan({ ...INITIAL, region: "dolly_sods", trailheads: [th({ id: "a" })] })).toContain('name="avoidPermit"');
+    expect(renderPlan({ ...INITIAL, region: "dolly_sods", trailheads: [th({ id: "a" })], form: { ...INITIAL.form, avoidPermit: true } }))
+      .toMatch(/name="avoidPermit" checked> Avoid trails that need a permit/);
+  });
+});

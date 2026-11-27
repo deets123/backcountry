@@ -1,8 +1,8 @@
 // Typed client for the piece-1 API. All errors become ApiError with the server's wording.
 import type { DifficultyAnswer, DifficultyBody } from "./offline/levels";
 import type { UpdateAnswer, UpdateCheck } from "./panels/update";
-import type { ApiErrorBody, AreaOpened, AreaStatus, ChatAnswer, FeaturesInView, Finish, GenerateRequest, PlanJob, RecentArea, Region, Run, SearchResult,
-  TrailFeatureCollection, Trailhead } from "./types";
+import type { ApiErrorBody, AreaOpened, AreaStatus, ChatAnswer, FeaturesInView, Finish, GenerateRequest, ParkNotices, PlanJob, RecentArea, Region,
+  Run, RunNotices, SearchResult, TrailFeatureCollection, Trailhead } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public field?: string) {
@@ -54,6 +54,16 @@ export async function search(q: string): Promise<SearchResult[]> {
 
 export function openArea(body: { ref: string } | { refs: string[] } | { box: [number, number, number, number] } | { point: [number, number] }): Promise<AreaOpened> {
   return request("/api/areas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+/** The park's current notices (closures, permits, fees), park-wide, for the plan screen. */
+export function getRegionNotices(region: string): Promise<ParkNotices> {
+  return request(`/api/regions/${encodeURIComponent(region)}/notices`);
+}
+
+/** A trip's "Before you go" re-matched against the park's current notices (saved trips, and plans made before the fetch). */
+export function getRunNotices(runId: string, n: number): Promise<RunNotices> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/notices?candidate=${n}`);
 }
 
 export function updateCheck(runId: string, n: number): Promise<UpdateCheck> {

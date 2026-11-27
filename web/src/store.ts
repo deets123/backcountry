@@ -1,5 +1,5 @@
 import { DEFAULT_FORM, type FormState } from "./request";
-import type { ChatMessage, Destination, Finish, RecentArea, Region, Run, SearchResult, Trailhead } from "./types";
+import type { ChatMessage, Destination, Finish, ParkNotices, RecentArea, Region, Run, SearchResult, Trailhead } from "./types";
 import type { Fix, Where } from "./gps";
 import type { SavedTrip } from "./offline/db";
 import type { SaveProgress } from "./offline/save";
@@ -28,6 +28,10 @@ export interface State {
   /** One way: finishing trailheads suggested for the current start and miles (null: not asked yet). */
   finishes: Finish[] | null;
   tripUpdate: TripUpdate | null;  // newer trail data offered for the open saved trip
+  /** The open area's park notices (closures, permits, fees), park-wide; null until fetched or when there is no feed. */
+  parkNotices: ParkNotices | null;
+  /** Keys ("kind|text") of the open trip's notices that weren't in its saved copy. */
+  noticesNew: string[];
 }
 
 export const INITIAL: State = {
@@ -36,7 +40,7 @@ export const INITIAL: State = {
   saved: [], savedId: null, campsM: null, gps: { mode: "off" }, saving: null, tilesMissing: false, junctions: false, offline: false, updateReady: false, mapNote: null,
   chat: [], chatBusy: false, chatError: null,
   searchQuery: "", searchResults: null, searchError: null, recentAreas: [], tripUpdate: null, elevationPending: false, canRetryOpen: false,
-  destination: null, finishes: null,
+  destination: null, finishes: null, parkNotices: null, noticesNew: [],
 };
 
 type Listener = (next: State, prev: State) => void;

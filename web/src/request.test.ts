@@ -9,7 +9,7 @@ describe("toRequest", () => {
     expect("request" in r && r.request).toEqual({
       trailhead: "bear_rocks", total: "18-26", nights: 2, daily: "6-11", max_gain_day: 2500, type: "loop", count: 3,
       no_roads: false, camps: ["8.5"], camps_at_sites: false, must_visit: ["Rocky Point Trail"], avoid: [], direction: "cw",
-      days: [], level: null, destination: null, finish: null,
+      days: [], level: null, destination: null, finish: null, avoid_permit: false,
     });
   });
   it("omits nights/daily/gain when blank", () => {
@@ -110,5 +110,17 @@ describe("trip shapes", () => {
   it("fromRun keeps the finish and the day hike", () => {
     const run = { request: { ...DEFAULT_FORM, trailhead: "x", total: [5, 9], nights: null, daily: null, type: "one_way", finish: "y" } } as unknown as Run;
     expect(fromRun(run)).toMatchObject({ type: "one_way", finish: "y", dayHike: true });
+  });
+});
+
+describe("avoid trails that need a permit", () => {
+  it("sends avoid_permit and reads it back from a run", () => {
+    const r = toRequest({ ...DEFAULT_FORM, trailhead: "th1", avoidPermit: true });
+    expect("request" in r && r.request.avoid_permit).toBe(true);
+    const off = toRequest({ ...DEFAULT_FORM, trailhead: "th1" });
+    expect("request" in off && off.request.avoid_permit).toBe(false);
+    const run = { request: { trailhead: "th1", total: [18, 26], nights: 2, daily: [6, 11], type: "loop", count: 3, avoid_permit: true } } as unknown as Run;
+    expect(fromRun(run).avoidPermit).toBe(true);
+    expect(fromRun({ request: { trailhead: "th1", total: [18, 26], type: "loop" } } as unknown as Run).avoidPermit).toBe(false);
   });
 });
