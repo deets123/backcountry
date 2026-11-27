@@ -8,6 +8,8 @@ data/osm/*
 !data/osm/.gitkeep
 data/areas/*
 !data/areas/.gitkeep
+data/nps/*
+!data/nps/.gitkeep
 out/
 
 # Python / tooling

@@ -19,6 +19,7 @@ from backcountry.destination import resolve as resolve_destination
 from backcountry.difficulty import rate_saved, segments_terrain
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
+from backcountry.notices import assemble, payload_items
 from backcountry.planning import GenerateRequest, RequestError, parse_range, plan_route, plan_trip, suggest_finishes
 from backcountry.scoring import M_PER_MI
 from backcountry.retrace import changes as trip_changes
@@ -219,7 +220,7 @@ def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None, stop=None
         result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=app.state.settings.raw_dir,
                            on_snapshot=snapshot if on_snapshot else None, index=con,
                            feature_index=loaded.feature_index(app.state.settings.raw_dir), names=loaded.names(),
-                           **search_kw)
+                           park=app.state.nps.park_of(loaded), **search_kw)
     if stop and stop():
         return {"run_id": "cancelled", "partial": True, "candidates": []}
     runs = app.state.runs
@@ -303,6 +304,35 @@ def get_run(run_id: str, request: Request):
     return request.app.state.runs.load(run_id)
 
 
+# --- park notices (permits, fees, closures, rules) ----------------------------------------------------
+
+
+@router.get("/regions/{region_id}/notices")
+def region_notices(region_id: str, request: Request):
+    """The park's current notices, park-wide (the plan screen): closures, permits, the fee, cautions. Dated; from
+    the cache the server holds, refreshed in the background."""
+    loaded = _regions(request).get(region_id)
+    nps = request.app.state.nps
+    park = nps.park_of(loaded)
+    block, pending = assemble([], park, [])
+    data = park.get("data") or {}
+    return {"configured": park["configured"], "park": {"code": park["code"], "name": nps.park_name(park["code"])} if park["code"] else None,
+            "pending": pending, "stale": bool(data.get("stale")), "error": data.get("error"), "checked_at": data.get("fetched_at"),
+            "notices": [n for n in block if n["kind"] != "unknown"]}
+
+
+@router.get("/runs/{run_id}/notices")
+def run_notices(run_id: str, request: Request, candidate: int = 1):
+    """A stored trip's "Before you go" re-matched against the park's current data: its own OpenStreetMap notices are
+    kept as planned; the park's are matched again to its trails, start, finish, destination and camps."""
+    run, c = _candidate(request, run_id, candidate)
+    loaded = _regions(request).get(run["region"])
+    park = request.app.state.nps.park_of(loaded)
+    osm = [n for n in c.get("notices") or [] if (n.get("source") or {}).get("name") == "OpenStreetMap"]
+    block, pending = assemble(osm, park, payload_items(run, c))
+    return {"notices": block, "pending": pending, "checked_at": (park.get("data") or {}).get("fetched_at")}
+
+
 # --- saved trips and newer data ---------------------------------------------------------------
 
 
@@ -358,7 +388,8 @@ def update_trip(run_id: str, request: Request, body: dict):
         result = plan_route(loaded.region, loaded.raw, loaded.tg, req, followed["route"], c["kind"],
                             (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
                             raw_dir=request.app.state.settings.raw_dir,
-                            feature_index=loaded.feature_index(request.app.state.settings.raw_dir), names=loaded.names())
+                            feature_index=loaded.feature_index(request.app.state.settings.raw_dir), names=loaded.names(),
+                            park=request.app.state.nps.park_of(loaded))
     result.start = run["start"]
     if (run.get("search") or {}).get("finish") and "finish" in result.report:  # keep how the finish was named
         result.report["finish"] = run["search"]["finish"] | {"node": result.report["finish"]["node"]}

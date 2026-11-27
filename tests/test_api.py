@@ -1,7 +1,10 @@
 import json
 import re
+import time
+from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from backcountry.api.app import create_app
@@ -573,3 +576,108 @@ def test_region_summaries_read_each_cache_once(client, monkeypatch):
     monkeypatch.setattr(store_mod.json, "loads", lambda text, *a, **k: calls.append(text) or real(text, *a, **k))
     client.get("/api/regions"), client.get("/api/regions")
     assert sum(1 for t in calls if '"response"' in t) <= 1  # the Overpass cache (big) is parsed at most once
+
+
+# --- park notices (permits, closures) ---------------------------------------------------------------------
+
+FIX = Path(__file__).parent / "fixtures" / "nps"
+
+
+def _nps_pages():
+    return {"/parks?": (FIX / "parks_small.json").read_bytes(), "/alerts?": (FIX / "zion_alerts.json").read_bytes(),
+            "/thingstodo?": (FIX / "zion_things.json").read_bytes()}
+
+
+def _fake_fetch(pages, calls):
+    def fetch(url, headers):
+        calls.append((url, headers))
+        for k, v in pages.items():
+            if k in url:
+                return v
+        raise AssertionError(url)
+    return fetch
+
+
+@pytest.fixture
+def zion_env(tmp_path, grid):
+    """A hand-made region whose box holds Zion's NPS point, with the synthetic grid as its trails (the grid's coordinates
+    are elsewhere; only the bbox matters for park_for), and a key set. NPS refreshes run inline (area_thread False)."""
+    regions = tmp_path / "regions"
+    regions.mkdir()
+    (regions / "zion_box.yaml").write_text(yaml.safe_dump({"id": "zion_box", "name": "Zion box", "crs": "EPSG:32617",
+        "bbox": {"south": 37.0, "west": -113.3, "north": 37.6, "east": -112.8}, "trailheads": []}))
+    raw_dir = tmp_path / "raw" / "zion_box"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "overpass_20260101T000000Z.json").write_text(json.dumps(grid.doc()))
+    return Settings(raw_dir=tmp_path / "raw", runs_dir=tmp_path / "runs", regions_dir=regions, nps_key="k-secret",
+                    nps_dir=tmp_path / "nps", area_thread=False)
+
+
+def test_region_notices_without_a_key_say_so(client):
+    r = client.get("/api/regions/dolly_sods/notices")
+    assert r.status_code == 200 and r.json()["configured"] is False and r.json()["park"] is None
+    assert r.json()["notices"][0]["text"] == "Park notices from the National Park Service aren't set up on this server."
+    assert not any(n["kind"] == "unknown" for n in r.json()["notices"])
+
+
+def test_region_notices_with_a_key_map_the_park_and_hide_the_key(zion_env):
+    calls = []
+    env = zion_env
+    c = TestClient(create_app(env, web_dist=env.runs_dir / "no-web", nps_fetch=_fake_fetch(_nps_pages(), calls)))
+    r = c.get("/api/regions/zion_box/notices")
+    assert r.status_code == 200, r.text
+    assert r.json()["configured"] is True and r.json()["park"] == {"code": "zion", "name": "Zion National Park"}
+    assert r.json()["pending"] is False and r.json()["checked_at"]
+    assert any(n["kind"] == "fee" for n in r.json()["notices"]) and any("Watchman" in n["text"] for n in r.json()["notices"])
+    assert "k-secret" not in r.text and all("k-secret" not in u for u, _ in calls) and calls
+
+
+def test_plan_does_not_wait_for_the_nps_fetch(zion_env, grid):
+    import threading
+
+    gate = threading.Event()
+    pages = _nps_pages()
+
+    def slow_fetch(url, headers):
+        gate.wait(5.0)  # the plan must return before this
+        return pages[next(k for k in pages if k in url)]
+    env = zion_env
+    env.area_thread = True
+    c = TestClient(create_app(env, web_dist=env.runs_dir / "no-web", nps_fetch=slow_fetch))
+    t0 = time.perf_counter()
+    r = c.post("/api/regions/zion_box/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2-8", "type": "loop"})
+    assert r.status_code == 200, r.text
+    assert time.perf_counter() - t0 < 4.0
+    assert r.json()["search"]["notices_pending"] is True
+    assert not any(n["text"] == "No official notice feed for this area." for n in r.json()["candidates"][0]["notices"])
+    gate.set()
+
+
+def test_run_notices_rematch_a_stored_run_and_fill_in_after_the_fetch(zion_env, grid):
+    env = zion_env
+    c = TestClient(create_app(env, web_dist=env.runs_dir / "no-web", nps_fetch=_fake_fetch(_nps_pages(), [])))
+    c.get("/api/regions/zion_box/notices")  # maps the park and, inline, fills the cache
+    run = c.post("/api/regions/zion_box/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2-8", "type": "loop"}).json()
+    assert run["search"]["notices_pending"] is False
+    r = c.get(f"/api/runs/{run['run_id']}/notices", params={"candidate": 1})
+    assert r.status_code == 200 and r.json()["pending"] is False and r.json()["notices"][-1]["kind"] == "unknown"
+    assert any(n["kind"] == "fee" for n in r.json()["notices"]) and r.json()["checked_at"]
+    assert c.get(f"/api/runs/{run['run_id']}/notices", params={"candidate": 9}).status_code == 404
+
+
+def test_run_notices_for_a_run_saved_before_notices_existed(env, client, grid):
+    run = client.post("/api/regions/dolly_sods/generate", json={"trailhead": str(grid.ids["g00"]), "total": "2-8", "type": "loop"}).json()
+    path = env.runs_dir / f"{run['run_id']}.json"
+    doc = json.loads(path.read_text())
+    for cand in doc["candidates"]:
+        cand.pop("notices")
+    path.write_text(json.dumps(doc))
+    r = client.get(f"/api/runs/{run['run_id']}/notices", params={"candidate": 1})
+    assert r.status_code == 200 and r.json()["notices"][-1]["kind"] == "unknown" and r.json()["pending"] is False
+
+
+def test_startup_summary_reports_park_notices(env):
+    from backcountry.api.area_worker import status_summary
+
+    app = create_app(env, web_dist=env.runs_dir / "no-web")
+    assert status_summary(env, app.state.areas, app.state.nps)["nps"] == {"configured": False, "cache_kb": 0}

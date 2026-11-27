@@ -200,3 +200,8 @@ def test_payload_items_read_a_stored_run():
     assert N.payload_items(run, cand) == [("trail", "West Rim Trail"), ("trail", "Angels Landing Trail"), ("start", "Grotto Trailhead"),
                                           ("destination", "Angels Landing"), ("camp 1 site", "La Verkin Creek 7")]
     assert N.payload_items({"start": {}, "search": {}}, {"segments": [], "plan": None}) == []
+
+
+def test_assemble_pending_while_the_parks_list_is_still_coming():
+    block, pending = N.assemble([], {"code": None, "configured": True, "data": None, "pending": True}, [])
+    assert pending is True and [n["kind"] for n in block] == ["unknown"]  # no "no feed" line while the mapping is unknown

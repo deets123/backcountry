@@ -269,11 +269,15 @@ class AreaWorker:
             self._set(spec, "failed", FAILED)
 
 
-def status_summary(settings, worker: AreaWorker) -> dict:
-    """What the operator wants to see at start: the index in use, areas on disk and their size, free disk, limits."""
+def status_summary(settings, worker: AreaWorker, nps=None) -> dict:
+    """What the operator wants to see at start: the index in use, areas on disk and their size, free disk, limits,
+    and whether park notices (the National Park Service feed) are on."""
     raw = settings.raw_dir or ingest.RAW_DIR
     area_dirs = [p.stem for p in worker._area_ids()]
     used = sum(_dir_bytes(raw / a) for a in area_dirs)
+    nps_dir = getattr(settings, "nps_dir", None)
+    cache_kb = round(_dir_bytes(nps_dir) / 1000) if nps_dir and Path(nps_dir).exists() else 0
     return {"index_date": worker._index_date(), "areas": len(area_dirs), "prepared": len(areas.prepared_ids(settings.areas)),
             "used_gb": round(used / 1e9, 2), "free_gb": round(usdata.disk_free_gb(raw), 1), "limits": dict(worker.limits),
-            "prepared_gb": settings.prepared_gb, "plan_jobs": getattr(settings, "plan_jobs", 2)}
+            "prepared_gb": settings.prepared_gb, "plan_jobs": getattr(settings, "plan_jobs", 2),
+            "nps": {"configured": bool(nps is not None and nps.configured), "cache_kb": cache_kb}}

@@ -373,6 +373,8 @@ def assemble(osm: list[dict], park: dict | None, items: list[tuple[str, str]]) -
     pending when the park is known and configured but its data hasn't arrived yet."""
     park = park or {"code": None, "configured": False, "data": None}
     code, configured, data = park.get("code"), bool(park.get("configured")), park.get("data")
+    # pending: the park is known but its data hasn't arrived, or the parks list itself hasn't (park["pending"])
+    pending = bool(park.get("pending")) or (bool(code) and configured and data is None)
     block = list(osm)
     if data:
         block += nps_notices(data, items)
@@ -382,8 +384,8 @@ def assemble(osm: list[dict], park: dict | None, items: list[tuple[str, str]]) -
                                 checked_at=data.get("fetched_at")))
     if not configured:
         block.append(notice("info", NOT_SET_UP, applies_to="park"))
-    elif code is None:
+    elif code is None and not pending:
         block.append(notice("info", NO_FEED, applies_to="park"))
     block.sort(key=_order)
     block.append(notice("unknown", UNKNOWN_LINE))
-    return block, bool(code) and configured and data is None
+    return block, pending
