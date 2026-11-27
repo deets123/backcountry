@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from backcountry.api.area_worker import AreaWorker, Busy, NoIndex, NoRoom
 from backcountry.api.endpoints import router
 from backcountry.api.store import NotFound, RegionStore, RunStore, Settings
 from backcountry.chat.models import ChatModel, ModelBadOutput, ModelTimeout, ModelUnavailable, model_from_env
@@ -16,13 +17,15 @@ from backcountry.planning import RequestError
 from backcountry.region import REPO_ROOT
 
 
-def create_app(settings: Settings | None = None, web_dist: Path | None = None, chat_model: ChatModel | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, web_dist: Path | None = None, chat_model: ChatModel | None = None,
+               dem_fetch=None) -> FastAPI:
     """The API, plus the built web app at / when web/dist exists (so a phone gets both from one address)."""
     settings = settings or Settings.default()
     app = FastAPI(title="Backcountry route engine", version="0.2")
     app.state.settings = settings
     app.state.regions = RegionStore(settings)
     app.state.runs = RunStore(settings.runs_dir) if settings.runs_dir else None
+    app.state.areas = AreaWorker(settings, app.state.regions, app.state.runs, dem_fetch=dem_fetch)
     cached: list = [chat_model]
 
     def get_chat_model() -> ChatModel:
@@ -51,6 +54,18 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = None, c
         loc = [str(x) for x in first.get("loc", []) if x not in ("body", "query", "path")]
         return JSONResponse(status_code=400, content={"error": f"{'.'.join(loc) or 'request'}: {first.get('msg', 'invalid')}",
                                                       "field": loc[-1] if loc else "request"})
+
+    @app.exception_handler(Busy)
+    def busy(request: Request, exc: Busy):
+        return JSONResponse(status_code=429, content={"error": str(exc)})
+
+    @app.exception_handler(NoRoom)
+    def no_room(request: Request, exc: NoRoom):
+        return JSONResponse(status_code=507, content={"error": str(exc)})
+
+    @app.exception_handler(NoIndex)
+    def no_index(request: Request, exc: NoIndex):
+        return JSONResponse(status_code=503, content={"error": str(exc)})
 
     @app.exception_handler(ModelUnavailable)
     def model_unavailable(request: Request, exc: ModelUnavailable):

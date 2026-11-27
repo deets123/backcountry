@@ -245,14 +245,44 @@ def fetch(
     return _write_cache(region, raw_dir, "overpass", doc)
 
 
-def load_raw(region: Region, raw_dir: Path | None = None) -> dict:
-    path = latest_cache(region, raw_dir)
+CUT_PREFIX = "extract"  # generated areas: cut from the local US index (backcountry.osm_index)
+
+
+def raw_prefix(region: Region) -> str:
+    return CUT_PREFIX if region.generated else "overpass"
+
+
+_CUT_NAME = re.compile(rf"^{CUT_PREFIX}_(\d{{4}})(\d{{2}})(\d{{2}})T\d{{6}}Z\.json$")
+
+
+def cuts(region: Region, raw_dir: Path | None = None) -> list[str]:
+    """Extract dates of a generated area's cached cuts, oldest first (read from the file names)."""
+    if not region.generated:
+        return []
+    out = set()
+    for p in region_raw_dir(region, raw_dir).glob(f"{CUT_PREFIX}_*.json"):
+        if m := _CUT_NAME.match(p.name):
+            out.add(f"{m[1]}-{m[2]}-{m[3]}")
+    return sorted(out)
+
+
+def load_raw(region: Region, raw_dir: Path | None = None, cut: str | None = None) -> dict:
+    """The newest cached raw data, or (generated areas) the cut from extract date `cut`."""
+    prefix = raw_prefix(region)
+    if cut is None:
+        path = latest_cache(region, raw_dir, prefix=prefix)
+    else:
+        files = sorted(region_raw_dir(region, raw_dir).glob(f"{prefix}_{cut.replace('-', '')}T*.json"))
+        path = files[-1] if files and region.generated else None
     if path is None:
+        if region.generated:
+            raise FileNotFoundError(f"Area {region.id!r} has no trail data{' from ' + cut if cut else ''} yet.")
         raise FileNotFoundError(
             f"No cached OSM data for region {region.id!r}. Run `backcountry ingest --region {region.id}` first."
         )
     doc = json.loads(path.read_text())
     doc["cache_path"] = str(path)
+    doc["cut"] = doc.get("osm_base") if region.generated else None
     return doc
 
 
@@ -334,6 +364,10 @@ DEM_ATTRIBUTION = "USGS 3D Elevation Program (3DEP) (public domain)"
 _TILE_13 = re.compile(r"1/3 Arc Second (n\d+w\d+) \d{8}$")
 
 
+# Where USGS serves 3DEP GeoTIFFs (the TNM API's downloadURLs). Anything else is refused, never opened.
+ALLOWED_DEM_HOSTS = ("prd-tnm.s3.amazonaws.com",)
+
+
 def tnm_search(dataset: str, bounds: tuple, fetcher: Callable[[str], dict] = _http_json) -> list[dict]:
     """Products from the USGS National Map API intersecting bounds (west, south, east, north)."""
     params = {"datasets": dataset, "bbox": ",".join(str(b) for b in bounds), "prodFormats": "GeoTIFF",
@@ -355,6 +389,10 @@ def select_dem_items(kind: str, items: list[dict]) -> list[dict]:
 
 def _read_merged(urls: list[str], bounds: tuple):
     """Read just `bounds` (lon/lat) from remote cloud-optimized GeoTIFFs and merge them (first valid wins)."""
+    for url in urls:
+        u = urllib.parse.urlparse(url)
+        if u.scheme != "https" or u.hostname not in ALLOWED_DEM_HOSTS:
+            raise FetchError(f"USGS listed a DEM at an unexpected host ({u.hostname}); nothing was downloaded.")
     import numpy as np
     import rasterio
     from rasterio.merge import merge
@@ -387,12 +425,15 @@ def fetch_dem(
     name: str | None = None,
     raw_dir: Path | None = None,
     refresh: bool = False,
-    searcher: Callable[[str, tuple], list[dict]] = tnm_search,
-    reader: Callable = _read_merged,
+    searcher: Callable[[str, tuple], list[dict]] | None = None,
+    reader: Callable | None = None,
 ) -> Path:
-    """Cache a DEM covering bounds (lon/lat west, south, east, north). Returns the metadata JSON path."""
+    """Cache a DEM covering bounds (lon/lat west, south, east, north). Returns the metadata JSON path.
+
+    The default reader opens only https URLs on ALLOWED_DEM_HOSTS, whatever the product search returns."""
     import rasterio
 
+    searcher, reader = searcher or tnm_search, reader or _read_merged
     prefix = _dem_prefix(kind, name)
     cached = latest_cache(region, raw_dir, prefix=prefix)
     if cached and not refresh:
@@ -403,6 +444,7 @@ def fetch_dem(
     items = select_dem_items(kind, searcher(DEM_DATASETS[kind], bounds))
     if not items:
         raise RuntimeError(f"USGS has no {DEM_DATASETS[kind]!r} products for bounds {bounds}")
+
     array, transform, crs = reader([i["downloadURL"] for i in items], bounds)
 
     retrieved_at = _utc_now()
@@ -410,7 +452,10 @@ def fetch_dem(
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{prefix}_{retrieved_at.replace('-', '').replace(':', '')}"
     tif = out_dir / f"{stem}.tif"
-    with rasterio.open(tif, "w", driver="GTiff", height=array.shape[0], width=array.shape[1], count=1,
+    # Both files are written beside their final names and renamed, the metadata last (it is what marks a DEM
+    # as cached): a server killed mid-write leaves only *.tmp files, never a cache that can't be read.
+    tif_tmp, path = tif.with_name(tif.name + ".tmp"), out_dir / f"{stem}.json"
+    with rasterio.open(tif_tmp, "w", driver="GTiff", height=array.shape[0], width=array.shape[1], count=1,
                        dtype="float32", crs=crs, transform=transform, nodata=float("nan"), compress="deflate",
                        tiled=True) as dst:
         dst.write(array, 1)
@@ -426,8 +471,10 @@ def fetch_dem(
         "sources": [{"title": i["title"], "url": i["downloadURL"], "publication_date": i["publicationDate"]}
                     for i in items],
     }
-    path = out_dir / f"{stem}.json"
-    path.write_text(json.dumps(meta, indent=1))
+    json_tmp = path.with_name(path.name + ".tmp")
+    json_tmp.write_text(json.dumps(meta, indent=1))
+    os.replace(tif_tmp, tif)
+    os.replace(json_tmp, path)
     return path
 
 

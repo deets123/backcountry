@@ -103,6 +103,8 @@ def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str) -> dict
         "road_m": c.road_m, "last_resort_m": c.last_resort_m, "repeated_m": c.repeated_m, "penalty": c.penalty,
         "segments": route_segments(c.route),
         "geometry": mapping(c.route.line_wgs84),
+        "route": {"nodes": list(c.route.nodes), "keys": [e["key"] for e in c.route.edges],  # to follow it on newer data
+                  "stem_keys": list(c.stem_keys)},
         "pieces": pieces,
         "waypoints": route_waypoints(c.route, start_text, f"{start_text} (loop)", c.plan),
         "plan": plan_payload(c.plan),
@@ -120,7 +122,10 @@ def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str) -> dict
 
 
 def data_sources(region, raw, result) -> list[dict]:
-    out = [{"name": "OpenStreetMap via Overpass API", "retrieved_at": raw["retrieved_at"], "attribution": OSM_ATTRIBUTION}]
+    if raw.get("cut"):  # a generated area, cut from the local copy of the Geofabrik US extract
+        out = [{"name": "OpenStreetMap via Geofabrik US extract", "retrieved_at": raw["cut"], "attribution": OSM_ATTRIBUTION}]
+    else:
+        out = [{"name": "OpenStreetMap via Overpass API", "retrieved_at": raw["retrieved_at"], "attribution": OSM_ATTRIBUTION}]
     src = next((c.route.elevation_source for c in result.report["candidates"] if c.route.elevation_source), None)
     if src:
         out.append({"name": src.get("dataset", "DEM"), "retrieved_at": src.get("retrieved_at"), "attribution": DEM_ATTRIBUTION})
@@ -136,6 +141,7 @@ def run_payload(run_id: str, region, result, raw, tg, generated_at: str, diff: s
         "candidates": [candidate_payload(i, c, result.start["how"], tg.retrieved_at)
                        for i, c in enumerate(report["candidates"], 1)],
         "data_sources": data_sources(region, raw, result),
+        "data_cut": raw.get("cut"),
         "known_gaps": KNOWN_GAPS,
         "difficulty_rules": RULES,
         "diff": diff,

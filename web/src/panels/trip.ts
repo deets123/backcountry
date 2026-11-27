@@ -12,6 +12,7 @@ import type { Candidate, Day, Rating, Run } from "../types";
 import { renderChat } from "./chat";
 import { esc, knownGapsHtml, levelChip, notesHtml } from "./common";
 import { segmentNames } from "./compare";
+import { bindUpdate, renderUpdate, type UpdateActions } from "./update";
 
 const NEAR = feet(500 * FT_PER_M);
 
@@ -131,6 +132,7 @@ export function renderTrip(s: State): string {
   return `
 <h1>Candidate ${c.index}: ${esc(c.kind)}, ${miles(c.length_m)}</h1>
 ${saved ? savedLineHtml(saved, run) : ""}
+${saved && s.tripUpdate?.id === saved.id ? renderUpdate(s.tripUpdate) : ""}
 <p>${signedFeet(c.gain_ft, c.loss_ft)} · road ${miles(c.road_m)}${c.repeated_m ? ` · walked twice ${miles(c.repeated_m)}` : ""}</p>
 <p class="note">${esc(segmentNames(c).join(" › "))}</p>
 ${notesHtml(c.notes)}
@@ -176,7 +178,7 @@ export function patchTrip(root: HTMLElement, prev: State, s: State): boolean {
   return true;
 }
 
-export interface TripActions {
+export interface TripActions extends UpdateActions {
   backToCompare(): void; replan(): void; showJunctions(show: boolean): void; save(): void; cancelSave(): void;
   toggleGps(): void; campHere(): void; resetCamps(): void; downloadSaved(which: string): void; showSaved(): void;
 }
@@ -184,6 +186,7 @@ export interface TripActions {
 export function bindTrip(root: HTMLElement, _store: Store, actions: TripActions): void {
   const on = (sel: string, fn: () => void) => root.querySelector(sel)?.addEventListener("click", fn);
   on("#back-compare", () => actions.backToCompare());
+  bindUpdate(root, actions);
   on("#back-saved", () => actions.showSaved());
   on("#replan", () => actions.replan());
   on("#save-offline", () => actions.save());

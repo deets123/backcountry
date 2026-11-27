@@ -136,11 +136,14 @@ Destination: web and phones, later the app stores, with offline use of saved tri
    shorter" into constraint changes, never into geometry; explains a trip from its numbers.
    **Per-day difficulty** (built 2026-10-22; `docs/superpowers/specs/2026-10-21-per-day-difficulty-design.md`):
    easy–strenuous levels with reasons, per-day targets in the form and chat, trip-level filter, closest fit.
+   **Any US area by name** (built 2026-10-27; `docs/superpowers/specs/2026-10-25-any-us-area-design.md`): search
+   any US park, protected area, place or trail and plan there, from a local index of the Geofabrik US extract;
+   saved trips offer newer trail data, never applied without review.
 5. **App-store packaging** (Capacitor), hosting, accounts.
 6. **Alerts and permit metadata** with provenance.
 
-Ideas from you (2026-10-21), not designed yet: "a backpacking version of AllTrails": name any park ("build me
-a loop in Shenandoah") and get a route; temperatures for the trip dates or climate averages, from a named source;
+Ideas from you (2026-10-21), not designed yet: "a backpacking version of AllTrails": name any park (built,
+above); out-and-back and one-way shuttle trips (needed for spurs like Angels Landing; suggested next); temperatures for the trip dates or climate averages, from a named source;
 a gear list derived from those numbers (sleeping-pad R-value, bag rating), labeled as guidance; difficulty levels
 (built, above); viewpoints along the route (OSM `tourism=viewpoint`) and ranking by
 reward for effort. Each gets its own design.

@@ -12,7 +12,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("api client", () => {
   it("returns regions", async () => {
     vi.stubGlobal("fetch", respond(200, { regions: [{ id: "dolly_sods", name: "Dolly Sods" }] }));
-    expect((await getRegions())[0]?.id).toBe("dolly_sods");
+    expect((await getRegions()).regions[0]?.id).toBe("dolly_sods");
   });
 
   it("turns {error, field} into ApiError with the field", async () => {

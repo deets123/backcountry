@@ -291,3 +291,21 @@ def test_raw_dir_can_come_from_the_environment(tmp_path):
                          env={**os.environ, "BACKCOUNTRY_RAW_DIR": str(tmp_path)},
                          capture_output=True, text=True, check=True).stdout.strip()
     assert out == str(tmp_path)
+
+
+def test_fetch_dem_interrupted_write_leaves_nothing_that_looks_cached(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    searcher, reader = _fake_dem_io([])
+    real = Path.write_text
+
+    def dies_half_way(self, text, *a, **kw):  # the server is killed while the metadata is being written
+        real(self, text[: len(text) // 2], *a, **kw)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(Path, "write_text", dies_half_way)
+    with pytest.raises(KeyboardInterrupt):
+        ingest.fetch_dem(REGION, (-79.99, 39.95, -79.96, 39.97), raw_dir=tmp_path, searcher=searcher, reader=reader)
+    monkeypatch.undo()
+    assert ingest.load_dem(REGION, raw_dir=tmp_path) is None  # no truncated dem13_*.json to trip over
+    assert not list((tmp_path / REGION.id).glob("*.tif"))  # nor a raster without its metadata

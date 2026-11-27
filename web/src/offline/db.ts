@@ -10,6 +10,8 @@ export interface SavedTrip {
   bytes: number; persisted: boolean; complete: boolean; problems: string[];
   /** When levels were last fetched for a trip saved before they existed (offline/levels.ts); new saves carry them. */
   levelsRefreshedAt?: string;
+  /** The newer data version the user chose not to update to ("Keep my trip"); asked again only for a newer one. */
+  declinedCut?: string;
 }
 
 const DB = "backcountry", STORE = "trips", VERSION = 1;

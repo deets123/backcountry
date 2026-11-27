@@ -1,4 +1,5 @@
-import { ApiError, chat, difficulty, generate, getRegions, getTrailheads, getTrails } from "./api";
+import { ApiError, areaStatus, chat, difficulty, generate, getRegions, getTrailheads, getTrails, openArea, search, updateCheck,
+  updateTrip } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
 import { locate, type Fix } from "./gps";
@@ -12,6 +13,8 @@ import { bindCompare, renderCompare, startLabel } from "./panels/compare";
 import { esc } from "./panels/common";
 import { bindPlan, renderPlan, tapMessage } from "./panels/plan";
 import { bindSaved, renderSaved } from "./panels/saved";
+import { openSearchResult, type Target } from "./panels/search";
+import { acceptUpdate, checkForUpdate, declineUpdate, reviewUpdate } from "./panels/update";
 import { bindTrip, patchTrip, renderTrip } from "./panels/trip";
 import { fromRun, toRequest, type FormState } from "./request";
 import { campHereIndex, campsOf, moveCamp } from "./resplit";
@@ -20,14 +23,14 @@ import { currentCandidate, openTripId } from "./selectors";
 import { nextSheet } from "./sheet";
 import { createStore, loadPersisted, persist, type Basemap, type State, type Store } from "./store";
 import type { Box } from "./offline/tiles";
-import type { GenerateRequest, Trailhead } from "./types";
+import type { GenerateRequest, RecentArea, Region, Trailhead } from "./types";
 
 const DRAG_SNAP_M = 150; // a dropped camp must land this close to the route line
 
 // Changes to these re-render the panel. (Form edits typed in the panel don't; see editForm.)
-const RENDER_KEYS: (keyof State)[] = ["view", "status", "error", "busy", "run", "selected", "trailheads", "sheet", "regions",
+const RENDER_KEYS: (keyof State)[] = ["view", "status", "error", "busy", "run", "selected", "trailheads", "sheet", "regions", "recentAreas",
   "saved", "savedId", "campsM", "gps", "saving", "offline", "updateReady", "mapNote", "tilesMissing", "junctions",
-  "chat", "chatBusy", "chatError"];
+  "chat", "chatBusy", "chatError", "tripUpdate"];
 const LIVE_KEYS = new Set<keyof State>(["gps", "saving"]); // updated in place in the trip view (patchTrip)
 const BOOT_TIMEOUT_MS = 5000; // with saved trips on the phone, don't wait longer than this for the server
 
@@ -91,11 +94,13 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   }
 
   const actions = {
-    async pickRegion(id: string) {
-      const region = store.get().regions.find((r) => r.id === id);
-      if (!region) return;
-      store.set({ region: id, trailheads: [], run: null, savedId: null, campsM: null, view: "plan", status: "Loading trails…", error: null });
-      const b = region.bbox;
+    /** A hand-made region, or a generated area (from the recent list, or with its box when just prepared). */
+    async pickRegion(id: string, bbox?: Region["bbox"]) {
+      const s0 = store.get();
+      const b = s0.regions.find((r) => r.id === id)?.bbox ?? s0.recentAreas.find((r) => r.id === id)?.bbox ?? bbox;
+      if (!b) return;
+      store.set({ region: id, trailheads: [], run: null, savedId: null, campsM: null, view: "plan", status: "Loading trails…", error: null, busy: false,
+        searchQuery: "", searchResults: null });
       map?.fitBounds([b.west, b.south, b.east, b.north]);
       try {
         const [ths, trails] = await Promise.all([getTrailheads(id), getTrails(id)]);
@@ -103,6 +108,29 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
         map?.setTrails(trails);
         map?.setTrailheads(ths, (th) => actions.pickTrailhead(th));
       } catch (e) { store.set({ status: "", error: (e as Error).message }); }
+    },
+    setQuery(q: string) { store.set({ searchQuery: q }); },
+    async searchAreas(q: string) {
+      store.set({ searchQuery: q });
+      if (!q.trim()) return store.set({ searchResults: null });
+      try {
+        const results = await search(q.trim());
+        if (store.get().searchQuery === q) store.set({ searchResults: results });  // a later keystroke wins
+      } catch (e) { store.set({ error: (e as Error).message }); }
+    },
+    openTarget(t: Target) {
+      return openSearchResult(t, {
+        openArea, areaStatus, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        pickRegion: (id, bbox) => actions.pickRegion(id, bbox),
+        setStatus: (message) => store.set({ status: message, error: null, busy: true }),
+        setError: (message) => store.set({ error: message, status: "", busy: false }),
+        addRecent: (a: RecentArea) => store.set((s) => ({ recentAreas: [a, ...s.recentAreas.filter((r) => r.id !== a.id)].slice(0, 8) })),
+      });
+    },
+    openRecent(r: RecentArea) { return actions.pickRegion(r.id, r.bbox); },
+    planHere() {
+      if (!lastView) return Promise.resolve(store.set({ error: "Move the map to the area first." }));
+      return actions.openTarget({ box: lastView.view });
     },
     pickTrailhead(th: Trailhead) { store.set((s) => ({ form: { ...s.form, trailhead: th.id }, error: null, view: "plan" })); },
     tapPoint(lon: number, lat: number, trailName: string | null) {
@@ -206,6 +234,42 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
         error: tilesGone ? "This trip's offline map was cleared by the browser. Tap Save again while online to get the map back." : null });
       map?.setTrails(rec.trails);
       map?.fitBounds(rec.box);
+      store.set({ tripUpdate: null });
+      const offer = await checkForUpdate(rec, { online: () => !store.get().offline && win?.navigator.onLine !== false, updateCheck });
+      if (offer && store.get().savedId === rec.id) store.set({ tripUpdate: offer });
+    },
+    // Newer trail data for the open saved trip: each step waits for the user's tap (panels/update.ts).
+    async reviewUpdate() {
+      const s = store.get(), u = s.tripUpdate, rec = s.saved.find((t) => t.id === s.savedId);
+      if (!rec || u?.phase !== "offer") return;
+      store.set({ tripUpdate: { id: rec.id, phase: "busy" } });
+      store.set({ tripUpdate: await reviewUpdate(rec, u.latest, { updateTrip }) });
+    },
+    laterUpdate() { store.set({ tripUpdate: null }); },  // offered again the next time the trip is opened
+    async declineUpdate() {
+      const s = store.get(), u = s.tripUpdate, rec = s.saved.find((t) => t.id === s.savedId);
+      if (!rec || !u || (u.phase !== "offer" && u.phase !== "review")) return;
+      await declineUpdate(rec, u.latest, { put: putTrip });
+      await refreshSaved();
+      store.set({ tripUpdate: null, status: "Kept your trip as it was." });
+    },
+    async acceptUpdate() {
+      const s = store.get(), u = s.tripUpdate, rec = s.saved.find((t) => t.id === s.savedId);
+      if (!rec || u?.phase !== "review") return;
+      store.set({ tripUpdate: { id: rec.id, phase: "busy" }, error: null });
+      try {
+        const saved = await acceptUpdate(rec, u, {
+          save: (run, n, name, campsM) => saveTrip(run, n, name, (p) => store.set({ saving: { id: tripId(run, n), ...p } }),
+            new AbortController().signal, undefined, campsM),
+          remove: deleteTrip,
+        });
+        await refreshSaved();
+        store.set({ saving: null, tripUpdate: null });
+        await actions.openSaved(saved.id);
+        store.set({ status: "Updated to the newer trail data." });
+      } catch (e) {
+        store.set({ saving: null, tripUpdate: { id: rec.id, phase: "failed", message: `Couldn't save the updated trip: ${(e as Error).message} Your trip is unchanged.` } });
+      }
     },
     async deleteSaved(id: string) {
       if (!win?.confirm("Delete this saved trip and its offline map?")) return;
@@ -331,11 +395,12 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     await refreshSaved();
     const hasSaved = store.get().saved.length > 0;
     try {
-      const regions = await getRegions(hasSaved ? BOOT_TIMEOUT_MS : undefined);
-      store.set({ regions, offline: false });
+      const { regions, recent_areas: recentAreas } = await getRegions(hasSaved ? BOOT_TIMEOUT_MS : undefined);
+      store.set({ regions, recentAreas, offline: false });
       void refreshTripLevels();
       const saved = store.get().region;
-      const id = saved && regions.some((r) => r.id === saved) ? saved : regions[0]?.id;
+      const known = (id: string) => regions.some((r) => r.id === id) || recentAreas.some((r) => r.id === id);
+      const id = saved && known(saved) ? saved : regions[0]?.id;
       if (id) await actions.pickRegion(id);
       else store.set({ error: "No region has cached data yet. Run `backcountry ingest` and `backcountry dem` first." });
     } catch (e) {
@@ -343,7 +408,8 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       if (unreachable && hasSaved) {
         store.set({ offline: true, view: "saved", status: "", error: null });
         // If the server answers later (slow signal), planning comes back without leaving the saved trips.
-        getRegions().then((regions) => { store.set({ regions, offline: false }); void refreshTripLevels(); }).catch(() => { /* still offline */ });
+        getRegions().then(({ regions, recent_areas: recentAreas }) => { store.set({ regions, recentAreas, offline: false }); void refreshTripLevels(); })
+          .catch(() => { /* still offline */ });
       }
       else store.set({ offline: unreachable, error: (e as Error).message });
     }

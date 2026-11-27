@@ -1,22 +1,30 @@
 """HTTP endpoints. Each one serializes engine results; none computes geometry."""
 
+import json
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from backcountry import ingest
+from backcountry import osm_index
+from backcountry.api.area_worker import NoIndex
 from backcountry.api.store import NotFound
 from backcountry.chat.service import chat_turn, start_names, trail_names
 from backcountry.difficulty import rate_saved, segments_terrain
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
-from backcountry.planning import GenerateRequest, RequestError, plan_trip
+from backcountry.planning import GenerateRequest, RequestError, plan_route, plan_trip
+from backcountry.retrace import changes as trip_changes
+from backcountry.retrace import retrace
+from backcountry.region import load_region
 from backcountry.route import resolve_point
 from backcountry.serialize import build_gpx, day_gpx, run_payload
 from backcountry.trailheads import find_candidates
 
 router = APIRouter(prefix="/api")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _regions(request: Request):
@@ -25,7 +33,7 @@ def _regions(request: Request):
 
 @router.get("/regions")
 def regions(request: Request):
-    return {"regions": _regions(request).summaries()}
+    return {"regions": _regions(request).summaries(), "recent_areas": _regions(request).recent_areas()}
 
 
 @router.get("/regions/{region_id}/trailheads")
@@ -57,6 +65,58 @@ def trailheads(region_id: str, request: Request):
             "component": c["component"], "snap_m": c["snap_m"],
         })
     return {"region": region_id, "trailheads": out}
+
+
+# --- search and areas ------------------------------------------------------------------------
+
+
+_AREA_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
+
+
+@router.get("/search")
+def search(request: Request, q: str = ""):
+    """Hand-made regions first, then any US area or place in the local index."""
+    text = q.strip()
+    if not 1 <= len(text) <= 100:
+        raise RequestError("q", "Type 1 to 100 characters to search.")
+    store, worker = _regions(request), request.app.state.areas
+    regions = [load_region(rid, store.settings.regions_dir) for rid in store.ids()]
+    out = [{"kind": "region", "id": r.id, "name": r.name, "type_label": "Region", "state": None}
+           for r in regions if text.lower() in r.name.lower()]
+    try:
+        con = worker.index()
+    except NoIndex:
+        return {"results": out, "index": False}
+    try:
+        found = osm_index.search(con, text)
+    finally:
+        con.close()
+    curated = [re.compile(r.boundary_name_regex, re.I) for r in regions if r.boundary_name_regex]
+    for f in found:
+        if f["kind"] == "area" and any(c.search(f["name"]) for c in curated):
+            continue  # a hand-made region covers it (with its curated trailheads)
+        out.append({"kind": f["kind"], "ref": f["osm"], "name": f["name"], "type_label": f["type_label"],
+                    "state": f["state"], "bbox": f["bbox"], "center": f["center"]})
+    return {"results": out, "index": True}
+
+
+@router.post("/areas")
+def open_area(request: Request, body: dict):
+    """Start preparing an area (or find it ready). Returns its id and status; poll /areas/{id}/status."""
+    worker = request.app.state.areas
+    try:
+        spec = worker.spec_for(body)
+    except ValueError as e:
+        raise RequestError("area", str(e)) from e
+    st = worker.request(spec)
+    return {k: st[k] for k in ("area_id", "name", "status", "message", "bbox")}
+
+
+@router.get("/areas/{area_id}/status")
+def area_status(area_id: str, request: Request):
+    if not _AREA_ID.match(area_id):
+        raise RequestError("area_id", "Not an area id.")
+    return request.app.state.areas.status_of(area_id)
 
 
 # --- trails and features ------------------------------------------------------------
@@ -128,7 +188,10 @@ def _is_number(v) -> bool:
 def difficulty(request: Request, body: dict):
     """Re-rate a saved trip's days from its stored route (camps moved on the phone included), with the
     terrain rebuilt from this region's graph. For trips saved before levels existed, and after rule changes."""
-    loaded = _regions(request).get(str(body.get("region")))
+    cut = body.get("cut")
+    if cut is not None and (not isinstance(cut, str) or not _DATE.match(cut)):
+        raise RequestError("cut", "cut must be an extract date like 2026-10-20, or null")
+    loaded = _regions(request).get(str(body.get("region")), cut)
     prof = body.get("profile")
     if (not isinstance(prof, dict) or not isinstance(prof.get("d_m"), list) or not isinstance(prof.get("z_m"), list)
             or len(prof["d_m"]) != len(prof["z_m"]) or len(prof["d_m"]) < 2
@@ -158,6 +221,68 @@ def difficulty(request: Request, body: dict):
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, request: Request):
     return request.app.state.runs.load(run_id)
+
+
+# --- saved trips and newer data ---------------------------------------------------------------
+
+
+def _latest_of(loaded) -> str:
+    """The data version a region would plan on now: an area's extract date, or a hand-made region's retrieval time."""
+    return loaded.cut or loaded.raw["retrieved_at"]
+
+
+def _version_of(run: dict) -> str | None:
+    return run.get("data_cut") or (run.get("data_sources") or [{}])[0].get("retrieved_at")
+
+
+def _candidate_n(value) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise RequestError("candidate", "candidate must be a whole number")
+    return value
+
+
+@router.get("/runs/{run_id}/update")
+def update_check(run_id: str, request: Request, candidate: int = 1):
+    """Is there newer trail data for this saved trip's area? Changes nothing."""
+    run, c = _candidate(request, run_id, candidate)
+    loaded = _regions(request).get(run["region"])
+    have, latest = _version_of(run), _latest_of(loaded)
+    pending = request.app.state.areas.newer_data(run["region"]) if loaded.region.generated else None
+    latest = max(latest, pending or latest)  # a refreshed index: its cut is being made now
+    return {"newer": bool(have and latest > have), "cut": have, "latest": latest,
+            "approx_bytes": len(json.dumps(c))}
+
+
+@router.post("/runs/{run_id}/update")
+def update_trip(run_id: str, request: Request, body: dict):
+    """Follow the saved route on the newest data and plan it the same way; returns the new run and what changed.
+    The old run is never modified; the phone keeps the old trip unless the user accepts."""
+    run, c = _candidate(request, run_id, _candidate_n(body.get("candidate")))
+    loaded = _regions(request).get(run["region"])
+    pending = request.app.state.areas.newer_data(run["region"]) if loaded.region.generated else None
+    if pending and pending > _latest_of(loaded):
+        return {"ok": False, "message": "The newer trail data for this area is still being set up. Try again in a minute. "
+                                        "Your trip is unchanged."}
+    if not (_version_of(run) and _latest_of(loaded) > _version_of(run)):
+        raise RequestError("update", "This trip already uses the newest trail data.")
+    followed = retrace(loaded.tg, c)
+    if not followed["ok"]:
+        if followed.get("reason"):
+            return {"ok": False, "message": "This trip was saved before routes were recorded, so it can't be followed "
+                                            "on newer data. Plan it again to use the newer data. Your trip is unchanged."}
+        names = ", ".join(m["name"] or "an unnamed trail" for m in followed["missing"])
+        return {"ok": False, "message": f"The route no longer follows the same trails in the newer data (missing: {names}). "
+                                        "Your trip is unchanged."}
+    req = GenerateRequest.from_dict(run["request"])
+    result = plan_route(loaded.region, loaded.raw, loaded.tg, req, followed["route"], c["kind"],
+                        (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
+                        raw_dir=request.app.state.settings.raw_dir)
+    result.start = run["start"]
+    runs = request.app.state.runs
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new = run_payload(runs.new_id(), loaded.region, result, loaded.raw, loaded.tg, now, diff=None)
+    runs.save(new)
+    return {"ok": True, "run": new, "changes": trip_changes(c, new["candidates"][0])}
 
 
 # --- downloads --------------------------------------------------------------------------
@@ -217,5 +342,5 @@ def chat(request: Request, body: dict):
     if not isinstance(history, list):
         raise RequestError("history", "history must be a list of messages")
     run, _ = _candidate(request, run_id, n)
-    loaded = _regions(request).get(run["region"])
+    loaded = _regions(request).get(run["region"], run.get("data_cut"))
     return chat_turn(request.app.state.chat_model(), run, n, message, history, trail_names(loaded.tg), start_names(loaded.region))

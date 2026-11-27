@@ -12,7 +12,7 @@ from backcountry import ingest
 from backcountry.difficulty import LEVEL_TARGETS, LEVELS, level_index, rate_stretch, route_terrain
 from backcountry.elevation import densify
 from backcountry.features import along_route
-from backcountry.loops import avoided_keys, search
+from backcountry.loops import Candidate, avoided_keys, search
 from backcountry.route import add_elevation, resolve_point
 from backcountry.scoring import M_PER_MI, Weights
 from backcountry.split import resolve_pins, split_route
@@ -342,6 +342,81 @@ def usfs_campgrounds(region, raw_dir=None) -> list[dict]:
             for f in feats if f["properties"].get("site_subtype") == "CAMPGROUND"]
 
 
+class _Steps:
+    """What plan_trip does to each candidate route: elevation, terrain, days and camps, features, rating. Shared
+    with plan_route, so a saved route followed on newer data is planned exactly like a fresh one."""
+
+    def __init__(self, region, raw, tg, req: "GenerateRequest", dem="auto", raw_dir=None):
+        self.tg, self.req = tg, req
+        self.weights = Weights(road=req.road_weight, repeat=req.repeat_weight)
+        self.dem = ingest.load_dem(region, raw_dir=raw_dir) if isinstance(dem, str) and dem == "auto" else dem
+        self.sites = ingest.camp_sites(raw)
+        self.water = ingest.water_features(raw)
+        self.campgrounds = usfs_campgrounds(region, raw_dir)
+
+    def elevate(self, c):
+        if self.dem is not None:
+            add_elevation(c.route, self.dem, self.tg.crs)
+        else:
+            d, _ = densify(c.route.line_utm)  # distance-only profile so days can still be split
+            c.route.profile = {"d_m": d, "z_m": [None] * len(d)}
+            c.route.notes.append("elevation unknown: no DEM cached (run `backcountry dem`)")
+
+    def split(self, c, r: "GenerateRequest", pins):
+        lo, hi = r.daily_m
+        return split_route(c.route, r.nights, lo, hi, r.max_gain_day, self.weights, self.sites, pins_m=pins,
+                           sites_only=r.camps_at_sites, targets=r.targets_for(r.nights + 1) if r.days else None,
+                           terrain=c.terrain)
+
+    def evaluate(self, c):
+        req = self.req
+        self.elevate(c)
+        c.terrain = route_terrain(c.route)
+        pins, problems = resolve_pins(c.route, req.camps, self.sites)
+        c.pins_m = pins
+        try:
+            c.plan = self.split(c, req, pins)
+        except ValueError as e:  # e.g. more camps pinned than nights
+            raise RequestError("camps", str(e))
+        for p in problems:
+            c.plan.notes.append(f"Pinned {p}")
+            c.plan.ok = False
+        c.features = along_route(c.route, self.sites, self.water, self.campgrounds, c.plan)
+        return c.plan.penalty + 100.0 * len(problems)
+
+    def day_hike(self, c):
+        self.elevate(c)
+        c.terrain = route_terrain(c.route)
+        prof = c.route.profile
+        c.rating = rate_stretch(prof["d_m"], prof["z_m"], c.terrain, 0.0, prof["d_m"][-1], c.route.gain_ft,
+                                "day_hike").to_dict()
+        c.features = along_route(c.route, self.sites, self.water, self.campgrounds)
+
+    def suggest(self, c):
+        if c.plan is not None:
+            c.suggestion = suggest_fix(c, self.req, lambda r, c=c: self.split(c, r, c.pins_m))
+
+
+def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_keys=(), dem="auto",
+               raw_dir=None) -> PlanResult:
+    """Plan one given route (e.g. a saved trip followed on newer data) the way plan_trip plans a found loop."""
+    lengths = {e["key"]: e["length_m"] for e in route.edges}
+    c = Candidate(kind=kind, start=route.nodes[0], keys=[e["key"] for e in route.edges], nodes=list(route.nodes),
+                  stem_keys=[k for k in stem_keys if k in lengths], route=route, length_m=route.length_m,
+                  road_m=route.road_m, last_resort_m=route.last_resort_m,
+                  repeated_m=sum(lengths[k] for k in stem_keys if k in lengths), lengths=lengths)
+    steps = _Steps(region, raw, tg, req, dem, raw_dir)
+    if req.nights is None:
+        steps.day_hike(c)
+    else:
+        c.penalty = steps.evaluate(c)
+    steps.suggest(c)
+    report = {"candidates": [c], "loops_found": 0, "lollipops_found": 0, "stems_tried": 0, "via_pairs_tried": 0,
+              "scored": 1, "seconds": 0.0, "widened": False, "truncated": False, "avoided_edges": 0, "notes": [],
+              "must_visit_notes": [], "followed": True}
+    return PlanResult(report=report, start={"node": c.start, "how": f"osm:node/{c.start}", "snap_m": 0.0}, request=req)
+
+
 def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -> PlanResult:
     """Resolve the start, search, and attach elevation/days/features.
 
@@ -357,58 +432,20 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None) -
             avoided_keys(tg, req.avoid)
         except ValueError as e:
             raise RequestError("avoid", str(e))
-    weights = Weights(road=req.road_weight, repeat=req.repeat_weight)
-    dem = ingest.load_dem(region, raw_dir=raw_dir) if isinstance(dem, str) and dem == "auto" else dem
-    sites = ingest.camp_sites(raw)
-    water = ingest.water_features(raw)
-    campgrounds = usfs_campgrounds(region, raw_dir)
-
-    def elevate(c):
-        if dem is not None:
-            add_elevation(c.route, dem, tg.crs)
-        else:
-            d, _ = densify(c.route.line_utm)  # distance-only profile so days can still be split
-            c.route.profile = {"d_m": d, "z_m": [None] * len(d)}
-            c.route.notes.append("elevation unknown: no DEM cached (run `backcountry dem`)")
-
-    def split(c, r: GenerateRequest, pins):
-        lo, hi = r.daily_m
-        return split_route(c.route, r.nights, lo, hi, r.max_gain_day, weights, sites, pins_m=pins,
-                           sites_only=r.camps_at_sites, targets=r.targets_for(r.nights + 1) if r.days else None,
-                           terrain=c.terrain)
-
-    def evaluate(c):
-        elevate(c)
-        c.terrain = route_terrain(c.route)
-        pins, problems = resolve_pins(c.route, req.camps, sites)
-        c.pins_m = pins
-        try:
-            c.plan = split(c, req, pins)
-        except ValueError as e:  # e.g. more camps pinned than nights
-            raise RequestError("camps", str(e))
-        for p in problems:
-            c.plan.notes.append(f"Pinned {p}")
-            c.plan.ok = False
-        c.features = along_route(c.route, sites, water, campgrounds, c.plan)
-        return c.plan.penalty + 100.0 * len(problems)
+    steps = _Steps(region, raw, tg, req, dem, raw_dir)
+    evaluate = steps.evaluate
 
     lo, hi = req.total_m
     # the level filter drops loops after the search, so it asks for more to choose from
     report = search(tg, start["node"], lo, hi, kinds=req.kinds, count=req.count * 4 if req.level else req.count,
                     no_roads=req.no_roads,
-                    weights=weights, evaluate=evaluate if req.nights is not None else None,
+                    weights=steps.weights, evaluate=evaluate if req.nights is not None else None,
                     avoid=req.avoid, must_visit=musts, direction=req.direction)
     if req.nights is None:
         for c in report["candidates"]:
-            elevate(c)
-            c.terrain = route_terrain(c.route)
-            prof = c.route.profile
-            c.rating = rate_stretch(prof["d_m"], prof["z_m"], c.terrain, 0.0, prof["d_m"][-1], c.route.gain_ft,
-                                    "day_hike").to_dict()
-            c.features = along_route(c.route, sites, water, campgrounds)
+            steps.day_hike(c)
     if req.level:
         _filter_by_level(report, req)
     for c in report["candidates"]:
-        if c.plan is not None:
-            c.suggestion = suggest_fix(c, req, lambda r, c=c: split(c, r, c.pins_m))
+        steps.suggest(c)
     return PlanResult(report=report, start=start, request=req)

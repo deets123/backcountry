@@ -325,7 +325,7 @@ def test_run_save_is_atomic_and_indexed(env, tmp_path):
     assert not list((tmp_path / "runs").glob("*.tmp"))
     assert store.latest("r", "t")["run_id"] == "20260101T000000Z-aaaa"
     index = json.loads((tmp_path / "runs" / "index.json").read_text())
-    assert index["20260101T000000Z-aaaa"] == {"region": "r", "trailhead": "t"}
+    assert index["20260101T000000Z-aaaa"] == {"region": "r", "trailhead": "t", "cut": None}
     assert store.latest("r", "other") is None
 
 

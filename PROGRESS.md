@@ -778,3 +778,81 @@ fail as before this branch (shorter/longer days by camps, Breathed Mountain; "le
 - Terrain tags are sparse (Dolly Sods 2 of 261 trails), so most details say "terrain unknown".
 - On the phone, a moved camp re-rates its days but doesn't re-check that day's own miles / climbing targets.
 - The chat only checks "day N is <level>" claims, not claims about the whole trip.
+
+## Any US area by name (built 2026-10-27; awaiting your phone check)
+
+Spec: `docs/superpowers/specs/2026-10-25-any-us-area-design.md`. Plan: `docs/superpowers/plans/2026-10-25-any-us-area.md`.
+
+**Built**
+- A local US index (`osm_index.py`, `usdata.py`): the Geofabrik US extract, downloaded by the operator with its
+  MD5 checked, filtered by pyosmium into SQLite: every `highway` way, trailheads, parking, camp sites, water,
+  protected-area and state boundaries, and named places, peaks and trails for search. `backcountry usdata
+  download | build | refresh | status`. A build prints progress lines; from the second build on they include a
+  percentage and time left, taken from the previous build's own counts.
+- Areas (`areas.py`): a search result, a map box or a point becomes an area. A park opens whole; a place opens the
+  park it's in, else the smallest protected area that holds it; areas over 5,000 km² and boxes open as a 24 km
+  square. Its trails are cut out of the index into the same raw JSON an Overpass query gives, so the graph,
+  trailheads, planning, export and chat run unchanged. Elevation comes from USGS as before.
+- API: `GET /api/search`, `POST /api/areas` and `GET /api/areas/{id}/status`, plus a background worker: one area at a
+  time, 3 waiting, 6 new an hour, a 40 GB disk budget (old areas no saved trip uses are removed first).
+- Data versions: each cut is dated by its extract; runs remember theirs. A saved trip opened online on an area
+  with newer data offers an update ("Updating uses about N MB"). "Review changes" follows the same OSM ways on the
+  new data (`retrace.py`, never bridging a gap) and lists what changed; only "Accept" replaces the trip.
+- Web: a "Where" box in place of the region list (results with type and state, recent areas, "Plan in this map
+  area"). A new area shows "Finding trails in …" and nothing about downloads.
+- Security: users only send a search result, box or point; the index is read-only; downloads come from fixed
+  hosts (Geofabrik, the USGS bucket) and are parsed, never run; search text never reaches SQL unparameterised.
+- Engine fix found on the way: a ring trail whose only junction is the start is now offered as a loop.
+- After the final review: an area opened before a `refresh` gets the newer data on its next open (or when a saved
+  trip there checks for an update); labels come from OSM's `protection_title`, so Lake Mead is a National Recreation
+  Area, not a National Park; retrace walks through a junction that went away; the elevation cache is written
+  atomically; "Not now" on an update offer is no longer remembered; a park too big to open whole says "Part of …".
+
+**Measured on this laptop (2026-10-27)**
+- Download 12.2 GB in 13 min. Build about 7 h 10 min (my estimate was 30–90 min), peak memory 4.4 GB, 26 GB
+  of temporary node file (deleted), index 23.3 GB: 61.4 M ways, 213 k points, 53 k areas, 653 k names. Peak disk
+  during the build was about 62 GB.
+- First open of an area (trails + elevation), then planning:
+
+  | Area | Size | First open | Disk | Two-night plan |
+  |---|---|---|---|---|
+  | Linville Gorge Wilderness | small | 7 s (0.1 s after) | 20 MB | |
+  | Zion National Park | 602 km² | 28 s | 106 MB | 18 s (West Rim Trailhead North) |
+  | Needles District (from "Chesler Park") | 508 km² | 39 s | 162 MB | |
+  | Yosemite National Park | 3,025 km² | 46 s | 297 MB | 185 s (Bridalveil Creek) |
+  | Grand Canyon National Park | 4,866 km² | 4.4 min | 1.4 GB | |
+
+  Almost all of a first open is the elevation download. The area cap is 5,000 km², not the plan's "under a
+  minute" (about 3,000): at 3,000 Grand Canyon and Glacier would open as a 24 km square in the middle of the park.
+- Search on the real index takes 0.02–0.15 s. "Zion", "Yosemite", "Glacier", "Grand Canyon" and "Mount Rainier" each
+  give the national park first. (The first real run found towns named Zion ranked above, and crowding out, the
+  park; fixed.)
+
+**Acceptance checks**
+1. Zion: "Zion" opens Zion National Park whole, with West Rim and Angels Landing on one trail network, and your
+   West Rim GPX rates as in calibration (moderate both days; 6.94 mi +856 ft and 7.8 mi +477 ft on the whole park,
+   +823 / +412 ft on the old calibration area). **Not met:** a plan from the West Rim side can't include Angels
+   Landing. The data is right (a 0.43 mi spur, 2.4 mi from the Grotto via Walter's Wiggles), but the engine only
+   plans loops and lollipops, and no loop passes the spur. Your trip was a one-way shuttle. See the gaps below.
+2. Chesler Park: opens the Needles District, with the Chesler Park trails in its graph.
+3. Linville Gorge: ready in 7 s the first time, 0.1 s after.
+4. Trail lengths match OSM's own geometry (geodesic, within 0.2%). NPS mileage notes are **not built**.
+5. Security tests pass (URLs, `../`, shell and SQL text, huge boxes, boxes outside the US, request floods, unlisted
+   hosts).
+6. Dolly Sods, Pemi, saved and offline trips are unchanged. Tests: pytest 555 + 25 skipped without data, and the
+   heavy run (`scripts/heavy-tests`) 574 passed, 6 skipped; web 168 unit and 11 end-to-end. Chat eval
+   (qwen3:14b) 36/41, the same five misses as before this piece (shorter/longer days, Breathed Mountain, "less climbing").
+
+**Known gaps and next steps**
+- **Out-and-back and one-way (shuttle) trips.** This is why Angels Landing and your top-down West Rim trip can't
+  be planned. I suggest it as the next piece, before park rules and permits.
+- **Planning in dense trail networks is slow:** Yosemite from Bridalveil Creek took 185 s. From the Grotto in Zion
+  Canyon the search hit its 90 s limit and found no loop that includes Angels Landing. The time comes from the
+  number of waypoint pairs in reach, not the area size.
+- The index build takes about 7 hours. A monthly refresh means leaving the laptop plugged in overnight.
+- Search: two different areas can look the same ("Mill Creek · Protected Area · Massachusetts" twice), and
+  "Lake Mead" lists Spring Meadow Lake State Park before Lake Mead National Recreation Area.
+- A saved trip from before this piece (no recorded route) is offered newer data, but the review then says it
+  can't be followed; plan it again instead.
+- NPS published mileages aren't compared yet (acceptance check 4's second half).
+- Deferred: park rules, permits and closures (next after trip shapes); trip temperatures and gear.

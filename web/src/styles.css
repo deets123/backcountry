@@ -51,3 +51,14 @@ table { border-collapse: collapse; width: 100%; font-size: 13px; } td, th { text
 .day-editor .levels button.on { outline: 2px solid currentColor; }
 .day-row { border-bottom: 1px solid var(--line); padding: 6px 0; font-size: 14px; } .day-row summary { cursor: pointer; }
 .day-row ul { margin: 4px 0 0; }
+
+/* Where: search results (panels/search.ts) */
+#search .where { margin: 0 0 4px; }
+#search .results { list-style: none; margin: 4px 0; padding: 0; }
+#search .result { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left;
+  padding: 8px 10px; margin: 2px 0; background: none; border: 1px solid var(--line, #ccc); border-radius: 8px; color: inherit; }
+#search .r-meta { font-size: 0.85em; opacity: 0.75; }
+
+/* Newer trail data offer on a saved trip (panels/update.ts) */
+.update { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.update ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }

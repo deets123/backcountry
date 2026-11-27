@@ -4,6 +4,7 @@ import { createStore, INITIAL } from "../store";
 import type { Trailhead } from "../types";
 import { bindPlan, renderPlan, tapMessage } from "./plan";
 
+const NO_SEARCH = { setQuery() {}, async searchAreas() {}, async openTarget() {}, async openRecent() {}, async planHere() {} };
 const th = (over: Partial<Trailhead>): Trailhead => ({ id: "x", name: "X", node: 1, source: "yaml", verified: false, in_graph: true,
   lat: 39, lon: -79, component: "C0", ...over });
 
@@ -37,7 +38,7 @@ describe("bindPlan", () => {
     root.innerHTML = renderPlan({ ...INITIAL, region: "dolly_sods" });
     const edits: FormState[] = [];
     const store = createStore(INITIAL);
-    bindPlan(root, store, { generate() {}, pickRegion() {}, backToCompare() {}, showSaved() {}, editForm: (f) => edits.push(f) });
+    bindPlan(root, store, { generate() {}, ...NO_SEARCH, backToCompare() {}, showSaved() {}, editForm: (f) => edits.push(f) });
     const total = root.querySelector<HTMLInputElement>('input[name="total"]')!;
     total.value = "26-18";
     total.dispatchEvent(new Event("change"));
@@ -60,7 +61,7 @@ describe("the day strip", () => {
     const root = document.createElement("div");
     root.innerHTML = renderPlan({ ...INITIAL, form: f });
     const edits: FormState[] = [];
-    bindPlan(root, createStore({ ...INITIAL, form: f }), { generate() {}, pickRegion() {}, backToCompare() {}, showSaved() {}, editForm: (x) => edits.push(x) });
+    bindPlan(root, createStore({ ...INITIAL, form: f }), { generate() {}, ...NO_SEARCH, backToCompare() {}, showSaved() {}, editForm: (x) => edits.push(x) });
     return { root, edits };
   };
 
@@ -117,7 +118,7 @@ describe("bindPlan with outside changes", () => {
     const store = createStore({ ...INITIAL, form: { ...INITIAL.form, trailhead: "" } });
     root.innerHTML = renderPlan(store.get());
     const edits: FormState[] = [];
-    bindPlan(root, store, { generate() {}, pickRegion() {}, backToCompare() {}, showSaved() {}, editForm: (f) => { edits.push(f); store.set({ form: f }); } });
+    bindPlan(root, store, { generate() {}, ...NO_SEARCH, backToCompare() {}, showSaved() {}, editForm: (f) => { edits.push(f); store.set({ form: f }); } });
     store.set({ form: { ...store.get().form, trailhead: "39.04,-79.38" } });  // the map tap, no re-render
     const total = root.querySelector<HTMLInputElement>('input[name="total"]')!;
     total.value = "20-30";
@@ -125,3 +126,28 @@ describe("bindPlan with outside changes", () => {
     expect(edits.at(-1)).toMatchObject({ trailhead: "39.04,-79.38", total: "20-30" });
   });
 });
+
+describe("plan panel search", () => {
+  it("replaces the region list with the search box, and a result opens through the actions", async () => {
+    const root = document.createElement("div");
+    const regions = [{ id: "dolly_sods", name: "Dolly Sods", crs: "", bbox: { south: 0, west: 0, north: 1, east: 1 }, osm_retrieved_at: null, dem: false, usfs: false, trailheads: 0 },
+      { id: "pemi", name: "Pemi", crs: "", bbox: { south: 0, west: 0, north: 1, east: 1 }, osm_retrieved_at: null, dem: false, usfs: false, trailheads: 0 }];
+    const store = createStore({ ...INITIAL, regions, region: "dolly_sods" });
+    root.innerHTML = renderPlan(store.get());
+    expect(root.querySelector('select[name="region"]')).toBeNull();
+    expect(root.querySelector(".where")!.textContent).toBe("Planning in Dolly Sods");
+    const opened: unknown[] = [];
+    const actions = { ...NO_SEARCH, generate() {}, backToCompare() {}, showSaved() {}, editForm() {},
+      setQuery: (q: string) => store.set({ searchQuery: q }),
+      async searchAreas(q: string) { store.set({ searchQuery: q, searchResults: [{ kind: "region", id: "pemi", name: "Pemi", type_label: "Region", state: null }] }); },
+      async openTarget(t: unknown) { opened.push(t); } };
+    bindPlan(root, store, actions);
+    const input = root.querySelector<HTMLInputElement>("#area-search")!;
+    input.value = "pem";
+    input.dispatchEvent(new Event("input"));
+    await new Promise((r) => setTimeout(r, 300));
+    root.querySelector<HTMLButtonElement>("[data-result='0']")!.click();
+    expect(opened).toEqual([{ kind: "region", id: "pemi", name: "Pemi", type_label: "Region", state: null }]);
+  });
+});
+

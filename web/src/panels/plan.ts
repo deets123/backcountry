@@ -2,6 +2,7 @@ import { type DayNumber, type FormDay, type FormState, LEVELS, dayTargets, daysF
 import type { State, Store } from "../store";
 import type { Level, Trailhead } from "../types";
 import { esc, levelName } from "./common";
+import { bindSearch, renderSearch, type SearchActions } from "./search";
 
 function nightsOf(f: FormState): number | null {
   const n = Number(f.nights.trim());
@@ -60,9 +61,6 @@ function option(th: Trailhead, current: string): string {
 
 export function renderPlan(s: State): string {
   const f = s.form;
-  const regions = s.regions.length > 1
-    ? `<label>Region<select name="region">${s.regions.map((r) => `<option value="${esc(r.id)}"${r.id === s.region ? " selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label>`
-    : "";
   const yaml = s.trailheads.filter((t) => t.source === "yaml");
   const data = s.trailheads.filter((t) => t.source === "data");
   const custom = f.trailhead && !s.trailheads.some((t) => t.id === f.trailhead)
@@ -71,7 +69,7 @@ export function renderPlan(s: State): string {
   return `
 <h1>Plan a trip</h1>
 ${s.saved.length ? `<button class="link" id="to-saved">Saved trips (${s.saved.length})</button>` : ""}
-${regions}
+${renderSearch(s)}
 <label>Trailhead<select name="trailhead">
   <option value=""${f.trailhead ? "" : " selected"}>Pick one, or tap the map</option>
   ${custom}
@@ -109,7 +107,7 @@ export function tapMessage(trailName: string | null): string {
   return `Start set to the tapped point ${on}. Type a trail name under "must visit" or "avoid" to use it.`;
 }
 
-export interface PlanActions { generate(): void; pickRegion(id: string): void; backToCompare(): void; editForm(form: FormState): void; showSaved(): void }
+export interface PlanActions extends SearchActions { generate(): void; backToCompare(): void; editForm(form: FormState): void; showSaved(): void }
 
 export function bindPlan(root: HTMLElement, store: Store, actions: PlanActions): void {
   const lines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
@@ -156,7 +154,6 @@ export function bindPlan(root: HTMLElement, store: Store, actions: PlanActions):
   const bindField = (el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null) => {
     el?.addEventListener("change", () => {
       const name = el.getAttribute("name")!;
-      if (name === "region") return actions.pickRegion(el.value);
       const f = { ...latest() } as unknown as Record<string, unknown>;
       if (el instanceof HTMLInputElement && el.type === "checkbox") f[name] = el.checked;
       else if (name === "mustVisit" || name === "avoid" || name === "camps") f[name] = lines(el.value);
@@ -169,6 +166,7 @@ export function bindPlan(root: HTMLElement, store: Store, actions: PlanActions):
     if (!perDay()?.contains(el)) bindField(el);
   });
   refresh();
+  bindSearch(root, store.get, actions);
   root.querySelector("#to-saved")?.addEventListener("click", () => actions.showSaved());
   root.querySelector("#generate")?.addEventListener("click", () => actions.generate());
   root.querySelector("#back-to-compare")?.addEventListener("click", () => actions.backToCompare());

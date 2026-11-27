@@ -310,3 +310,33 @@ def test_search_does_not_depend_on_sub_millimetre_length_noise(grid):
         cands = find_candidates(tg, grid.ids["g00"], 5.9 * KM, 6.1 * KM, kinds=("loop",), no_roads=True)
         found.append([round(c.length_m) for c in cands])
     assert found[0] == found[1] == found[2] == [6000]
+
+
+# --- a single ring trail (no junction on it but the start) ---------------------------------------
+
+
+def _ring(stem: bool):
+    from conftest import RawBuilder
+
+    b = RawBuilder()
+    for name, x, y in [("A", 0, 0), ("B", 1000, 0), ("C", 1000, 1000), ("D", 0, 1000), ("T", -500, 0)]:
+        b.node(name, x, y)
+    b.way(1, ["A", "B", "C"], highway="path", name="Ring East")
+    b.way(2, ["C", "D", "A"], highway="path", name="Ring West")
+    if stem:
+        b.way(3, ["T", "A"], highway="path", name="Stem")
+    return b, build_graph(b.doc(), crs=CRS)
+
+
+def test_ring_trail_from_a_start_on_it_is_a_loop():
+    b, tg = _ring(stem=False)
+    cands = find_candidates(tg, b.ids["A"], 3.5 * KM, 4.5 * KM, kinds=("loop",))
+    assert len(cands) == 1 and cands[0].kind == "loop" and cands[0].length_m == pytest.approx(4000, abs=1)
+    _check_invariants(tg, cands)
+
+
+def test_ring_trail_behind_a_stem_is_a_lollipop():
+    b, tg = _ring(stem=True)
+    cands = find_candidates(tg, b.ids["T"], 4.5 * KM, 5.5 * KM, kinds=("loop", "lollipop"))
+    assert [c.kind for c in cands] == ["lollipop"] and cands[0].length_m == pytest.approx(5000, abs=1)
+    _check_invariants(tg, cands)
