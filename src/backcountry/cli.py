@@ -301,6 +301,8 @@ def generate(
     must_visit: list[str] = typer.Option(None, "--must-visit",
                                          help="A place the loop must include: trailhead id, OSM node id, lat,lon, or a trail name. Repeatable."),
     avoid: list[str] = typer.Option(None, "--avoid", help="A trail/road name or way id to stay off. Repeatable."),
+    avoid_permit: bool = typer.Option(False, "--avoid-permit",
+                                      help="Stay off trails tagged as needing a permit (OpenStreetMap access/foot=permit)."),
     direction: str = typer.Option(None, help="Walk loops clockwise (cw) or counterclockwise (ccw)."),
     out_dir: Path = typer.Option(None, help="Output directory (default out/loops/<trailhead>_<total>mi)"),
 ):
@@ -310,7 +312,7 @@ def generate(
             "trailhead": trailhead, "total": total, "nights": nights, "daily": daily, "max_gain_day": max_gain_day,
             "type": type_, "count": count, "no_roads": no_roads, "road_weight": road_weight,
             "repeat_weight": repeat_weight, "camps": camp or [], "camps_at_sites": camps_at_sites,
-            "must_visit": must_visit or [], "avoid": avoid or [], "direction": direction,
+            "must_visit": must_visit or [], "avoid": avoid or [], "direction": direction, "avoid_permit": avoid_permit,
         })
     except RequestError as e:
         typer.echo(f"--{e.field.replace('_', '-')}: {e}", err=True)
@@ -329,7 +331,7 @@ def generate(
     request = {"trailhead": trailhead, "total": total, "type": type_, "nights": nights, "daily": daily,
                "max_gain_day": max_gain_day, "no_roads": no_roads, "road_weight": road_weight, "camps": camp or [],
                "camps_at_sites": camps_at_sites, "must_visit": must_visit or [], "avoid": avoid or [],
-               "direction": direction}  # the CLI's own record format, unchanged from before the API
+               "direction": direction, "avoid_permit": avoid_permit}  # the CLI's own record format (plus avoid_permit)
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
     try:
         paths = write_candidates(report, r, out_dir, start["name"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,
