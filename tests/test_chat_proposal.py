@@ -197,3 +197,7 @@ def test_chat_proposal_keeps_destination_finish_and_type():
     new, _ = apply_changes(req.to_dict(), {"total": [9, 14]}, [], [])
     out = GenerateRequest.from_dict(new)
     assert out.type == "one_way" and out.finish == "2" and out.destination == "node/5" and out.total == (9.0, 14.0)
+
+
+def test_prompt_tells_the_model_to_quote_notices_and_never_conclude_from_absence():
+    assert "Notice" in SYSTEM_PROMPT and "never conclude" in SYSTEM_PROMPT.lower()

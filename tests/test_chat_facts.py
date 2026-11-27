@@ -108,3 +108,20 @@ def test_hardest_day_is_computed_not_left_to_the_model():
     assert hardest_day([day(1, 900, "moderate"), day(2, 300, "hard")]) == "Hardest day: Day 2 (level hard, the only one at that level)."
     assert hardest_day([day(1, 900, None), day(2, 300, None)]) == "Hardest day: Day 1 (the most gain; levels unknown)."
     assert hardest_day([{"index": 1, "gain_ft": None, "rating": None}]) is None
+
+
+def test_facts_list_notices_with_their_source_and_date(run):
+    from backcountry import notices as N
+
+    r = copy.deepcopy(run)
+    r["candidates"][0]["notices"] = [
+        N.notice("permit", "Permit to hike Angels Landing Trail, 0.4 mi of this trip.", applies_to="trail: Angels Landing Trail",
+                 matched=True, source="OpenStreetMap", as_of="2026-10-26"),
+        N.notice("closure", "Watchman Trail closed: The Watchman Trail is closed pending repairs.", applies_to="park",
+                 source="National Park Service", as_of="2026-09-29", checked_at="2026-11-26T10:04:00Z"),
+        N.notice("unknown", N.UNKNOWN_LINE)]
+    text = fact_sheet(r, 1, [], [])
+    assert "Notice (permit): Permit to hike Angels Landing Trail, 0.4 mi of this trip. [OpenStreetMap, 2026-10-26]" in text
+    assert "Notice (closure): Watchman Trail closed: The Watchman Trail is closed pending repairs. [National Park Service, 2026-09-29]" in text
+    assert "Notice (unknown)" not in text
+    assert fact_sheet(run, 1, [], [])  # a run without notices still works

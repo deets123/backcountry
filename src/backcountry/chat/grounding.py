@@ -35,6 +35,20 @@ _FACT_LEVEL = re.compile(r"^Day (\d+):.*, level (easy|moderate|hard|strenuous|un
 _DAY = re.compile(r"\bdays? (\d+(?:\s*(?:,|and|&|or)\s*\d+)*)\b", re.IGNORECASE)  # "day 2", "days 2 and 3"
 _LEVEL_WORD = re.compile(r"\b(easy|moderate|hard|strenuous)\b(?!\s+to\b)", re.IGNORECASE)  # "hard to say" isn't a level
 _NAME = re.compile(r"\b((?:[A-Z][\w'’-]*\s){1,4}(?:Trail|Trailhead|Run|Road|Creek|Ridge|Knob|Mountain|Lake|Pond|Spring|Grade|Rocks|Plains))\b")
+# "Before you go" notices in the facts: a reply may restate one (same kind of statement, naming its subject), never deny one
+_FACT_NOTICE = re.compile(r"^Notice \((\w+)\): (.*)$", re.MULTILINE)
+NEGATION = re.compile(r"\b(no|not|don'?t|doesn'?t|never|without|isn'?t|aren'?t|won'?t|none|unnecessary|free of)\b", re.IGNORECASE)
+_FAMILIES = {"makes a permit claim": ("permit", "ticket", "camp"), "says something is open or closed": ("closure",),
+             "says something is allowed or not": ("rule",)}
+
+
+def _restates_a_notice(clause: str, why: str, notices: dict[str, list[str]]) -> bool:
+    """True when the clause repeats a notice of the matching family: no negation, and it shares a word run with one."""
+    from backcountry.notices import match_items
+
+    kinds = _FAMILIES.get(why, ())
+    texts = [(k, t) for k in kinds for t in notices.get(k, [])]
+    return bool(texts) and not NEGATION.search(clause) and bool(match_items(clause, texts))
 
 
 def _value(token: str) -> tuple[float, float]:
@@ -79,11 +93,14 @@ def check_reply(reply: str, facts: str, check_levels: bool = True) -> tuple[bool
             reasons.append(f"unsupported number '{token}'")
     if _OTHER_UNITS.search(reply):
         reasons.append("uses other units")  # the facts are in miles and feet; "19 km" is not "19 mi"
+    notices: dict[str, list[str]] = {}
+    for kind, text in _FACT_NOTICE.findall(facts):
+        notices.setdefault(kind, []).append(text)
     for clause in _CLAUSE.split(reply):  # "unknown" wording excuses only its own clause
         if _UNKNOWN.search(clause.lower()):
             continue
         for pattern, why in _BANNED:
-            if re.search(pattern, clause, re.IGNORECASE) and why not in reasons:
+            if re.search(pattern, clause, re.IGNORECASE) and why not in reasons and not _restates_a_notice(clause, why, notices):
                 reasons.append(why)
     levels = {int(d): (None if lvl == "unknown" else lvl) for d, lvl in _FACT_LEVEL.findall(facts)}
     if levels and check_levels:
