@@ -122,3 +122,24 @@ test("search for a place and open it", async ({ page }) => {
   await expect(page.locator("select[name='trailhead'] optgroup[label='Other start points from the data'] option")).not.toHaveCount(0);
   await expect(page.locator("#panel")).not.toContainText(/download|geofabrik/i);
 });
+
+test("one way: pick a suggested finish, plan, and see the shuttle links", async ({ page }) => {
+  await page.goto("/");
+  const trailhead = page.locator('select[name="trailhead"]');
+  const starts = trailhead.locator("optgroup[label='Other start points from the data'] option");
+  await expect(starts).not.toHaveCount(0);
+  await page.check('input[name="dayHike"]');
+  await expect(page.locator('input[name="nights"]')).toHaveCount(0);
+  await page.fill('input[name="total"]', "0.3-4");
+  await page.selectOption('select[name="type"]', "one_way");
+  await trailhead.selectOption((await starts.first().getAttribute("value"))!);
+  const finish = page.locator("[data-finish]").first();
+  await expect(finish).toContainText("apart in a straight line", { timeout: 15_000 });
+  await finish.click();
+  await expect(page.locator("[data-finish].on")).toHaveCount(1);
+  await page.click("#generate");
+  await expect(page.locator(".card").first()).toContainText("one way", { timeout: 30_000 });
+  await page.click("#open-trip");
+  await expect(page.locator("a", { hasText: "Shuttle drive in Google Maps" })).toHaveAttribute("href", /google\.com\/maps\/dir\/\?api=1&origin=/);
+  await expect(page.locator("#panel")).toContainText("Check road conditions");
+});

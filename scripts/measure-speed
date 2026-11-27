@@ -1,0 +1,87 @@
+#!/usr/bin/env -S uv run python
+"""Time opening and planning in real areas, step by step, as a Markdown table for PROGRESS.md.
+
+Usage: scripts/measure-speed [--fresh] [--only zion|yosemite|grand_canyon]
+  --fresh  prepare each area into a temporary folder, so first-open numbers are real (downloads elevation).
+Needs the local US index (BACKCOUNTRY_OSM_DIR, or the main checkout's data/osm from a worktree).
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+_top = subprocess.run(["git", "worktree", "list", "--porcelain"], capture_output=True, text=True).stdout.split()
+MAIN = Path(_top[1]) if len(_top) > 1 else Path.cwd()
+for var, sub in (("BACKCOUNTRY_OSM_DIR", "osm"), ("BACKCOUNTRY_RAW_DIR", "raw"), ("BACKCOUNTRY_AREAS_DIR", "areas")):
+    if not os.environ.get(var) and (MAIN / "data" / sub).is_dir():  # a git worktree: use the main checkout's data
+        os.environ[var] = str(MAIN / "data" / sub)
+
+from backcountry import areas, ingest, osm_index, usdata  # noqa: E402
+from backcountry.api.store import RegionStore, Settings  # noqa: E402
+from backcountry.planning import GenerateRequest, plan_trip  # noqa: E402
+from backcountry.trailheads import find_candidates  # noqa: E402
+
+CASES = {  # area search text, trailhead name to plan from (None: open only), request
+    "zion": ("Zion National Park", "Grotto Trailhead", {"total": "18-26", "nights": 2, "daily": "6-11"}),
+    "yosemite": ("Yosemite National Park", "Bridalveil Creek", {"total": "18-26", "nights": 2, "daily": "6-11"}),
+    "grand_canyon": ("Grand Canyon National Park", None, None),
+}
+
+
+def trailhead_node(loaded, name: str) -> int:
+    cands = find_candidates(loaded.tg, loaded.raw, loaded.node_component)["candidates"]
+    hits = [c for c in cands if any(name.lower() in n.lower() for n in c["names"])]
+    if not hits:
+        raise SystemExit(f"no trailhead named like {name!r} in the data")
+    return hits[0]["id"]
+
+
+def main(argv: list[str]) -> int:
+    fresh = "--fresh" in argv
+    only = argv[argv.index("--only") + 1] if "--only" in argv else None
+    index = usdata.current_index()
+    if index is None:
+        print("measure-speed: no US index built (backcountry usdata download/build); nothing measured.")
+        return 0
+    con = osm_index.open_index(index)
+    tmp = Path(tempfile.mkdtemp(prefix="measure-speed-")) if fresh else None
+    raw_dir = tmp / "raw" if tmp else ingest.RAW_DIR
+    areas_dir = tmp / "areas" if tmp else areas.AREAS_DIR
+    rows = []
+    for key, (query, th, body) in CASES.items():
+        if only and key != only:
+            continue
+        hit = next(h for h in osm_index.search(con, query) if h["kind"] == "area")
+        spec = areas.area_from_ref(con, hit["osm"])
+        t0 = time.monotonic()
+        out = areas.prepare_area(spec, con, raw_dir=raw_dir, areas_dir=areas_dir)
+        open_s = time.monotonic() - t0
+        store = RegionStore(Settings(raw_dir=raw_dir, areas_dir=areas_dir))
+        loaded = store.get(spec.id)
+        size_mb = sum(p.stat().st_size for p in (raw_dir / spec.id).rglob("*") if p.is_file()) / 1e6
+        secs = out.get("seconds", {})
+        row = {"area": spec.display_name, "open_s": round(open_s, 1), "cut_and_graph": secs.get("cut_and_graph"),
+               "elevation": secs.get("elevation"), "size_mb": round(size_mb), **loaded.timings}
+        if th:
+            req = GenerateRequest.from_dict({"trailhead": str(trailhead_node(loaded, th))} | body)
+            t1 = time.monotonic()
+            result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=raw_dir)
+            row |= {"from": th, "plan_s": round(time.monotonic() - t1, 1), "found": len(result.report["candidates"]),
+                    "truncated": result.report["truncated"], **{f"plan_{k}": v for k, v in result.report["timings"].items()}}
+        rows.append(row)
+        print(row, file=sys.stderr)
+    cols = list(dict.fromkeys(k for r in rows for k in r))
+    print("| " + " | ".join(cols) + " |")
+    print("|" + "---|" * len(cols))
+    for r in rows:
+        print("| " + " | ".join(str(r.get(c, "")) for c in cols) + " |")
+    if tmp:
+        print(f"\n(fresh: prepared into {tmp}; delete it when done)", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

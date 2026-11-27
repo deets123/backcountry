@@ -10,7 +10,7 @@ import { currentCandidate } from "../selectors";
 import type { State, Store } from "../store";
 import type { Candidate, Day, Rating, Run } from "../types";
 import { renderChat } from "./chat";
-import { esc, knownGapsHtml, levelChip, notesHtml } from "./common";
+import { esc, kindName, knownGapsHtml, levelChip, notesHtml } from "./common";
 import { segmentNames } from "./compare";
 import { bindUpdate, renderUpdate, type UpdateActions } from "./update";
 
@@ -120,6 +120,22 @@ function saveHtml(s: State, c: Candidate, saved: SavedTrip | null): string {
   return `<button class="primary" id="save-offline">${again ? "Save again" : "Save for offline"} (about ${est.count} map tiles, ${megabytes(est.bytes)})</button>`;
 }
 
+/** One way: open the drive between the two trailheads in the phone's map app. We send only the two trailhead
+ * locations; the drive time and road conditions are the map app's, never ours. */
+export function shuttleHtml(c: Candidate): string {
+  if (c.kind !== "one_way") return "";
+  const start = c.waypoints.find((w) => w.kind === "start");
+  const end = c.waypoints.find((w) => w.kind === "end");
+  if (!start || !end) return "";
+  const at = (w: { lat: number; lon: number }) => `${w.lat.toFixed(5)},${w.lon.toFixed(5)}`;
+  const google = `https://www.google.com/maps/dir/?api=1&origin=${at(start)}&destination=${at(end)}&travelmode=driving`;
+  const apple = `https://maps.apple.com/?saddr=${at(start)}&daddr=${at(end)}&dirflg=d`;
+  return `<h2>Shuttle</h2>
+<p class="row"><a class="button" href="${esc(google)}" target="_blank" rel="noopener">Shuttle drive in Google Maps</a>
+<a class="button" href="${esc(apple)}" target="_blank" rel="noopener">Apple Maps</a></p>
+<p class="note">Check road conditions; backcountry roads may be closed or need high clearance. Drive time here: unknown.</p>`;
+}
+
 export function renderTrip(s: State): string {
   const run = s.run;
   const c = currentCandidate(s);
@@ -130,12 +146,13 @@ export function renderTrip(s: State): string {
   const where = s.gps.mode === "on" ? s.gps.where : null;
   const status = [s.status, s.error].filter(Boolean).join(" ");
   return `
-<h1>Candidate ${c.index}: ${esc(c.kind)}, ${miles(c.length_m)}</h1>
+<h1>Candidate ${c.index}: ${esc(kindName(c.kind))}, ${miles(c.length_m)}</h1>
 ${saved ? savedLineHtml(saved, run) : ""}
 ${saved && s.tripUpdate?.id === saved.id ? renderUpdate(s.tripUpdate) : ""}
 <p>${signedFeet(c.gain_ft, c.loss_ft)} · road ${miles(c.road_m)}${c.repeated_m ? ` · walked twice ${miles(c.repeated_m)}` : ""}</p>
 <p class="note">${esc(segmentNames(c).join(" › "))}</p>
 ${notesHtml(c.notes)}
+${shuttleHtml(c)}
 ${gpsHtml(s, c, saved)}
 ${status ? `<p class="status${s.error ? " error" : ""}" id="status">${esc(status)}</p>` : ""}
 ${s.mapNote ? `<p class="note" id="map-note">${esc(s.mapNote)}</p>` : ""}

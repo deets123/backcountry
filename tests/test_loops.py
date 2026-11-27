@@ -340,3 +340,155 @@ def test_ring_trail_behind_a_stem_is_a_lollipop():
     cands = find_candidates(tg, b.ids["T"], 4.5 * KM, 5.5 * KM, kinds=("loop", "lollipop"))
     assert [c.kind for c in cands] == ["lollipop"] and cands[0].length_m == pytest.approx(5000, abs=1)
     _check_invariants(tg, cands)
+
+
+# --- reach limit (speed) ----------------------------------------------------------------
+
+
+def test_loop_graph_drops_nodes_out_of_reach(grid, tg):
+    ids = grid.ids
+    H = loop_graph(tg, ids["T"], reach_m=2600).graph
+    for far in ("g12", "g21", "g22", "g02"):
+        assert ids[far] not in H, far
+    assert ids["g11"] in H and ids["g00"] in H
+
+
+@pytest.mark.parametrize("lo, hi", [(2 * KM, 5 * KM), (4 * KM, 7 * KM), (5 * KM, 9 * KM)])
+def test_reach_limit_finds_the_same_loops(grid, tg, lo, hi):
+    from backcountry.loops import _expand, waypoint_loops
+
+    def found(reach):
+        H = loop_graph(tg, grid.ids["g00"], reach_m=reach).graph
+        return {frozenset(_expand(H, steps)[0]) for steps, _ in waypoint_loops(H, grid.ids["g00"], lo, hi)}
+
+    assert found(hi / 2) == found(None)
+    assert found(None)
+
+
+def test_search_budget_is_60_seconds():
+    from backcountry import loops
+
+    assert loops.MAX_SECONDS == 60.0
+
+
+def test_search_reports_the_reach(grid, tg):
+    from backcountry.loops import WIDEN, search
+
+    report = search(tg, grid.ids["g00"], 2 * KM, 5 * KM)
+    assert report["loop_graph"]["reach_m"] == pytest.approx(5 * KM * (1 + WIDEN) / 2)
+
+
+# --- first results early (speed) ---------------------------------------------------------
+
+
+def _ticking_clock(step):
+    t = [0.0]
+
+    def clock():
+        t[0] += step
+        return t[0]
+    return clock
+
+
+def test_snapshot_comes_after_first_s_with_scored_candidates(grid, tg):
+    from backcountry.loops import search
+
+    snaps = []
+    report = search(tg, grid.ids["g00"], 2 * KM, 9 * KM, on_snapshot=snaps.append, first_s=8, clock=_ticking_clock(5))
+    assert len(snaps) == 1
+    snap = snaps[0]
+    assert snap["partial"] is True and report["partial"] is False
+    assert snap["candidates"]
+    assert [c.penalty for c in snap["candidates"]] == sorted(c.penalty for c in snap["candidates"])
+    _check_invariants(tg, snap["candidates"])
+
+
+def test_no_snapshot_when_search_finishes_first(grid, tg):
+    from backcountry.loops import search
+
+    snaps = []
+    report = search(tg, grid.ids["g00"], 2 * KM, 9 * KM, on_snapshot=snaps.append, first_s=999)
+    assert snaps == [] and report["partial"] is False
+
+
+def test_only_the_best_loops_get_day_plans(grid, tg, monkeypatch):
+    from backcountry import loops
+
+    monkeypatch.setattr(loops, "MAX_EVALUATED", 1)
+    seen = []
+    report = loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, evaluate=lambda c: seen.append(c) or 0.0)
+    total = report["loops_found"] + report["lollipops_found"]
+    assert report["evaluated"] == len(seen) <= 1 + 3 * 1 and len(seen) < total
+    assert all(c in seen for c in report["candidates"]) and len(report["candidates"]) == 1
+
+
+# --- out-and-back -------------------------------------------------------------------------
+
+
+def test_out_and_back_to_the_dead_spur(grid, tg):
+    from backcountry.loops import out_and_backs
+
+    cands = out_and_backs(tg, grid.ids["g00"], 2.5 * KM, 3.5 * KM)
+    to_d = [c for c in cands if c.turnaround == grid.ids["D"]]
+    assert to_d, [c.turnaround for c in cands]
+    c = to_d[0]
+    assert c.kind == "out_and_back" and c.nodes == c.nodes[::-1] and c.nodes[len(c.nodes) // 2] == grid.ids["D"]
+    assert c.repeated_m == pytest.approx(c.length_m / 2)
+    assert c.length_m == pytest.approx(3 * KM, abs=1)
+    assert any("Out and back, 0.9 mi each way." == n for n in c.route.notes)
+    _check_invariants(tg, cands)
+
+
+def test_out_and_back_turnarounds_fit_the_range(grid, tg):
+    from backcountry.loops import out_and_backs
+
+    for lo, hi in ((1 * KM, 2.2 * KM), (3 * KM, 6 * KM)):
+        cands = out_and_backs(tg, grid.ids["T"], lo, hi)
+        assert cands
+        assert all(lo <= c.length_m <= hi for c in cands)
+        G = tg.graph
+        assert all(G.degree(c.turnaround) == 1 or G.degree(c.turnaround) >= 3 for c in cands)
+
+
+def test_out_and_back_respects_avoid(grid, tg):
+    from backcountry.loops import avoided_keys, out_and_backs
+
+    excluded = avoided_keys(tg, ["Dead Spur"])
+    assert not any(c.turnaround == grid.ids["D"] for c in out_and_backs(tg, grid.ids["g00"], 2.5 * KM, 3.5 * KM,
+                                                                       exclude_keys=excluded))
+
+
+def test_search_kinds_out_and_back(grid, tg):
+    cands = find_candidates(tg, grid.ids["g00"], 2.5 * KM, 3.5 * KM, kinds=("out_and_back",))
+    assert cands and all(c.kind == "out_and_back" for c in cands)
+
+
+# --- one way ------------------------------------------------------------------------------
+
+
+def test_one_way_from_T_to_g22(grid, tg):
+    from backcountry.loops import one_ways
+
+    ids = grid.ids
+    cands = one_ways(tg, ids["T"], ids["g22"], 4 * KM, 7 * KM)
+    assert cands
+    G = tg.graph
+    for c in cands:
+        assert c.kind == "one_way" and c.finish == ids["g22"]
+        assert c.route.nodes[0] == ids["T"] and c.route.nodes[-1] == ids["g22"]
+        assert 4 * KM <= c.length_m <= 7 * KM
+        for e, (u, v) in zip(c.route.edges, zip(c.route.nodes, c.route.nodes[1:])):
+            assert G.has_edge(u, v, e["key"])
+        assert any(n.startswith("One way: start and finish are ") and n.endswith("Shuttle drive: unknown.")
+                   for n in c.route.notes)
+    assert min(c.length_m for c in cands) == pytest.approx(4.5 * KM, abs=1)
+
+
+def test_one_way_through_a_spur_walks_it_out_and_back(grid, tg):
+    from backcountry.loops import one_ways
+
+    ids = grid.ids
+    cands = one_ways(tg, ids["T"], ids["g20"], 2 * KM, 5 * KM, through=ids["D"])
+    assert cands and all(ids["D"] in c.route.nodes for c in cands)
+    c = cands[0]
+    assert c.detour_keys and c.repeated_m == pytest.approx(500, abs=1)  # D's spur, walked twice

@@ -56,3 +56,13 @@ describe("levels on cards", () => {
     expect(cardHtml(cand({}), false)).not.toContain("lvl");  // a run saved before levels existed shows none
   });
 });
+
+describe("a partial run", () => {
+  it("says it's still looking and waits before a trip can be opened", () => {
+    const run = { partial: true, candidates: [cand({})], search: { notes: [], must_visit_notes: [], widened: false, truncated: false, scored: 4, via_pairs_tried: 10, seconds: 8.1 },
+      diff: null, request: { trailhead: "x", total: [18, 26] }, known_gaps: [] } as unknown as Run;
+    const html = renderCompare({ ...INITIAL, run });
+    expect(html).toContain("Still looking for better trips…");
+    expect(html).toMatch(/id="open-trip"[^>]*disabled/);
+  });
+});

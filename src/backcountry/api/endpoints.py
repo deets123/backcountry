@@ -2,6 +2,7 @@
 
 import json
 import re
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
@@ -12,10 +13,13 @@ from backcountry import osm_index
 from backcountry.api.area_worker import NoIndex
 from backcountry.api.store import NotFound
 from backcountry.chat.service import chat_turn, start_names, trail_names
+from backcountry.destination import check_ref, trail_distances
+from backcountry.destination import resolve as resolve_destination
 from backcountry.difficulty import rate_saved, segments_terrain
 from backcountry.export import diff_markdown, edges_features
 from backcountry.ingest import OSM_ATTRIBUTION
-from backcountry.planning import GenerateRequest, RequestError, plan_route, plan_trip
+from backcountry.planning import GenerateRequest, RequestError, parse_range, plan_route, plan_trip, suggest_finishes
+from backcountry.scoring import M_PER_MI
 from backcountry.retrace import changes as trip_changes
 from backcountry.retrace import retrace
 from backcountry.region import load_region
@@ -36,9 +40,24 @@ def regions(request: Request):
     return {"regions": _regions(request).summaries(), "recent_areas": _regions(request).recent_areas()}
 
 
-@router.get("/regions/{region_id}/trailheads")
-def trailheads(region_id: str, request: Request):
-    loaded = _regions(request).get(region_id)
+@contextmanager
+def _index_for(app, req_destination):
+    """An index connection when a destination needs looking up, else None."""
+    if req_destination is None:
+        yield None
+        return
+    try:
+        con = app.state.areas.index()
+    except NoIndex as e:
+        raise RequestError("destination", "Destinations need the trail index on this server.") from e
+    try:
+        yield con
+    finally:
+        con.close()
+
+
+def _trailhead_list(loaded) -> list[dict]:
+    """The region's trailheads (yaml entries first), then start points found in the data."""
     G = loaded.tg.graph
     out = []
     for th in loaded.region.trailheads:
@@ -64,7 +83,43 @@ def trailheads(region_id: str, request: Request):
             "verified": False, "in_graph": True, "kinds": c["kinds"], "lat": c["lat"], "lon": c["lon"],
             "component": c["component"], "snap_m": c["snap_m"],
         })
+    return out
+
+
+@router.get("/regions/{region_id}/trailheads")
+def trailheads(region_id: str, request: Request, destination: str | None = None):
+    """Trailheads; with `destination` (a search result's ref), each gets its trail distance to it, nearest first."""
+    if destination is not None:
+        check_ref(destination)
+    loaded = _regions(request).get(region_id)
+    out = _trailhead_list(loaded)
+    if destination is not None:
+        with _index_for(request.app, destination) as con:
+            dist = trail_distances(loaded.tg, resolve_destination(con, loaded.tg, destination))
+        for t in out:
+            d = dist.get(t["node"]) if t["in_graph"] else None
+            t["to_destination_m"] = round(d, 1) if d is not None else None
+        out.sort(key=lambda t: (t["to_destination_m"] is None, t["to_destination_m"] or 0.0))
     return {"region": region_id, "trailheads": out}
+
+
+@router.get("/regions/{region_id}/finishes")
+def finishes(region_id: str, request: Request, trailhead: str, total: str, destination: str | None = None):
+    """Trailheads a one-way trip from `trailhead` can finish at within `total` miles (via `destination`)."""
+    lo, hi = parse_range(total, "total")
+    if destination is not None:
+        check_ref(destination)
+    loaded = _regions(request).get(region_id)
+    try:
+        start = resolve_point(loaded.tg, loaded.region, trailhead)["node"]
+    except ValueError as e:
+        raise RequestError("trailhead", str(e)) from e
+    through = None
+    if destination is not None:
+        with _index_for(request.app, destination) as con:
+            through = resolve_destination(con, loaded.tg, destination).node
+    return {"finishes": suggest_finishes(loaded.tg, _trailhead_list(loaded), start, lo * M_PER_MI, hi * M_PER_MI,
+                                         through=through, dem=loaded.dem)}
 
 
 # --- search and areas ------------------------------------------------------------------------
@@ -89,9 +144,16 @@ def search(request: Request, q: str = ""):
         return {"results": out, "index": False}
     try:
         found = osm_index.search(con, text)
+        group = osm_index.name_group(con, text)
     finally:
         con.close()
     curated = [re.compile(r.boundary_name_regex, re.I) for r in regions if r.boundary_name_regex]
+    if group and not any(c.search(a["name"]) for c in curated for a in group["areas"]):
+        g = group["areas"]
+        bbox = [min(a["bbox"][0] for a in g), min(a["bbox"][1] for a in g), max(a["bbox"][2] for a in g),
+                max(a["bbox"][3] for a in g)]
+        out.append({"kind": "group", "refs": [a["osm"] for a in g], "name": group["name"], "type_label": "Areas",
+                    "state": g[0]["state"], "bbox": bbox, "center": g[0]["center"]})
     for f in found:
         if f["kind"] == "area" and any(c.search(f["name"]) for c in curated):
             continue  # a hand-made region covers it (with its curated trailheads)
@@ -163,21 +225,54 @@ def _record(run: dict) -> dict:
             "candidates": [c["record"] for c in run["candidates"]]}
 
 
-@router.post("/regions/{region_id}/generate")
-def generate(region_id: str, request: Request, body: dict):
-    loaded = _regions(request).get(region_id)
-    req = GenerateRequest.from_dict(body)
-    result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem,
-                       raw_dir=request.app.state.settings.raw_dir)
-    runs = request.app.state.runs
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None) -> dict:
+    """Plan and save a run. `on_snapshot(run)` gets the first trips found (not saved) while the search goes on."""
+    loaded = app.state.regions.get(region_id)
+
+    def snapshot(result):
+        run = run_payload("partial", loaded.region, result, loaded.raw, loaded.tg, _now(), diff=None)
+        on_snapshot(run | {"partial": True})
+
+    with _index_for(app, req.destination) as con:
+        result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=app.state.settings.raw_dir,
+                           on_snapshot=snapshot if on_snapshot else None, index=con)
+    runs = app.state.runs
     previous = runs.latest(region_id, req.trailhead) if runs else None
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, now, diff=None)
+    run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, _now(),
+                      diff=None) | {"partial": False}
     if previous:
         run["diff"] = diff_markdown(_record(previous), _record(run))
     if runs:
         runs.save(run)
     return run
+
+
+@router.post("/regions/{region_id}/generate")
+def generate(region_id: str, request: Request, body: dict):
+    return _plan(request.app, region_id, GenerateRequest.from_dict(body))
+
+
+@router.post("/regions/{region_id}/plans")
+def start_plan(region_id: str, request: Request, body: dict):
+    """Start planning in the background (settings are checked first); poll /plans/{job_id}."""
+    req = GenerateRequest.from_dict(body)
+    app = request.app
+    return {"job_id": app.state.plans.start(lambda on_snapshot: _plan(app, region_id, req, on_snapshot))}
+
+
+@router.get("/plans/{job_id}")
+def plan_status(job_id: str, request: Request):
+    return request.app.state.plans.get(job_id)
+
+
+@router.delete("/plans/{job_id}")
+def cancel_plan(job_id: str, request: Request):
+    request.app.state.plans.cancel(job_id)
+    return {"ok": True}
 
 
 def _is_number(v) -> bool:
@@ -278,6 +373,8 @@ def update_trip(run_id: str, request: Request, body: dict):
                         (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
                         raw_dir=request.app.state.settings.raw_dir)
     result.start = run["start"]
+    if (run.get("search") or {}).get("finish") and "finish" in result.report:  # keep how the finish was named
+        result.report["finish"] = run["search"]["finish"] | {"node": result.report["finish"]["node"]}
     runs = request.app.state.runs
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     new = run_payload(runs.new_id(), loaded.region, result, loaded.raw, loaded.tg, now, diff=None)

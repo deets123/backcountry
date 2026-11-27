@@ -371,6 +371,38 @@ def generate(
         typer.echo(f"diff:    {paths['diff']} (what changed since the previous run in this folder)")
 
 
+areas_app = typer.Typer(help="Areas cut from the US index (operator commands).", no_args_is_help=True)
+app.add_typer(areas_app, name="areas")
+
+
+@areas_app.command("prepare-popular")
+def areas_prepare_popular(
+    budget_gb: float = typer.Option(None, "--budget-gb", help="Disk share for prepared areas (default BACKCOUNTRY_PREPARED_GB or 8)"),
+    limit: int = typer.Option(None, "--limit", help="Prepare at most this many (for a trial run)"),
+    osm_dir: Path = typer.Option(None, "--osm-dir", help="Index folder (default: data/osm)"),
+    raw_dir: Path = typer.Option(None, "--raw-dir", help="Cache folder (default: data/raw)"),
+    areas_dir: Path = typer.Option(None, "--areas-dir", help="Areas folder (default: data/areas)"),
+):
+    """Prepare national parks, then monuments and recreation areas, then the wilderness areas with the most trail
+    miles, ahead of time (they then open at once). Long: run it overnight, plugged in."""
+    import os
+
+    from backcountry import areas, osm_index, usdata
+
+    idx = usdata.current_index(osm_dir)
+    if idx is None:
+        typer.echo("No index built yet. Run `backcountry usdata download`, then `backcountry usdata build`.", err=True)
+        raise typer.Exit(code=1)
+    budget = budget_gb if budget_gb is not None else float(os.environ.get("BACKCOUNTRY_PREPARED_GB") or 8.0)
+    con = osm_index.open_index(idx)
+    try:
+        out = areas.prepare_popular(con, budget, raw_dir=raw_dir, areas_dir=areas_dir, limit=limit,
+                                    log=lambda line: typer.echo(line, err=True))
+    finally:
+        con.close()
+    typer.echo(f"Prepared {len(out['prepared'])} areas ({out['used_gb']:.2f} GB); skipped {len(out['skipped'])}.")
+
+
 usdata_app = typer.Typer(help="The US OpenStreetMap extract and local index (operator setup; never run by users).",
                          no_args_is_help=True)
 app.add_typer(usdata_app, name="usdata")

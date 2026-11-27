@@ -5,8 +5,9 @@ import logging
 import os
 import random
 import threading
+import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +30,8 @@ class Settings:
     max_loaded: int = 4            # areas kept built in memory (least recently used goes first)
     area_limits: dict | None = None  # {max_queue, per_hour, disk_gb}; defaults in api.area_worker
     area_thread: bool = True       # prepare areas on a background thread (tests run them inline)
+    prepared_gb: float = 8.0       # disk share reserved for areas prepared ahead (backcountry areas prepare-popular)
+    plan_jobs: int = 2             # plans running at once, for everyone (BACKCOUNTRY_PLAN_JOBS)
 
     @classmethod
     def default(cls) -> "Settings":
@@ -37,7 +40,9 @@ class Settings:
         env = {k: os.environ.get(f"BACKCOUNTRY_AREA_{k.upper()}") for k in ("max_queue", "per_hour", "disk_gb")}
         limits = {k: (float(v) if k == "disk_gb" else int(v)) for k, v in env.items() if v}
         return cls(raw_dir=ingest.RAW_DIR, runs_dir=REPO_ROOT / "data" / "runs", regions_dir=REGIONS_DIR,
-                   areas_dir=AREAS_DIR, osm_dir=usdata.OSM_DIR, area_limits=limits or None)
+                   areas_dir=AREAS_DIR, osm_dir=usdata.OSM_DIR, area_limits=limits or None,
+                   prepared_gb=float(os.environ.get("BACKCOUNTRY_PREPARED_GB") or 8.0),
+                   plan_jobs=int(os.environ.get("BACKCOUNTRY_PLAN_JOBS") or 2))
 
     @property
     def areas(self) -> Path:
@@ -52,6 +57,7 @@ class LoadedRegion:
     summary: dict
     dem: object = None
     cut: str | None = None  # extract date of a generated area's data; None for hand-made regions
+    timings: dict = field(default_factory=dict)  # seconds to build the graph, its QA summary and load the DEM
     builds = 0  # class-level counter, for tests
 
     @property
@@ -140,9 +146,14 @@ class RegionStore:
                 raw = ingest.load_raw(region, self.settings.raw_dir, cut)
             except FileNotFoundError as e:  # names `backcountry ingest`
                 raise NotFound(str(e)) from e
+            t0 = time.perf_counter()
             tg = build_graph(raw, region.crs)
-            loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=qa_summary(tg),
-                                  dem=ingest.load_dem(region, raw_dir=self.settings.raw_dir), cut=cut)
+            t1 = time.perf_counter()
+            summary = qa_summary(tg)
+            t2 = time.perf_counter()
+            dem = ingest.load_dem(region, raw_dir=self.settings.raw_dir)
+            timings = {"graph": round(t1 - t0, 2), "qa": round(t2 - t1, 2), "dem_load": round(time.perf_counter() - t2, 2)}
+            loaded = LoadedRegion(region=region, raw=raw, tg=tg, summary=summary, dem=dem, cut=cut, timings=timings)
             LoadedRegion.builds += 1
             self._loaded[key] = loaded
             while len(self._loaded) > max(1, self.settings.max_loaded):

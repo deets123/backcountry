@@ -8,6 +8,7 @@ count LAST_RESORT_FACTOR times their length so they're used only when
 nothing else connects. --no-roads drops every road edge instead.
 """
 
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -57,7 +58,10 @@ def resolve_point(tg, region, text: str) -> dict:
         nodes = sorted(G.nodes)
         tree = STRtree([Point(G.nodes[n]["x"], G.nodes[n]["y"]) for n in nodes])
         pt = Point(x, y)
-        node = nodes[tree.query_nearest(pt, all_matches=False)[0]]
+        hit = tree.query_nearest(pt, all_matches=False) if math.isfinite(x) and math.isfinite(y) else []
+        if len(hit) == 0:  # a point this map projection can't place (far outside the region)
+            raise ValueError(f"{lat},{lon} is far outside this region")
+        node = nodes[hit[0]]
         dist = pt.distance(Point(G.nodes[node]["x"], G.nodes[node]["y"]))
         if dist > SNAP_MAX_M:
             raise ValueError(f"{lat},{lon} is {dist * FT_PER_M:,.0f} ft from the nearest graph node "

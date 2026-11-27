@@ -449,3 +449,43 @@ def test_difficulty_places_tags_inside_a_mixed_segment_by_the_route_line(tmp_pat
     assert [(round(t["start_m"]), round(t["end_m"]), t["reason"]) for t in with_line["terrain"]] == \
         [(round(t["start_m"]), round(t["end_m"]), t["reason"]) for t in c["terrain"]]
     assert with_line["rating"]["level"] == c["rating"]["level"] and row1["reason"] == "scramble (tagged)"
+
+
+# --- plan jobs (first trips early) -------------------------------------------------------
+
+
+def test_plan_job_returns_the_final_run_and_saves_it(env, grid):
+    env.area_thread = False
+    client = TestClient(create_app(env, web_dist=env.runs_dir / "no-web"))
+    body = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "nights": 1, "daily": "0.5-4", "type": "loop"}
+    r = client.post("/api/regions/dolly_sods/plans", json=body)
+    assert r.status_code == 200, r.text
+    job = client.get(f"/api/plans/{r.json()['job_id']}").json()
+    assert job["status"] == "done" and job["run"]["partial"] is False and len(job["run"]["candidates"]) == 3
+    assert client.get(f"/api/runs/{job['run']['run_id']}").json() == job["run"]
+
+
+def test_plan_job_bad_settings_are_a_400(client, grid):
+    r = client.post("/api/regions/dolly_sods/plans", json={"trailhead": str(grid.ids["g00"]), "total": "26-18"})
+    assert r.status_code == 400 and r.json()["field"] == "total"
+
+
+def test_plan_job_id_is_validated(client):
+    assert client.get("/api/plans/..%2F..%2Fetc").status_code in (400, 404)
+    assert client.get("/api/plans/0123456789abcdef").status_code == 404
+
+
+def test_finishes_endpoint(client, grid):
+    r = client.get("/api/regions/dolly_sods/finishes", params={"trailhead": str(grid.ids["T"]), "total": "0.5-4"})
+    assert r.status_code == 200, r.text
+    finishes = r.json()["finishes"]
+    assert 1 <= len(finishes) <= 5
+    for f in finishes:
+        assert {"id", "name", "length_m", "gain_ft", "loss_ft", "straight_line_m"} <= set(f) and f["node"] != grid.ids["T"]
+    assert client.get("/api/regions/dolly_sods/finishes", params={"trailhead": "nowhere", "total": "1-4"}).status_code == 400
+    assert client.get("/api/regions/dolly_sods/finishes", params={"trailhead": str(grid.ids["T"]), "total": "4-1"}).status_code == 400
+
+
+def test_cancel_endpoint(client):
+    assert client.delete("/api/plans/0123456789abcdef").status_code == 404
+    assert client.delete("/api/plans/..%2Fx").status_code in (400, 404)

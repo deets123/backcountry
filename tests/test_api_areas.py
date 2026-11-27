@@ -47,6 +47,7 @@ def test_search_regions_first(api):
 def test_search_finds_park_and_place(api):
     client, _ = api
     r = client.get("/api/search", params={"q": "Testpark"}).json()["results"]
+    r = [x for x in r if x["kind"] != "group"]  # "Testpark" alone also lists the park and its wilderness together
     assert r[0]["kind"] == "area" and r[0]["ref"] == "relation/3003" and r[0]["type_label"] == "National Park"
     assert r[0]["state"] == "Statea" and "bbox" in r[0]
     assert client.get("/api/search", params={"q": "Lone Peak"}).json()["results"][0]["kind"] == "place"
@@ -362,3 +363,156 @@ def test_capped_park_says_it_is_only_part(tmp_path, index_path, monkeypatch):
     run_worker(client)
     assert client.get(f"/api/areas/{r['area_id']}/status").json()["name"] == "Part of Testpark National Park"
     assert any(a["name"] == "Part of Testpark National Park" for a in client.get("/api/regions").json()["recent_areas"])
+
+
+# --- two steps: trails first, elevation behind them --------------------------------------------
+
+
+def test_area_shows_trails_before_elevation(tmp_path, index_path):
+    seen = {}
+
+    def dem(region, bounds, **kw):
+        st = client.get(f"/api/areas/{region.id}/status").json()
+        seen["status"], seen["message"] = st["status"], st["message"]
+        seen["trails"] = client.get(f"/api/regions/{region.id}/trails").status_code
+        seen["trailheads"] = client.get(f"/api/regions/{region.id}/trailheads").status_code
+
+    client, _ = make_client(tmp_path, index_path, dem=dem)
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    assert seen == {"status": "trails", "message": "Adding elevation…", "trails": 200, "trailheads": 200}
+    assert client.get(f"/api/areas/{area_id}/status").json()["status"] == "ready"
+
+
+def test_cut_without_elevation_is_not_ready(tmp_path, index_path):
+    fail = FakeDem(fail=True)
+    client, _ = make_client(tmp_path, index_path, dem=fail)
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    assert client.get(f"/api/areas/{area_id}/status").json()["status"] == "failed"
+    cut_files = sorted((tmp_path / "raw" / area_id).glob("extract_*.json"))
+    assert cut_files  # the trails were kept
+    before = {p.name: p.stat().st_mtime_ns for p in cut_files}
+    fail.fail = False
+    again = client.post("/api/areas", json={"ref": "relation/3003"}).json()
+    assert again["status"] == "trails" and again["message"] == "Adding elevation…"
+    run_worker(client)
+    assert client.get(f"/api/areas/{area_id}/status").json()["status"] == "ready"
+    assert {p.name: p.stat().st_mtime_ns for p in cut_files} == before  # elevation only: the cut wasn't redone
+    assert fail.calls == [area_id, area_id]
+
+
+def test_ready_area_is_reloaded_with_its_elevation(tmp_path, index_path):
+    client, _ = make_client(tmp_path, index_path)
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    forgotten = []
+    store = client.app.state.regions
+    orig = store.forget
+    store.forget = lambda rid: (forgotten.append(rid), orig(rid))
+    run_worker(client)
+    assert forgotten == [area_id]
+
+
+def test_user_areas_never_evict_prepared_ones(tmp_path, index_path):
+    from backcountry import areas as areas_mod
+
+    client, _ = make_client(tmp_path, index_path)
+    park = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    wild = client.post("/api/areas", json={"ref": "relation/3004"}).json()["area_id"]
+    run_worker(client)
+    areas_mod.write_prepared(tmp_path / "areas", [park])
+    client.app.state.areas.limits["disk_gb"] = 0.0
+    client.post("/api/areas", json={"box": [-149.75, 10.75, -149.65, 10.85]})
+    assert (tmp_path / "areas" / f"{park}.yaml").exists() and (tmp_path / "raw" / park).exists()
+    assert not (tmp_path / "raw" / wild).exists()
+
+
+# --- destinations -------------------------------------------------------------------------
+
+
+def test_trailheads_sorted_by_distance_to_destination(api):
+    client, _ = api
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    ths = client.get(f"/api/regions/{area_id}/trailheads", params={"destination": "node/1060"}).json()["trailheads"]
+    reach = [t["to_destination_m"] for t in ths]
+    known = [r for r in reach if r is not None]
+    assert known and known == sorted(known) and reach[:len(known)] == known  # reachable first, nearest first
+    plain = client.get(f"/api/regions/{area_id}/trailheads").json()["trailheads"]
+    assert all("to_destination_m" not in t for t in plain)
+
+
+def test_generate_with_a_destination(api):
+    client, _ = api
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    body = {"trailhead": "10.2495,-149.8505", "total": "18-24", "type": "out_and_back", "destination": "node/1060"}
+    run = client.post(f"/api/regions/{area_id}/generate", json=body).json()
+    assert run["search"]["destination"]["name"] == "Spur Top"
+    assert run["request"]["destination"] == "node/1060" and run["candidates"]
+
+
+@pytest.mark.parametrize("bad", ["../x", "node/1;ls", "http://x"])
+def test_trailheads_destination_is_validated(api, bad):
+    client, _ = api
+    area_id = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    assert client.get(f"/api/regions/{area_id}/trailheads", params={"destination": bad}).status_code == 400
+
+
+def test_old_saved_run_without_new_fields_opens_and_updates(planned):
+    from conftest import add_cut
+
+    client, a, run = planned
+    path = client.app.state.settings.runs_dir / f"{run['run_id']}.json"
+    old = json.loads(path.read_text())
+    for key in ("destination", "finish"):
+        old["request"].pop(key, None)
+    for c in old["candidates"]:
+        c.pop("finish", None), c.pop("turnaround", None)
+    path.write_text(json.dumps(old))
+    assert client.get(f"/api/runs/{run['run_id']}").status_code == 200
+    assert client.get(f"/api/runs/{run['run_id']}/candidates/1.gpx").status_code == 200
+    add_cut(client.app.state.settings, a, "2026-11-20")
+    body = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
+    assert body["ok"] is True
+
+
+def test_one_way_trip_updates_to_newer_data(api):
+    from conftest import add_cut
+
+    client, _ = api
+    a = client.post("/api/areas", json={"ref": "relation/3003"}).json()["area_id"]
+    run_worker(client)
+    run = client.post(f"/api/regions/{a}/generate", json={"trailhead": "10.2495,-149.8505", "total": "5-12",
+                                                          "type": "one_way", "finish": "10.22,-149.7"}).json()
+    assert run["candidates"] and run["candidates"][0]["kind"] == "one_way"
+    add_cut(client.app.state.settings, a, "2026-11-20")
+    body = client.post(f"/api/runs/{run['run_id']}/update", json={"candidate": 1}).json()
+    assert body["ok"] is True and body["run"]["candidates"][0]["kind"] == "one_way"
+    assert body["run"]["candidates"][0]["finish"]["node"] == 1029
+    before, after = run["candidates"][0], body["run"]["candidates"][0]
+    assert after["finish"]["name"] == before["finish"]["name"] and after["title"] == before["title"]
+    assert "osm:node" not in after["waypoints"][1]["desc"] or "osm:node" in before["waypoints"][1]["desc"]
+
+
+# --- short names ----------------------------------------------------------------------------------
+
+
+def test_short_name_is_listed_first_as_a_group(api):
+    client, _ = api
+    r = client.get("/api/search", params={"q": "Testpark"}).json()["results"]
+    assert r[0]["kind"] == "group" and r[0]["refs"] == ["relation/3003", "relation/3004"]
+    assert r[0]["name"] == "Testpark (park and nearby wilderness)" and r[0]["bbox"]
+    full = client.get("/api/search", params={"q": "Testpark National Park"}).json()["results"]
+    assert full[0]["kind"] == "area"
+
+
+def test_group_open_covers_both_areas(api):
+    client, _ = api
+    r = client.post("/api/areas", json={"refs": ["relation/3003", "relation/3004"]}).json()
+    assert r["name"] == "Testpark (park and nearby wilderness)"
+    run_worker(client)
+    assert client.get(f"/api/areas/{r['area_id']}/status").json()["status"] == "ready"
+    names = {f["properties"]["name"] for f in client.get(f"/api/regions/{r['area_id']}/trails").json()["features"]}
+    assert "Rim Trail" in names

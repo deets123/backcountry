@@ -136,8 +136,32 @@ nothing region-specific lives in the code. To add one, copy a yaml, adjust it, a
 The web app's "Where" box searches every US park, wilderness, forest and other protected area, plus peaks,
 places and named trails ("Zion", "Chesler Park", "Linville Gorge"), and "Plan in this map area" uses the map on
 screen. A park opens whole; a place opens the park it's in. The first time an area is opened the server cuts its
-trails out of a local US index and fetches its elevation from USGS (seconds to a few minutes; the phone just
-shows "Finding trails in …"); after that it opens at once.
+trails out of a local US index (seconds: the trails show at once) and then fetches elevation from USGS for the
+cells trails pass through ("Adding elevation…"; Zion 17 s, Yosemite 40 s, Grand Canyon 74 s on this laptop);
+after that it opens at once. A short name opens touching areas together ("Zion": the park and the Zion
+Wilderness); a full name ("Zion National Park", "Zion NP") opens that one. NP, NF, NM, NRA, SP and W/WA are
+understood.
+
+Searching a place (a peak, a viewpoint, a named place or trail) makes it the trip's destination: the start list
+shows only the starts that reach it within the trip's miles, nearest first, and every trip goes to and through
+it (an out-and-back turns there; a longer trip takes it as a side trip). If no mapped trail reaches a summit the
+trip says how far the nearest trail point is.
+
+Trip shapes: loop, lollipop, out and back, one way, or any (loop, lollipop or out and back). One way lists up to
+five finishing trailheads that fit the miles (with gain, loss and the straight line between the trailheads); the
+trip has Google Maps and Apple Maps buttons for the shuttle drive. The app never shows a drive time itself.
+"Day hike" plans a trip with no nights.
+
+Planning shows the first trips after about 8 seconds while the search goes on, and stops by 60 seconds.
+
+Prepare popular areas ahead (national parks, then monuments and recreation areas, then the wilderness areas with
+the most trail miles), so they open at once. Long: run it overnight, plugged in:
+
+```
+caffeinate -i uv run backcountry areas prepare-popular   # stops at BACKCOUNTRY_PREPARED_GB (default 8)
+```
+
+Prepared areas are listed in `data/areas/prepared.json`; areas people open never remove them.
 
 Operator setup, once (then about monthly):
 
@@ -153,13 +177,15 @@ include a percentage and time left. After a build, the downloaded `.osm.pbf` can
 it). Older indexes and the areas cut from them are kept, so saved trips keep working; delete old `us-*.sqlite`
 files in `data/osm/` by hand when the new one is in use.
 
-Opened areas live in `data/raw/<area>/` and `data/areas/` (git-ignored): Zion about 110 MB, Yosemite 300 MB,
-Grand Canyon 1.4 GB. Areas over 5,000 km² (Yellowstone, Death Valley) open as a 24 km square, shown as "Part of
+Opened areas live in `data/raw/<area>/` and `data/areas/` (git-ignored): Zion about 55 MB, Yosemite 170 MB,
+Grand Canyon 310 MB. Areas over 5,000 km² (Yellowstone, Death Valley) open as a 24 km square, shown as "Part of
 …": around the place or map spot you picked, or the park's middle when you search the park itself. After a
 `refresh`, an area opened before it gets the newer trail data the next time it is opened (or when a saved trip there
 checks for an update). Server limits (environment variables): `BACKCOUNTRY_AREA_MAX_QUEUE` (3 waiting), `BACKCOUNTRY_AREA_PER_HOUR`
 (6 new areas an hour), `BACKCOUNTRY_AREA_DISK_GB` (40; the least recently opened areas no saved trip uses are
-removed first). `BACKCOUNTRY_OSM_DIR` and `BACKCOUNTRY_AREAS_DIR` move the index and generated areas.
+removed first), `BACKCOUNTRY_PREPARED_GB` (8; the share kept for prepared areas), `BACKCOUNTRY_PLAN_JOBS` (2 plans at
+once, for everyone). `BACKCOUNTRY_OSM_DIR` and `BACKCOUNTRY_AREAS_DIR` move the index and generated areas.
+`scripts/measure-speed [--fresh]` times opening and planning in Zion, Yosemite and Grand Canyon, step by step.
 
 Saved trips: when a saved trip is opened online and its area has newer trail data, the app offers to update it
 and says about how much it would download. "Review changes" re-plans the same route on the new data and lists what

@@ -264,3 +264,16 @@ def test_ingest_reads_regions_from_another_directory(tmp_path, monkeypatch, netw
     result = runner.invoke(app, ["ingest", "--region", "calib", "--regions-dir", str(regions)])
     assert result.exit_code == 0, result.output
     assert "Using cached" in result.output
+
+
+def test_cli_prepare_popular(index_path, tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from backcountry import areas, ingest
+    from backcountry.cli import app
+
+    monkeypatch.setattr(ingest, "fetch_dem", lambda region, bounds, **kw: None)
+    r = CliRunner().invoke(app, ["areas", "prepare-popular", "--budget-gb", "1", "--limit", "1", "--osm-dir", str(index_path.parent),
+                                 "--raw-dir", str(tmp_path / "raw"), "--areas-dir", str(tmp_path / "areas")])
+    assert r.exit_code == 0, r.output
+    assert "Prepared 1" in r.output

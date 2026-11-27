@@ -115,3 +115,10 @@ def test_chat_uses_the_runs_cut(area_env, tmp_path, monkeypatch):
     monkeypatch.setattr(store, "get", lambda rid, cut=None: seen.append(cut) or real(rid, cut))
     r = client.post("/api/chat", json={"run_id": run["run_id"], "candidate": 1, "message": "how far is it?", "history": []})
     assert r.status_code == 200 and seen == [MINI_DATE]
+
+
+def test_loaded_region_reports_load_timings(area_env):
+    settings, spec = area_env
+    timings = RegionStore(settings).get(spec.id).timings
+    assert set(timings) == {"graph", "qa", "dem_load"}
+    assert all(isinstance(v, float) and v >= 0 for v in timings.values())

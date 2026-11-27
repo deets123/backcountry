@@ -187,3 +187,13 @@ def test_no_daily_limit_on_a_trip_with_nights_means_the_loosest_range():
     assert lines == ["Miles per day: 6-11 mi → 1-26 mi"]
     hike, _ = apply_changes(REQ, {"nights": None, "daily": None, "total": [6, 10]}, TRAILS, STARTS)
     assert hike["daily"] is None
+
+
+def test_chat_proposal_keeps_destination_finish_and_type():
+    from backcountry.planning import GenerateRequest
+
+    req = GenerateRequest.from_dict({"trailhead": "1", "total": "8-12", "type": "one_way", "finish": "2",
+                                     "destination": "node/5"})
+    new, _ = apply_changes(req.to_dict(), {"total": [9, 14]}, [], [])
+    out = GenerateRequest.from_dict(new)
+    assert out.type == "one_way" and out.finish == "2" and out.destination == "node/5" and out.total == (9.0, 14.0)

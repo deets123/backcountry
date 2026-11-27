@@ -139,11 +139,15 @@ Destination: web and phones, later the app stores, with offline use of saved tri
    **Any US area by name** (built 2026-10-27; `docs/superpowers/specs/2026-10-25-any-us-area-design.md`): search
    any US park, protected area, place or trail and plan there, from a local index of the Geofabrik US extract;
    saved trips offer newer trail data, never applied without review.
+   **Destinations, trip shapes and speed** (built 2026-10-27; `docs/superpowers/specs/2026-10-27-trip-shapes-and-speed-design.md`):
+   a searched place is the trip's destination; out-and-back and one-way trips with suggested finishes and shuttle
+   links; "Zion" vs "Zion NP"; first trips in about 8 s, elevation only along trails, popular areas prepared ahead.
+   Next: park rules, permits and closures (OSM already tags some, e.g. `access=permit` on the Angels Landing trail).
 5. **App-store packaging** (Capacitor), hosting, accounts.
 6. **Alerts and permit metadata** with provenance.
 
 Ideas from you (2026-10-21), not designed yet: "a backpacking version of AllTrails": name any park (built,
-above); out-and-back and one-way shuttle trips (needed for spurs like Angels Landing; suggested next); temperatures for the trip dates or climate averages, from a named source;
+above); out-and-back and one-way shuttle trips (built, above); temperatures for the trip dates or climate averages, from a named source;
 a gear list derived from those numbers (sleeping-pad R-value, bag rating), labeled as guidance; difficulty levels
 (built, above); viewpoints along the route (OSM `tourism=viewpoint`) and ranking by
 reward for effort. Each gets its own design.

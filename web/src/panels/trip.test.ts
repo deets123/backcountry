@@ -168,3 +168,19 @@ describe("tagged stretches in a day's details", () => {
     expect(html).toContain("scramble from mile 6.0 to 7.0");
   });
 });
+
+describe("shuttle", () => {
+  const wps = [{ name: "Start", desc: "Start: Lava Point", lat: 37.384321, lon: -113.032109, dist_m: 0, ele: null, kind: "start" as const },
+    { name: "Finish", desc: "Finish: Grotto", lat: 37.259012, lon: -112.951234, dist_m: 1, ele: null, kind: "end" as const }];
+  it("one-way trip shows shuttle links with both trailheads and the note", () => {
+    const html = renderTrip({ ...INITIAL, run: run({ kind: "one_way", waypoints: wps }), selected: 1, view: "trip" });
+    expect(html).toContain('href="https://www.google.com/maps/dir/?api=1&amp;origin=37.38432,-113.03211&amp;destination=37.25901,-112.95123&amp;travelmode=driving"');
+    expect(html).toContain('href="https://maps.apple.com/?saddr=37.38432,-113.03211&amp;daddr=37.25901,-112.95123&amp;dirflg=d"');
+    expect(html).toContain("Shuttle drive in Google Maps");
+    expect(html).toContain("Check road conditions; backcountry roads may be closed or need high clearance.");
+    expect(html).toMatch(/target="_blank" rel="noopener"/);
+  });
+  it("a loop has no shuttle links", () => {
+    expect(renderTrip({ ...INITIAL, run: run({ kind: "loop", waypoints: wps }), selected: 1, view: "trip" })).not.toContain("Shuttle drive");
+  });
+});
