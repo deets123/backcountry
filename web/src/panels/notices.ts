@@ -1,6 +1,7 @@
 // "Before you go": permits, fees, closures and rules, each quoted from its source with its date. Nothing here concludes
 // anything; source text is always escaped and links are shown only when they are http(s).
-import type { Notice, NoticeKind, ParkNotices } from "../types";
+import type { SavedTrip } from "../offline/db";
+import type { Notice, NoticeKind, ParkNotices, Run, RunNotices } from "../types";
 import { esc } from "./common";
 
 const LABELS: Record<NoticeKind, string> = {
@@ -66,4 +67,25 @@ export function parkLineHtml(p: ParkNotices | null, open: boolean): string {
   const checked = p.error || p.stale ? `could not refresh; last checked ${when || "earlier"}` : `checked ${when}`;
   const summary = `Park notices: ${closures} closure${closures === 1 ? "" : "s"}, ${others} more · National Park Service, ${checked}`;
   return `<details id="park-notices"${open ? " open" : ""}><summary>${esc(summary)}</summary>${noticesHtml(p.notices)}</details>`;
+}
+
+export interface RefreshDeps {
+  getRunNotices(runId: string, n: number): Promise<RunNotices>;
+  /** Stores the refreshed run with a saved trip (notices are a dated snapshot, not a change to the route). */
+  put?(rec: SavedTrip): Promise<void>;
+}
+
+/** A trip's notices re-matched against the park's current data. Returns the run with the candidate's notices replaced
+ * and `notices_pending` cleared, the keys of notices the saved copy lacked ("new since you saved"), and whether the
+ * park's fetch is still pending. Snapshot runs ("partial") are never refreshed. */
+export async function refreshNotices(run: Run, n: number, rec: SavedTrip | null, deps: RefreshDeps):
+  Promise<{ run: Run; noticesNew: string[]; pending: boolean } | null> {
+  if (run.run_id === "partial" || !run.candidates[n - 1]) return null;
+  const r = await deps.getRunNotices(run.run_id, n);
+  const updated: Run = { ...run, search: { ...run.search, notices_pending: r.pending },
+    candidates: run.candidates.map((c, i) => (i === n - 1 ? { ...c, notices: r.notices } : c)) };
+  const savedKeys = new Set((rec?.run.candidates[n - 1]?.notices ?? []).map(noticeKey));
+  const noticesNew = rec ? r.notices.filter((x) => x.kind !== "unknown" && !savedKeys.has(noticeKey(x))).map(noticeKey) : [];
+  if (rec && deps.put) await deps.put({ ...rec, run: updated });
+  return { run: updated, noticesNew, pending: r.pending };
 }

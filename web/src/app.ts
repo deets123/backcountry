@@ -1,5 +1,5 @@
-import { ApiError, areaStatus, cancelPlan, chat, difficulty, getFinishes, getPlan, getRegionNotices, getRegions, getTrailheads, getTrails, openArea, search,
-  startPlan, updateCheck, updateTrip } from "./api";
+import { ApiError, areaStatus, cancelPlan, chat, difficulty, getFinishes, getPlan, getRegionNotices, getRegions, getRunNotices, getTrailheads, getTrails,
+  openArea, search, startPlan, updateCheck, updateTrip } from "./api";
 import { BASEMAPS } from "./basemaps";
 import { evidenceHtml } from "./evidence";
 import { locate, type Fix } from "./gps";
@@ -11,6 +11,7 @@ import { afterFailedPlan, runPlanJob } from "./planjob";
 import { coverageNote } from "./offline/tiles";
 import { bindChat } from "./panels/chat";
 import { bindCompare, renderCompare, startLabel } from "./panels/compare";
+import { refreshNotices } from "./panels/notices";
 import { esc } from "./panels/common";
 import { bindPlan, patchFinishes, renderPlan, tapMessage } from "./panels/plan";
 import { bindSaved, renderSaved } from "./panels/saved";
@@ -85,6 +86,28 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       if (ask !== noticesAsk || store.get().region !== region) return;
       store.set({ parkNotices: p });
       if (!p.pending || Date.now() - started > NOTICES_GIVE_UP_MS) return;
+      await new Promise((r) => setTimeout(r, NOTICES_POLL_MS));
+    }
+  }
+
+  /** The open trip's "Before you go", re-matched against the park's current notices when online: for saved trips
+   * (the refreshed snapshot is stored with the trip; what wasn't there before is marked) and for plans made before the
+   * park's first fetch had finished (asked again every 5 s while pending, up to 2 minutes). */
+  let noticesRefreshAsk = 0;
+  async function refreshTripNotices() {
+    const s = store.get(), run = s.run;
+    if (!run || run.run_id === "partial" || s.offline || win?.navigator.onLine === false) return;
+    const ask = ++noticesRefreshAsk, started = Date.now(), n = s.selected, runId = run.run_id;
+    for (;;) {
+      const cur = store.get();
+      if (ask !== noticesRefreshAsk || cur.run?.run_id !== runId || cur.selected !== n || cur.view !== "trip") return;
+      const rec = cur.savedId ? cur.saved.find((t) => t.id === cur.savedId) ?? null : null;
+      let out;
+      try { out = await refreshNotices(cur.run!, n, rec, { getRunNotices, put: putTrip }); } catch { return; }
+      if (!out || ask !== noticesRefreshAsk || store.get().run?.run_id !== runId) return;
+      store.set((x) => ({ run: out!.run, noticesNew: out!.noticesNew.length ? out!.noticesNew : x.noticesNew }));
+      if (rec) await refreshSaved();
+      if (!out.pending || Date.now() - started > NOTICES_GIVE_UP_MS) return;
       await new Promise((r) => setTimeout(r, NOTICES_POLL_MS));
     }
   }
@@ -228,8 +251,10 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       const s = store.get();
       const rec = s.run ? s.saved.find((t) => t.id === tripId(s.run!, i)) : undefined;
       lastAlongM = null;
-      store.set({ selected: i, view: "trip", sheet: "half", savedId: rec?.id ?? null, campsM: rec?.campsM ?? null, tilesMissing: false, status: "", error: null });
+      store.set({ selected: i, view: "trip", sheet: "half", savedId: rec?.id ?? null, campsM: rec?.campsM ?? null, tilesMissing: false, status: "", error: null,
+        noticesNew: [] });
       if (rec) void tilesPresent(rec).then((ok) => { if (!ok && openTripId(store.get()) === rec.id) store.set({ tilesMissing: true }); });
+      void refreshTripNotices();
     },
     backToCompare() { store.set({ view: "compare", status: "", error: null }); },
     async replan() {
@@ -317,7 +342,8 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       lastAlongM = null;
       const tilesGone = !(await tilesPresent(rec));
       store.set({ run: rec.run, selected: rec.index, savedId: rec.id, campsM: rec.campsM, view: "trip", sheet: "half", status: "", tilesMissing: tilesGone,
-        error: tilesGone ? "This trip's offline map was cleared by the browser. Tap Save again while online to get the map back." : null });
+        noticesNew: [], error: tilesGone ? "This trip's offline map was cleared by the browser. Tap Save again while online to get the map back." : null });
+      void refreshTripNotices();
       map?.setTrails(rec.trails);
       map?.fitBounds(rec.box);
       store.set({ tripUpdate: null });

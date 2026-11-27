@@ -11,6 +11,7 @@ import type { State, Store } from "../store";
 import type { Candidate, Day, Rating, Run } from "../types";
 import { renderChat } from "./chat";
 import { esc, kindName, knownGapsHtml, levelChip, notesHtml } from "./common";
+import { noticesHtml } from "./notices";
 import { segmentNames } from "./compare";
 import { bindUpdate, renderUpdate, type UpdateActions } from "./update";
 
@@ -136,6 +137,14 @@ export function shuttleHtml(c: Candidate): string {
 <p class="note">Check road conditions; backcountry roads may be closed or need high clearance. Drive time here: unknown.</p>`;
 }
 
+/** Permits, fees, closures and rules quoted from their sources, ending with the unknown line; "Checking…" while the
+ * park's notices are still being fetched; a plain note for trips saved before notices existed. */
+function beforeYouGoHtml(c: Candidate, run: Run, s: State): string {
+  const pending = run.search.notices_pending ? `<p class="status" id="notices-status">Checking park notices…</p>` : "";
+  if (!c.notices) return `${pending}<p class="note">Permits and closures weren't checked when this trip was planned. Open it online to check.</p>`;
+  return `${pending}${noticesHtml(c.notices, new Set(s.noticesNew))}`;
+}
+
 export function renderTrip(s: State): string {
   const run = s.run;
   const c = currentCandidate(s);
@@ -152,6 +161,7 @@ ${saved && s.tripUpdate?.id === saved.id ? renderUpdate(s.tripUpdate) : ""}
 <p>${signedFeet(c.gain_ft, c.loss_ft)} · road ${miles(c.road_m)}${c.repeated_m ? ` · walked twice ${miles(c.repeated_m)}` : ""}</p>
 <p class="note">${esc(segmentNames(c).join(" › "))}</p>
 ${notesHtml(c.notes)}
+<h2>Before you go</h2>${beforeYouGoHtml(c, run, s)}
 ${shuttleHtml(c)}
 ${gpsHtml(s, c, saved)}
 ${status ? `<p class="status${s.error ? " error" : ""}" id="status">${esc(status)}</p>` : ""}

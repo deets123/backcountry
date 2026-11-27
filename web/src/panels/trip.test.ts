@@ -184,3 +184,36 @@ describe("shuttle", () => {
     expect(renderTrip({ ...INITIAL, run: run({ kind: "loop", waypoints: wps }), selected: 1, view: "trip" })).not.toContain("Shuttle drive");
   });
 });
+
+describe("Before you go", () => {
+  const UNKNOWN = "Everything else (water, conditions, permits and closures the sources don't list): unknown.";
+  const notice = (kind: "permit" | "unknown" | "info", text: string, matched = false) => ({
+    kind, text, applies_to: matched ? "trail: Angels Landing Trail" : null, matched,
+    source: matched ? { name: "OpenStreetMap", ref: null, as_of: "2026-10-26", checked_at: null } : null, links: [] as string[],
+  });
+  it("shows the block before the days, with the unknown line, and marks new notices", () => {
+    const permit = notice("permit", "Permit to hike Angels Landing Trail, 0.4 mi of this trip.", true);
+    const r = run({ notices: [permit, notice("unknown", UNKNOWN)] });
+    const html = renderTrip({ ...INITIAL, run: r, selected: 1, view: "trip", noticesNew: ["permit|Permit to hike Angels Landing Trail, 0.4 mi of this trip."] });
+    expect(html.indexOf("<h2>Before you go</h2>")).toBeGreaterThan(0);
+    expect(html.indexOf("<h2>Before you go</h2>")).toBeLessThan(html.indexOf("<h2>Days</h2>"));
+    expect(html).toContain("new since you saved");
+    expect(html).toContain(UNKNOWN.replace("'", "&#39;"));  // escaped like every other source text
+    expect(html).not.toContain("Checking park notices…");
+  });
+  it("says it is checking while the park's notices are pending", () => {
+    const r = run({ notices: [notice("unknown", UNKNOWN)] });
+    r.search.notices_pending = true;
+    expect(renderTrip({ ...INITIAL, run: r, selected: 1, view: "trip" })).toContain("Checking park notices…");
+  });
+  it("escapes notice text", () => {
+    const html = renderTrip({ ...INITIAL, run: run({ notices: [notice("info", "<script>x</script>")] }), selected: 1, view: "trip" });
+    expect(html).not.toContain("<script>x</script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+  it("says when a trip was saved before notices existed", () => {
+    const html = renderTrip({ ...INITIAL, run: run({}), selected: 1, view: "trip" });
+    expect(html).toContain("<h2>Before you go</h2>");
+    expect(html).toContain("weren't checked when this trip was planned");
+  });
+});
