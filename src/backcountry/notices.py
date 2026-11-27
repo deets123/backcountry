@@ -266,3 +266,124 @@ def closed_ways_near(tg, lon: float, lat: float, within_m: float = CLOSED_WAY_M)
         text = f"{name} is tagged closed in {OSM}" + (f': "{quote}"' if quote else "") + (f" ({extra})" if extra else "")
         found.append((dist, text))
     return [text for _, text in sorted(found)]
+
+
+# --- from the National Park Service, and the assembled block -------------------------------------------
+
+NPS = "National Park Service"
+NO_FEED = "No official notice feed for this area."
+NOT_SET_UP = "Park notices from the National Park Service aren't set up on this server."
+_APPLIES_PRIORITY = ("destination", "trail", "start", "finish", "camp")
+_ROUTE_FIRST = frozenset(("closure", "permit", "ticket", "camp"))  # route-matched notices of these kinds head the block
+
+
+def route_items(trail_names, start: str | None, finish: str | None, destination: str | None, camp_sites) -> list[tuple[str, str]]:
+    """What a notice can attach to: the route's trails, its start and finish, the destination, the camps' sites."""
+    items: list[tuple[str, str]] = []
+    for name in trail_names:
+        if name and ("trail", name) not in items:
+            items.append(("trail", name))
+    for label, name in (("start", start), ("finish", finish), ("destination", destination)):
+        if name:
+            items.append((label, name))
+    for index, name in camp_sites:
+        if name:
+            items.append((f"camp {index} site", name))
+    return items
+
+
+def payload_items(run: dict, candidate: dict) -> list[tuple[str, str]]:
+    """The same items read from a stored run, for re-matching a saved trip against today's notices."""
+    search = run.get("search") or {}
+    camps = []
+    for i, camp in enumerate((candidate.get("plan") or {}).get("camps") or [], 1):
+        nearby = camp.get("nearby") or []
+        if nearby and nearby[0].get("name"):
+            camps.append((camp.get("index", i), nearby[0]["name"]))
+    return route_items([s.get("label") for s in candidate.get("segments") or []], (run.get("start") or {}).get("name"),
+                       (search.get("finish") or {}).get("name"), (search.get("destination") or {}).get("name"), camps)
+
+
+def _applies(labels: list[str]) -> str | None:
+    for prefix in _APPLIES_PRIORITY:
+        for label in labels:
+            if label.startswith(prefix):
+                return label
+    return labels[0] if labels else None
+
+
+def _true(value) -> bool:
+    return str(value).strip().lower() == "true"
+
+
+def nps_notices(park_data: dict, items: list[tuple[str, str]]) -> list[dict]:
+    """The park's alerts (all; attached to the route when they name something on it), its hike records that name the
+    route (reservations, fees, pets, seasons), and its entrance fee. Every text is the source's, HTML stripped."""
+    checked = park_data.get("fetched_at")
+    out: list[dict] = []
+    for a in park_data.get("alerts") or []:
+        title = str(a.get("title") or "").strip()
+        body, links = html_to_text(a.get("description") or "")
+        labels = match_items(f"{title} {body}", items)
+        out.append(notice(alert_kind(title, body, a.get("category") or ""), f"{title}: {body}" if body else title,
+                          applies_to=_applies(labels) or "park", matched=bool(labels), source=NPS, ref=a.get("id"),
+                          as_of=(str(a.get("lastIndexedDate") or "")[:10] or None), checked_at=checked, links=[*links, a.get("url")]))
+    for t in park_data.get("things") or []:
+        title = str(t.get("title") or "").strip()
+        labels = match_items(f"{title} {' '.join(t.get('tags') or [])}", items)
+        if not labels:
+            continue
+        common = dict(applies_to=_applies(labels), matched=True, source=NPS, ref=t.get("id"), checked_at=checked)
+        url = [t.get("url")]
+        if _true(t.get("isReservationRequired")):
+            text, links = html_to_text(t.get("reservationDescription") or "")
+            out.append(notice("ticket" if "ticket" in text.lower() else "permit", f"{title}: {text or 'Reservation required.'}",
+                              links=[*links, *url], **common))
+        if _true(t.get("doFeesApply")):
+            text, links = html_to_text(t.get("feeDescription") or "")
+            if text and not ("entrance fee" in text.lower() and not any(ch.isdigit() for ch in text)):
+                out.append(notice("fee", f"{title}: {text}", links=[*links, *url], **common))
+        if str(t.get("arePetsPermitted")).lower() == "false" or _true(t.get("arePetsPermittedWithRestrictions")):
+            text, links = html_to_text(t.get("petsDescription") or "")
+            out.append(notice("rule", f"Pets: {text or 'not permitted.'}", links=[*links, *url], **common))
+        for key in ("seasonDescription", "timeOfDayDescription"):
+            text, links = html_to_text(t.get(key) or "")
+            if text:
+                out.append(notice("rule", f"{title}: {text}", links=[*links, *url], **common))
+    park = park_data.get("park")
+    if park:
+        name = park.get("fullName") or "this park"
+        fees = [f for f in park.get("entranceFees") or [] if f.get("title")]
+        if fees:
+            text = f"Entrance fee: {name}: " + "; ".join(f"{f['title']} ${f.get('cost')}" if f.get("cost") else str(f["title"]) for f in fees[:3]) + "."
+        else:
+            text = f"Entrance fee: none listed by the {NPS} for {name}."
+        out.append(notice("fee", text, applies_to="park", source=NPS, ref=park.get("parkCode"), checked_at=checked, links=[park.get("url")]))
+    return out
+
+
+def _order(n: dict) -> tuple:
+    head = n["matched"] and n["kind"] in _ROUTE_FIRST
+    return (0 if head else 1, KIND_ORDER[n["kind"]], 0 if n["matched"] else 1)
+
+
+def assemble(osm: list[dict], park: dict | None, items: list[tuple[str, str]]) -> tuple[list[dict], bool]:
+    """The "Before you go" block: route-matched closures and permits first, then the park's notices, the fee, rules,
+    cautions and information, then the unknown line. `park` is {"code", "configured", "data"}; returns (block, pending):
+    pending when the park is known and configured but its data hasn't arrived yet."""
+    park = park or {"code": None, "configured": False, "data": None}
+    code, configured, data = park.get("code"), bool(park.get("configured")), park.get("data")
+    block = list(osm)
+    if data:
+        block += nps_notices(data, items)
+        if data.get("stale"):
+            when = str(data.get("fetched_at") or "")[:16].replace("T", " ")
+            block.append(notice("info", f"Couldn't refresh park notices; last checked {when}.", applies_to="park", source=NPS,
+                                checked_at=data.get("fetched_at")))
+    if not configured:
+        block.append(notice("info", NOT_SET_UP, applies_to="park"))
+    elif code is None:
+        block.append(notice("info", NO_FEED, applies_to="park"))
+    block.sort(key=_order)
+    block.append(notice("unknown", UNKNOWN_LINE))
+    return block, bool(code) and configured and data is None

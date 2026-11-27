@@ -112,3 +112,91 @@ def test_closed_ways_near_a_point_quote_the_reason(network):
         'Hidden Canyon is tagged closed in OpenStreetMap: "Closed indefinitely due to 2019 rockfall." (landslide, 2019-08-24)']
     far_lon, far_lat = network.coords[network.ids["G"]]
     assert N.closed_ways_near(tg, far_lon, far_lat) == []
+
+
+# --- from the National Park Service, and the assembled block -------------------------------------------
+
+import json
+from pathlib import Path
+
+FIX = Path(__file__).parent / "fixtures" / "nps"
+
+
+def _alerts_only(code, park=None):
+    """Park data with the real recorded alerts and no things to do (those recordings come with the parks list)."""
+    alerts = json.loads((FIX / f"{code}_alerts.json").read_text())["data"]
+    return {"park": park, "alerts": alerts, "things": [], "fetched_at": "2026-11-26T10:04:00Z", "stale": False, "error": None}
+
+
+def test_alerts_become_notices_matched_to_the_route_by_name():
+    items = N.route_items(["West Rim Trail"], "West Rim Trailhead North | West Rim Trail @ Lava Point Road", "Grotto Trailhead", None, [])
+    out = N.nps_notices(_alerts_only("zion"), items)
+    assert len(out) == 6 and all(n["source"]["name"] == "National Park Service" for n in out)
+    road = next(n for n in out if n["kind"] == "closure" and "Lava Point" in n["text"])
+    assert road["matched"] and "West Rim" in road["applies_to"] and road["source"]["as_of"] == "2026-11-21"
+    assert road["source"]["checked_at"] == "2026-11-26T10:04:00Z"
+    watchman = next(n for n in out if "Watchman" in n["text"])
+    assert watchman["kind"] == "closure" and not watchman["matched"] and watchman["applies_to"] == "park"
+    angels = next(n for n in out if "Angels Landing" in n["text"])
+    assert angels["kind"] == "permit" and not angels["matched"]
+    assert angels["links"] == ["https://www.nps.gov/zion/planyourvisit/angels-landing-hiking-permits.htm"]
+    assert any(n["kind"] == "caution" and "cyanobacteria" in n["text"] for n in out)
+    assert all("<" not in n["text"] for n in out)
+
+
+def test_the_old_rag_ticket_alert_attaches_to_the_destination_first():
+    items = N.route_items(["Ridge Trail", "Saddle Trail"], "Old Rag Lower Lot", None, "Old Rag Mountain", [])
+    out = N.nps_notices(_alerts_only("shen"), items)
+    ticket = next(n for n in out if n["kind"] == "ticket" and n["text"].startswith("Ticket Required to Hike Old Rag"))
+    assert ticket["matched"] and ticket["applies_to"] == "destination: Old Rag Mountain"  # the destination outranks the start
+    assert ticket["links"] == ["https://www.nps.gov/shen/planyourvisit/faqs-oldrag.htm"] and ticket["source"]["as_of"] == "2024-01-17"
+    lot = next(n for n in out if "Infrastructure Improvements" in n["text"])
+    assert lot["kind"] == "ticket" and lot["matched"]  # names Old Rag Trailhead; its text has both the closure and the tickets
+
+
+def test_assemble_orders_matched_closures_first_and_ends_with_the_unknown_line():
+    osm = [N.notice("permit", "Permit to hike Angels Landing Trail, 0.4 mi of this trip.", applies_to="trail: Angels Landing Trail",
+                    matched=True, source="OpenStreetMap")]
+    items = N.route_items(["Angels Landing Trail", "West Rim Trail"], "Grotto Trailhead", None, "Angels Landing", [])
+    block, pending = N.assemble(osm, {"code": "zion", "configured": True, "data": _alerts_only("zion")}, items)
+    kinds = [(n["matched"], n["kind"]) for n in block]
+    assert pending is False and block[-1]["kind"] == "unknown" and block[-1]["text"] == N.UNKNOWN_LINE
+    matched = [k for m, k in kinds if m]
+    assert matched == sorted(matched, key=N.KIND_ORDER.get) and matched[0] == "closure"  # the Lava Point road, via West Rim Trail
+    assert kinds.index((True, "permit")) < kinds.index((False, "closure"))
+    assert kinds.index((False, "closure")) < kinds.index((False, "caution")) < kinds.index((False, "info"))
+    assert "Watchman Trail closed" in " ".join(n["text"] for n in block)
+
+
+def test_assemble_with_empty_park_data_has_only_the_unknown_line():
+    empty = {"park": {"fullName": "Quiet Park", "entranceFees": [], "url": "https://www.nps.gov/quie/index.htm"}, "alerts": [], "things": [],
+             "fetched_at": "2026-11-26T10:04:00Z", "stale": False, "error": None}
+    block, pending = N.assemble([], {"code": "quie", "configured": True, "data": empty}, [])
+    assert pending is False and [n["kind"] for n in block] == ["fee", "unknown"] and "none listed" in block[0]["text"]
+    assert block[0]["links"] == ["https://www.nps.gov/quie/index.htm"]
+
+
+def test_assemble_without_a_park_or_a_key_says_so_and_flags_pending():
+    block, pending = N.assemble([], {"code": None, "configured": True, "data": None}, [])
+    assert [n["text"] for n in block] == ["No official notice feed for this area.", N.UNKNOWN_LINE] and pending is False
+    block, pending = N.assemble([], {"code": "zion", "configured": False, "data": None}, [])
+    assert block[0]["text"] == "Park notices from the National Park Service aren't set up on this server." and pending is False
+    block, pending = N.assemble([], {"code": "zion", "configured": True, "data": None}, [])
+    assert pending is True and [n["kind"] for n in block] == ["unknown"]
+    block, pending = N.assemble([], None, [])
+    assert block[0]["text"] == "Park notices from the National Park Service aren't set up on this server." and pending is False
+
+
+def test_stale_park_data_says_when_it_was_last_checked():
+    data = _alerts_only("zion") | {"stale": True, "error": "HTTP Error 429"}
+    block, _ = N.assemble([], {"code": "zion", "configured": True, "data": data}, [])
+    assert any(n["kind"] == "info" and n["text"].startswith("Couldn't refresh park notices; last checked 2026-11-26") for n in block)
+
+
+def test_payload_items_read_a_stored_run():
+    run = {"start": {"name": "Grotto Trailhead"}, "search": {"finish": None, "destination": {"name": "Angels Landing"}}}
+    cand = {"segments": [{"label": "West Rim Trail"}, {"label": "Angels Landing Trail"}, {"label": "West Rim Trail"}],
+            "plan": {"camps": [{"nearby": [{"name": "La Verkin Creek 7"}]}, {"nearby": []}]}}
+    assert N.payload_items(run, cand) == [("trail", "West Rim Trail"), ("trail", "Angels Landing Trail"), ("start", "Grotto Trailhead"),
+                                          ("destination", "Angels Landing"), ("camp 1 site", "La Verkin Creek 7")]
+    assert N.payload_items({"start": {}, "search": {}}, {"segments": [], "plan": None}) == []

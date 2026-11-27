@@ -1,0 +1,67 @@
+{
+ "total": "6",
+ "limit": "50",
+ "start": "0",
+ "data": [
+  {
+   "id": "CF7595A3-A364-4282-B705-DD47CEE92E5E",
+   "url": "",
+   "title": "Skyline Drive Road Closure",
+   "parkCode": "shen",
+   "description": "Date Posted: 11/26/2026 All of Skyline drive is closed from Front Royal Entrance Station (milepost 0) to Rockfish Gap Entrance Station (milepost 105) due to severe inclement weather and hazardous driving conditions.",
+   "category": "Park Closure",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2026-11-26 00:00:00.0"
+  },
+  {
+   "id": "2DC60C7E-23DA-4C5F-915E-5971F1B408F6",
+   "url": "https://www.nps.gov/shen/planyourvisit/naked-creek-backcountry-zone-closure.htm",
+   "title": "Active Closure",
+   "parkCode": "shen",
+   "description": "Due to recent wildlife interactions and out of an abundance of caution, the Naked Creek backcountry zone is closed to all recreation until further notice.",
+   "category": "Park Closure",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2026-11-20 00:00:00.0"
+  },
+  {
+   "id": "F4AB8754-5847-4FB2-AB55-670DAD3FE1DF",
+   "url": "",
+   "title": "Infrastructure Improvements to Old Rag Trailhead",
+   "parkCode": "shen",
+   "description": "On May 4, Shenandoah National Park began infrastructure enhancements at the\u00a0Old\u00a0Rag\u00a0Trailhead main parking lot. We expect to complete work by early 2027. Until then, the main parking lot is closed to all vehicle and pedestrian traffic. Visitors can access\u00a0Old\u00a0Rag\u00a0Trailhead via existing overflow parking lots. Day-use tickets are still required from March 1 through November 30 in addition to a park entrance fee.",
+   "category": "Information",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2026-11-19 00:00:00.0"
+  },
+  {
+   "id": "94BF0A56-2B9D-4CB0-B420-8D98104FAB72",
+   "url": "",
+   "title": "Parking at Boundary Access Areas",
+   "parkCode": "shen",
+   "description": "Visitors are reminded to park in designated parking areas when accessing the park via boundary trailheads. Parking in unauthorized locations may result in your vehicle being towed at the owner's expense. Park on the right side of the road approaching Thompson Hollow. Parking is authorized up to the \"No Parking\" sign before a private driveway.",
+   "category": "Caution",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2025-11-20 00:00:00.0"
+  },
+  {
+   "id": "3E4B8C08-23A0-4F40-B290-53BB4959E6CD",
+   "url": "https://www.nps.gov/shen/planyourvisit/alert-system.htm",
+   "title": "Get Skyline Drive Status Updates",
+   "parkCode": "shen",
+   "description": "Sign up for Shenandoah Alerts by texting SHENALERTS to 888777. Any time there are closures, re-openings, or other important safety-related alerts, subscribers will receive a notification via text. You may unsubscribe at any time.",
+   "category": "Information",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2025-09-29 00:00:00.0"
+  },
+  {
+   "id": "C5CE178E-5255-42E2-9F8F-285637B4C84E",
+   "url": "https://www.nps.gov/shen/planyourvisit/faqs-oldrag.htm",
+   "title": "Ticket Required to Hike Old Rag",
+   "parkCode": "shen",
+   "description": "March 1 - November 30 those wishing to hike Old Rag are required to obtain a day-use ticket before arriving.",
+   "category": "Information",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2024-01-17 13:20:06.0"
+  }
+ ]
+}
