@@ -923,3 +923,68 @@ it counts on being prepared ahead (spec). The prepare-ahead run hasn't been done
 - The destination flow is covered by unit tests and the real-data checks, not by a browser test (the test server
   has no US index).
 - Next piece: park rules, permits and closures. OSM already tags some (`access=permit` on the Angels Landing trail).
+
+
+## Speed and accuracy, and the end-to-end review (built 2026-10-27; branch `speed-accuracy`, on top of trip shapes)
+
+You asked for speed *and* accuracy, elevation on the whole trail, and a full review of the app with the mistakes
+fixed. The principle that settles the first two: do once per area what doesn't depend on the request, and index
+it; do per request only what depends on the request; prune only losslessly; time-box only as a last resort, and
+say so. Both of my earlier accuracy trade-offs were request-time waste in disguise.
+
+**Speed and accuracy (nothing traded)**
+- Features (campsites, water, streams) are indexed once per loaded area; a route's features are a lookup. Route
+  sampling is one numpy call. Evaluating all 387 Yosemite candidates now costs less than the capped 40 did.
+- The 40-candidate cap, `MAX_STEMS`, `MAX_OUT_AND_BACKS` and `MAX_ONE_WAY_VIAS` are gone. Every trip found gets
+  its days planned, best first; every junction in reach is tried as a stem (spread out first); only the clock
+  can stop any of it, and then the result says so. Cheap trip families are enumerated before the slow lollipop
+  search and each family is planned as soon as it's found, so a time-out never loses what was found.
+- Elevation is fetched along every trail in the cut, wherever it runs; only roads are limited to near the park.
+  Prepared parks top up on their next preparation. Elevation stays on disk: a loaded area reads the blocks a
+  route touches (Grand Canyon: 2.9 GB in memory before, at most 256 MB now; same values).
+- The search's own Dijkstra (adjacency list built once, paths rebuilt on demand): 4× the work per second.
+
+| | Open (trails + elevation) | Disk | Plan, 2 nights 18–26 mi |
+|---|---|---|---|
+| Zion, from the Grotto | 17.4 s | 58 MB | 33.6 s, complete (every lollipop stem tried; the only trip in range is an out-and-back) |
+| Yosemite, from Bridalveil Creek | 50.2 s | 189 MB | 9.8 s, all 387 candidates day-planned (was 20.7 s for 40) |
+| Grand Canyon | 95.5 s | 358 MB | |
+
+Trails are on screen 1–4 s after an area is opened; the first trips show after about 8 s.
+
+**The review** (three fresh reviewers: engine, server and data, phone app; all three said "with fixes"). Fixed,
+each with a test that failed first:
+- Engine: one-way trails are respected (a loop walked against OpenStreetMap's `oneway` tag is turned round;
+  any trip still against it says so, quoting the tag); GPX titles and Start/Finish waypoints name the
+  trailhead, never a node id; the "nothing reaches X" fallback is one shortest path; a search that ran out of
+  time says so; a route too short to split is split evenly instead of failing as a "camps" error; stale
+  docstrings; the CLI's titles follow the trip shape.
+- Server: memory (elevation on disk, a byte-bounded area cache, per-area build locks); plan jobs stop when
+  cancelled and the cap counts live work, shared with the old generate and the saved-trip update; a generic 500
+  with an error id; eviction spares areas in use; a new area is refused when the disk is within 3 GB of full and
+  older cuts/elevation are pruned first; temporary files carry the pid; 1 MB body limit; the chat answers two at
+  a time with capped history; "Review changes" runs are kept only if accepted; run ids validated; trails
+  encoded once and gzipped; feature lists, trailheads, state outlines and region summaries built once;
+  `serve` logs and prints a startup summary; tiny parks aren't prepared ahead.
+- Phone: polls retried on a weak signal and plans cancelled when given up on; re-plan keeps the area and the
+  destination; the final result never overwrites later edits; stale area opens ignored; a recent area clears
+  the destination; one-way finishes load on boot; dragging the sheet no longer redraws the panel; a cancelled
+  re-save keeps the tiles already saved; a Wi-Fi sign-in page counts as unreachable; boot has a status, a
+  timeout and Try again; search errors stay in the results box; a nudged camp marker snaps back; no node ids.
+
+**Acceptance (real data):** Angels Landing day hike 5.73 mi, +1,654 ft (2 s); 2 nights from the Grotto: an
+out-and-back of 19.16 mi with "Side trip to Angels Landing, 0.9 mi round trip." (33 s, complete); Chesler Park
+from Elephant Hill: a 13.54 mi loop; the West Rim one way: your own route offered (14.71 mi, every track point
+within 100 m); "Zion" opens the park and the Zion Wilderness together.
+
+**Tests:** pytest 709 passed, 30 skipped; `scripts/heavy-tests` 733 passed, 6 skipped; real-area checks 9
+passed, 1 skipped; web 209 unit, 12 end-to-end.
+
+**Known gaps and next steps**
+- The search still composes trips from shortest paths between junctions (the via-pair scheme); it's the one
+  approximation left, and it has always been there. A complete enumeration isn't feasible.
+- Deferred from the reviews (minor): back navigation and restoring the last run; a tile-count cap for very long
+  one-way trips; the chat log shows earlier results' messages, labelled; figure-8 loops unflagged; a per-area
+  precomputed summary that would let a loaded area drop its raw data from memory; via pairs in both orders.
+- The 97 prepared parks are being topped up to the trails-everywhere elevation rule (`areas prepare-popular`).
+- Next piece: park rules, permits and closures.

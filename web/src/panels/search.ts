@@ -27,6 +27,7 @@ export function renderResults(s: State): string {
       `<li><button type="button" class="result" data-recent="${i}"><span class="r-name">${esc(r.name)}</span>`
       + `<span class="r-meta">${esc(meta(r))}</span></button></li>`).join("")}</ul>`;
   }
+  if (s.searchError) return `<p class="status error">${esc(s.searchError)}</p>`;
   if (s.searchResults === null) return "";
   if (!s.searchResults.length) return `<p class="note">No places match “${esc(s.searchQuery.trim())}”.</p>`;
   return `<ul class="results">${s.searchResults.map((r, i) =>
@@ -117,14 +118,18 @@ export interface OpenDeps extends WaitDeps {
   setElevationPending(on: boolean): void;
   /** A searched place becomes where every trip goes; an area or region clears it. */
   setDestination(d: Destination | null): void;
+  /** False once the user opened something else: a slow earlier open must then change nothing. */
+  current?(): boolean;
 }
 
 /** Open a search result or map box: hand-made regions directly; anything else is prepared first. */
 export async function openSearchResult(t: Target, deps: OpenDeps): Promise<void> {
+  const stale = () => deps.current !== undefined && !deps.current();
   deps.setDestination("kind" in t && t.kind === "place" ? { ref: t.ref, name: t.name, center: t.center } : null);
   if ("kind" in t && t.kind === "region") return deps.pickRegion(t.id);
   try {
     const opened = await deps.openArea("box" in t ? { box: t.box } : t.kind === "group" ? { refs: t.refs } : { ref: t.ref });
+    if (stale()) return;
     if (opened.status !== "ready") deps.setStatus(opened.message);
     let shown = false;  // the trails are on the map already (elevation was still coming)
     const showTrails = async (bbox: Region["bbox"]) => {
@@ -134,7 +139,8 @@ export async function openSearchResult(t: Target, deps: OpenDeps): Promise<void>
     };
     if (opened.status === "trails") await showTrails(opened.bbox);
     const st = opened.status === "ready" ? { status: "ready" as const, message: null }
-      : await waitForArea(opened.area_id, { ...deps, onTrails: (s) => (shown ? undefined : showTrails(s.bbox ?? opened.bbox)) });
+      : await waitForArea(opened.area_id, { ...deps, onTrails: (s) => (shown || stale() ? undefined : showTrails(s.bbox ?? opened.bbox)) });
+    if (stale()) return;
     if (st.status !== "ready") {
       return deps.setError(st.status === "unknown" ? "The server restarted while setting up that area. Try again." : (st.message ?? SLOW));
     }
@@ -144,6 +150,7 @@ export async function openSearchResult(t: Target, deps: OpenDeps): Promise<void>
       state: "kind" in t ? t.state : null, bbox });
     if (!shown) await deps.pickRegion(opened.area_id, bbox);
   } catch (e) {
+    if (stale()) return;
     deps.setError(e instanceof ApiError ? e.message : (e as Error).message);
   }
 }

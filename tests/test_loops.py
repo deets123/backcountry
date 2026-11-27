@@ -365,12 +365,6 @@ def test_reach_limit_finds_the_same_loops(grid, tg, lo, hi):
     assert found(None)
 
 
-def test_search_budget_is_60_seconds():
-    from backcountry import loops
-
-    assert loops.MAX_SECONDS == 60.0
-
-
 def test_search_reports_the_reach(grid, tg):
     from backcountry.loops import WIDEN, search
 
@@ -409,17 +403,6 @@ def test_no_snapshot_when_search_finishes_first(grid, tg):
     snaps = []
     report = search(tg, grid.ids["g00"], 2 * KM, 9 * KM, on_snapshot=snaps.append, first_s=999)
     assert snaps == [] and report["partial"] is False
-
-
-def test_only_the_best_loops_get_day_plans(grid, tg, monkeypatch):
-    from backcountry import loops
-
-    monkeypatch.setattr(loops, "MAX_EVALUATED", 1)
-    seen = []
-    report = loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, evaluate=lambda c: seen.append(c) or 0.0)
-    total = report["loops_found"] + report["lollipops_found"]
-    assert report["evaluated"] == len(seen) <= 1 + 3 * 1 and len(seen) < total
-    assert all(c in seen for c in report["candidates"]) and len(report["candidates"]) == 1
 
 
 # --- out-and-back -------------------------------------------------------------------------
@@ -492,3 +475,287 @@ def test_one_way_through_a_spur_walks_it_out_and_back(grid, tg):
     assert cands and all(ids["D"] in c.route.nodes for c in cands)
     c = cands[0]
     assert c.detour_keys and c.repeated_m == pytest.approx(500, abs=1)  # D's spur, walked twice
+
+
+# --- every candidate is day-planned; only the clock can stop it, and then it says so ---------------------
+
+
+def test_every_candidate_is_day_planned_when_there_is_time(grid, tg):
+    from backcountry import loops
+
+    assert not hasattr(loops, "MAX_EVALUATED")
+    seen = []
+    report = loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, evaluate=lambda c: seen.append(c) or 0.0)
+    total = report["loops_found"] + report["lollipops_found"]
+    assert total > 3 and report["evaluated"] == len(seen) == total and report["truncated"] is False
+
+
+def test_day_planning_stops_at_the_deadline_and_says_so(grid, tg):
+    from backcountry import loops
+
+    seen, t = [], [0.0]
+
+    def evaluate(c):  # each day plan "takes" 25 s on a clock that otherwise stands still
+        seen.append(c)
+        t[0] += 25
+        return 0.0
+    report = loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, max_seconds=60, clock=lambda: t[0],
+                          evaluate=evaluate)
+    total = report["loops_found"] + report["lollipops_found"]
+    assert 0 < report["evaluated"] == len(seen) < total
+    assert report["truncated"] is True
+    assert all(c in seen for c in report["candidates"])
+    assert any("time budget" in n for n in report["notes"])
+
+
+def test_the_snapshot_day_plans_only_a_few(grid, tg, monkeypatch):
+    from backcountry import loops
+
+    monkeypatch.setattr(loops, "SNAPSHOT_EVALUATED", 2)
+    seen, snaps = [], []
+    loops.search(tg, grid.ids["g00"], 2 * KM, 12 * KM, count=1, on_snapshot=snaps.append, first_s=8,
+                 clock=_ticking_clock(5), evaluate=lambda c: seen.append(c) or 0.0)
+    assert snaps and snaps[0]["evaluated"] == 2 < len(seen)  # the final pass still plans every trip
+
+
+# --- no count caps anywhere in the search: best first, and only the clock stops it ----------------------
+
+
+def _big_grid(n: int = 5):
+    """An n x n grid of junctions 1 km apart with a spur trailhead T: every junction is a possible stem."""
+    from conftest import RawBuilder
+
+    b = RawBuilder()
+    for i in range(n):
+        for j in range(n):
+            b.node(f"g{i}{j}", 1000 * i, 1000 * j)
+    b.node("T", -500, 0)
+    w = 100
+    for i in range(n):
+        b.way(w, [f"g{i}{j}" for j in range(n)], highway="path", name=f"Col {i}"); w += 1
+        b.way(w, [f"g{j}{i}" for j in range(n)], highway="path", name=f"Row {i}"); w += 1
+    b.way(w, ["T", "g00"], highway="path", name="Spur Trail")
+    return b
+
+
+def test_every_junction_in_reach_is_tried_as_a_stem(monkeypatch):
+    from backcountry import loops
+
+    assert not hasattr(loops, "MAX_STEMS")
+    b = _big_grid(5)
+    tg = build_graph(b.doc(), crs=CRS)
+    report = loops.search(tg, b.ids["T"], 3 * KM, 30 * KM, kinds=("lollipop",), count=1)
+    H = loops.loop_graph(tg, b.ids["T"], reach_m=30 * KM * (1 + loops.WIDEN) / 2).graph
+    import networkx as nx
+
+    dist = nx.single_source_dijkstra_path_length(H, b.ids["T"], weight="length_m")
+    stems = [v for v in dist if v != b.ids["T"] and 2 * dist[v] < 30 * KM and H.degree(v) >= 3]
+    assert report["stems_tried"] == len(stems) > 8 and report["truncated"] is False
+
+
+def test_stems_stop_at_the_deadline_and_say_so():
+    from backcountry import loops
+
+    b = _big_grid(5)
+    tg = build_graph(b.doc(), crs=CRS)
+    report = loops.search(tg, b.ids["T"], 3 * KM, 30 * KM, kinds=("lollipop",), count=1, max_seconds=20,
+                          clock=_ticking_clock(3))
+    assert 0 < report["stems_tried"] < 9 and report["truncated"] is True
+    assert any("time budget" in n for n in report["notes"])
+
+
+def test_out_and_backs_and_one_ways_have_no_count_caps():
+    from backcountry import loops
+
+    assert not hasattr(loops, "MAX_OUT_AND_BACKS") and not hasattr(loops, "MAX_ONE_WAY_VIAS")
+    b = _big_grid(5)
+    tg = build_graph(b.doc(), crs=CRS)
+    obs = loops.out_and_backs(tg, b.ids["T"], 1 * KM, 30 * KM)
+    G = tg.graph
+    ends = [n for n in G.nodes if n != b.ids["T"] and (G.degree(n) == 1 or G.degree(n) >= 3)]
+    assert len(obs) == len(ends) == 22  # every trail end and junction in range (three corners are pass-throughs)
+    cut = loops.out_and_backs(tg, b.ids["T"], 1 * KM, 30 * KM, deadline=10, report={}, clock=_ticking_clock(3))
+    assert 0 < len(cut) < 22
+
+
+def test_cheap_trip_shapes_are_found_before_the_slow_lollipop_search_eats_the_budget(monkeypatch):
+    from backcountry import loops
+
+    order = []
+    real_loops, real_oab = loops.waypoint_loops, loops.out_and_backs
+
+    def spy_loops(H, start, lo, hi, forbidden=frozenset(), *a, **k):
+        order.append("lollipop stem" if forbidden else "loops")
+        return real_loops(H, start, lo, hi, forbidden, *a, **k)
+
+    def spy_oab(*a, **k):
+        order.append("out-and-backs")
+        return real_oab(*a, **k)
+    monkeypatch.setattr(loops, "waypoint_loops", spy_loops)
+    monkeypatch.setattr(loops, "out_and_backs", spy_oab)
+    b = _big_grid(5)
+    tg = build_graph(b.doc(), crs=CRS)
+    report = loops.search(tg, b.ids["T"], 3 * KM, 30 * KM, kinds=("loop", "lollipop", "out_and_back"), count=3)
+    assert order[:2] == ["loops", "out-and-backs"] and order[2:] and set(order[2:]) == {"lollipop stem"}
+    assert report["out_and_backs_found"] > 0 and report["stems_tried"] == len(order) - 2
+
+
+def test_lollipops_are_still_tried_when_out_and_backs_fill_the_count(grid, tg):
+    from backcountry import loops
+
+    report = loops.search(tg, grid.ids["T"], 2 * KM, 12 * KM, kinds=("loop", "lollipop", "out_and_back"), count=1)
+    assert report["out_and_backs_found"] >= 1 and report["stems_tried"] > 0
+
+
+# --- the search's shortest paths: a hand-written Dijkstra, exact and several times faster than the callable ---
+
+
+def _random_loop_graph(n_nodes=600, seed=3):
+    import random
+
+    import networkx as nx
+
+    rng = random.Random(seed)
+    H = nx.MultiGraph()
+    for i in range(n_nodes):
+        H.add_node(i)
+    for i in range(n_nodes):
+        for _ in range(3):
+            j = rng.randrange(n_nodes)
+            if j != i:
+                H.add_edge(i, j, key=f"{i}-{j}-{rng.randrange(9)}", length_m=round(rng.uniform(100, 3000), 3))
+    return H
+
+
+def test_search_dijkstra_matches_networkx_with_used_edges_forbidden_nodes_and_cutoff():
+    import networkx as nx
+
+    from backcountry.loops import _dijkstra, _weight
+
+    H = _random_loop_graph()
+    used = {k for _, _, k in list(H.edges(keys=True))[::7]}
+    forbidden = set(range(0, 600, 11)) - {5}
+    for source, cutoff in ((5, None), (5, 4000.0), (17, 2500.0)):
+        want_d, want_p = nx.single_source_dijkstra(H, source, cutoff=None if cutoff is None else cutoff + 1e-6,
+                                                   weight=_weight(set(used), set(forbidden)))
+        got_d, got_p = _dijkstra(H, source, used=used, forbidden=forbidden, cutoff=cutoff)
+        assert set(got_d) == set(want_d)
+        for v in want_d:
+            assert got_d[v] == pytest.approx(want_d[v], abs=1e-6)
+            # paths may differ only on exact ties; their lengths may not
+            assert sum(min(H[a][b][k]["length_m"] for k in H[a][b] if k not in used) for a, b in zip(got_p[v], got_p[v][1:])) \
+                == pytest.approx(want_d[v], abs=1e-6)
+
+
+def test_search_dijkstra_is_faster_than_the_callable_one():
+    import time
+
+    import networkx as nx
+
+    from backcountry.loops import _dijkstra, _weight
+
+    H = _random_loop_graph(1500)
+    used = {k for _, _, k in list(H.edges(keys=True))[::5]}
+
+    def timed(fn):  # the best of three, so a busy machine can't make this flaky
+        best = float("inf")
+        for _ in range(3):
+            t0 = time.perf_counter()
+            for src in range(40):
+                fn(src)
+            best = min(best, time.perf_counter() - t0)
+        return best
+    theirs = timed(lambda src: nx.single_source_dijkstra(H, src, cutoff=6000.0, weight=_weight(set(used), set())))
+    ours = timed(lambda src: _dijkstra(H, src, used=used, cutoff=6000.0))
+    assert ours < 0.7 * theirs, (ours, theirs)
+
+
+# --- one-way trails -----------------------------------------------------------------------------------
+
+
+def _square_with_a_one_way_side(sense="yes"):
+    from conftest import RawBuilder
+
+    b = RawBuilder()
+    for name, x, y in [("A", 0, 0), ("B", 1000, 0), ("C", 1000, 1000), ("D", 0, 1000)]:
+        b.node(name, x, y)
+    b.way(1, ["A", "B"], highway="path", name="Signed Trail", oneway=sense)
+    b.way(2, ["B", "C"], highway="path", name="East Side")
+    b.way(3, ["C", "D"], highway="path", name="North Side")
+    b.way(4, ["D", "A"], highway="path", name="West Side")
+    b.node("E", 1000, -300)
+    b.way(5, ["B", "E"], highway="path", name="Side Spur")  # so B is a junction (a turnaround for out-and-backs)
+    return b
+
+
+def test_loops_walk_a_one_way_trail_the_signed_way():
+    b = _square_with_a_one_way_side()
+    tg = build_graph(b.doc(), crs=CRS)
+    cands = find_candidates(tg, b.ids["A"], 3500, 4500, kinds=("loop",))
+    assert cands
+    for c in cands:
+        e = next(e for e in c.route.edges if e["way_id"] == 1)
+        assert e["u"] == b.ids["A"] and e["v"] == b.ids["B"], "walked against the sign"
+        assert not any("one-way" in n for n in c.route.notes)
+    # oneway=-1 signs the other way: the loop flips
+    tg = build_graph(_square_with_a_one_way_side("-1").doc(), crs=CRS)
+    c = find_candidates(tg, b.ids["A"], 3500, 4500, kinds=("loop",))[0]
+    e = next(e for e in c.route.edges if e["way_id"] == 1)
+    assert e["u"] == b.ids["B"] and e["v"] == b.ids["A"]
+
+
+def test_a_trip_against_a_one_way_trail_says_so_and_names_the_source():
+    b = _square_with_a_one_way_side()
+    tg = build_graph(b.doc(), crs=CRS)
+    cands = find_candidates(tg, b.ids["A"], 1900, 2100, kinds=("out_and_back",))
+    c = next(c for c in cands if c.turnaround == b.ids["B"])  # out and back over the signed trail: back is against it
+    assert any(n == "Signed Trail is tagged one-way in OpenStreetMap and this trip walks it the other way; the tag "
+               "says nothing about whether walking it is allowed." for n in c.route.notes), c.route.notes
+    assert c.route.edges[0]["tags"].get("oneway") == "yes"  # the tag is kept, with its source on the edge
+
+
+def test_a_forced_direction_against_a_one_way_trail_still_says_so():
+    b = _square_with_a_one_way_side()
+    tg = build_graph(b.doc(), crs=CRS)
+    from backcountry.loops import orientation
+
+    cands = find_candidates(tg, b.ids["A"], 3500, 4500, kinds=("loop",))
+    legal = orientation(cands[0].route)
+    forced = find_candidates(tg, b.ids["A"], 3500, 4500, kinds=("loop",), direction="cw" if legal == "ccw" else "ccw")
+    assert forced and all(any("one-way" in n for n in c.route.notes) for c in forced)
+
+
+# --- lollipop stems: spread out first, so the budget isn't spent on one tangle of junctions ------------
+
+
+def test_stems_are_spread_out_before_the_tangle_next_to_the_start_is_tried(monkeypatch):
+    from backcountry import loops
+
+    b = _big_grid(5)
+    # a tangle of junctions within 40 m of g00: a 3x3 lattice of 20 m paths
+    for i in range(3):
+        for j in range(3):
+            if (i, j) != (0, 0):
+                b.node(f"t{i}{j}", 20 * i, 20 * j)
+    names = lambda i, j: "g00" if (i, j) == (0, 0) else f"t{i}{j}"  # noqa: E731
+    w = 500
+    for i in range(3):
+        b.way(w, [names(i, j) for j in range(3)], highway="path", name=f"Tangle {w}"); w += 1
+        b.way(w, [names(j, i) for j in range(3)], highway="path", name=f"Tangle {w}"); w += 1
+    tg = build_graph(b.doc(), crs=CRS)
+    order = []
+    real = loops.waypoint_loops
+
+    def spy(H, start, lo, hi, forbidden=frozenset(), *a, **k):
+        if forbidden:
+            order.append(start)
+        return real(H, start, lo, hi, forbidden, *a, **k)
+    monkeypatch.setattr(loops, "waypoint_loops", spy)
+    loops.search(tg, b.ids["T"], 3 * KM, 30 * KM, kinds=("lollipop",), count=1)
+    H = loops.loop_graph(tg, b.ids["T"], reach_m=30 * KM * (1 + loops.WIDEN) / 2).graph
+    tangle = {b.ids[f"t{i}{j}"] for i in range(3) for j in range(3) if (i, j) != (0, 0)}
+    tangle_stems = {v for v in tangle if v in H and H.degree(v) >= 3}  # its corners merge into pass-throughs
+    assert len(tangle_stems) >= 4
+    assert order[0] == b.ids["g00"]
+    assert order[1] not in tangle, "the second stem should be a junction well away from the first, not 20 m from it"
+    assert set(order) >= tangle_stems  # every stem still gets its turn

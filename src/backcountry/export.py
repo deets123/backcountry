@@ -761,7 +761,7 @@ def route_waypoints(route, from_text: str, to_text: str, plan=None) -> list[dict
 
 def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_retrieved_at: str,
                 plan=None, features=None, basemap: str = "topo") -> dict[str, Path]:
-    """route.gpx (a track per day, waypoints), day_<n>.gpx, route.geojson, map.html, summary.md."""
+    """route.gpx (one track, waypoints), day_<n>.gpx (one per day), route.geojson, map.html, summary.md."""
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = {"gpx": out_dir / "route.gpx", "geojson": out_dir / "route.geojson", "summary": out_dir / "summary.md",
              "map": out_dir / "map.html"}
@@ -891,7 +891,8 @@ def plan_markdown(plan) -> list[str]:
                 [[f"Day {d.index}", d.start_label, d.end_label, mi(d.length_m),
                   f"{d.gain_ft:,.0f} ft" if d.gain_ft is not None else "unknown",
                   f"{d.loss_ft:,.0f} ft" if d.loss_ft is not None else "unknown"] for d in plan.days])
-    L += ["", "Camps are points on the route chosen for mileage, not known campsites. Legality and water: unknown.", ""]
+    L += ["", "Camps are points on the route chosen for mileage, or, in designated-site mode, known campsites from the "
+          "map data (marked). Legality and water: unknown.", ""]
     for c in plan.camps:
         near = ("; ".join(f"{feature_title(n).lower()} {ft(n['distance_m'])} away ({source_link_md(n)})" for n in c.nearby)
                 or f"no known camp site within {ft(NEARBY_CAMP_FT)}")
@@ -964,8 +965,8 @@ def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at
           "Camp sites and water listed above are map features only; whether they exist today, are open or legal to use, "
           "or hold water is **unknown**. This summary describes distance, elevation, map features, and data gaps only.", "",
           "## Files", "",
-          "- `route.gpx`: one track per day (or one track if days weren't planned) plus Start/End/camp/junction waypoints, "
-          "with DEM elevations when available.",
+          "- `route.gpx`: the whole trip as one track (Garmin Connect imports only a file's first track) plus "
+          "Start/End/camp/junction waypoints, with DEM elevations when available.",
           "- `day_<n>.gpx`: one file per day, one track each, for importing a single day as a course.",
           "- `map.html`: each day in its own color, with camps, junctions, camp sites and water features.",
           "- `route.geojson`: the same days and points as GeoJSON.", ""]
@@ -1058,8 +1059,10 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
         paths["diff"].write_text(diff_markdown(previous, current))
     paths["records"].write_text(json.dumps(current, indent=1))
     for i, c in enumerate(cands, 1):
-        write_route(c.route, region, out_dir / f"candidate_{i}", start_text, f"{start_text} (loop)", osm_retrieved_at,
-                    plan=c.plan, features=getattr(c, "features", None), basemap=basemap)
+        from backcountry.serialize import trip_title  # local: serialize imports export
+
+        write_route(c.route, region, out_dir / f"candidate_{i}", start_text, trip_title(c.kind, start_text)[1],
+                    osm_retrieved_at, plan=c.plan, features=getattr(c, "features", None), basemap=basemap)
 
     L = [f"# Loop candidates from {start_text}", "",
          f"Region: {region.name}. Requested {mi(min_m)} to {mi(max_m)}. Generated {now}.", ""]

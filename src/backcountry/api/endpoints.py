@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -10,7 +11,7 @@ from fastapi.responses import Response
 
 from backcountry import ingest
 from backcountry import osm_index
-from backcountry.api.area_worker import NoIndex
+from backcountry.api.area_worker import Busy, NoIndex
 from backcountry.api.store import NotFound
 from backcountry.chat.service import chat_turn, start_names, trail_names
 from backcountry.destination import check_ref, trail_distances
@@ -56,43 +57,13 @@ def _index_for(app, req_destination):
         con.close()
 
 
-def _trailhead_list(loaded) -> list[dict]:
-    """The region's trailheads (yaml entries first), then start points found in the data."""
-    G = loaded.tg.graph
-    out = []
-    for th in loaded.region.trailheads:
-        node = th.get("node")
-        if node is None and th.get("lat") is not None:  # verified lat/lon entry: snap to the nearest graph node
-            try:
-                node = resolve_point(loaded.tg, loaded.region, f"{th['lat']},{th['lon']}")["node"]
-            except ValueError:
-                node = None
-        in_graph = node in G
-        out.append({
-            "id": th["id"], "name": th.get("name"), "node": node, "source": "yaml", "verified": bool(th.get("verified")),
-            "in_graph": in_graph, "usfs": th.get("usfs"), "note": th.get("note"),
-            "lat": G.nodes[node]["lat"] if in_graph else None, "lon": G.nodes[node]["lon"] if in_graph else None,
-            "component": loaded.node_component.get(node),
-        })
-    known = {t["node"] for t in out if t["node"] is not None}
-    for c in find_candidates(loaded.tg, loaded.raw, loaded.node_component)["candidates"]:
-        if c["id"] in known:
-            continue
-        out.append({
-            "id": str(c["id"]), "name": " | ".join(c["names"]) or None, "node": c["id"], "source": "data",
-            "verified": False, "in_graph": True, "kinds": c["kinds"], "lat": c["lat"], "lon": c["lon"],
-            "component": c["component"], "snap_m": c["snap_m"],
-        })
-    return out
-
-
 @router.get("/regions/{region_id}/trailheads")
 def trailheads(region_id: str, request: Request, destination: str | None = None):
     """Trailheads; with `destination` (a search result's ref), each gets its trail distance to it, nearest first."""
     if destination is not None:
         check_ref(destination)
     loaded = _regions(request).get(region_id)
-    out = _trailhead_list(loaded)
+    out = [dict(t) for t in loaded.trailheads()]  # a copy: the list is kept with the loaded area
     if destination is not None:
         with _index_for(request.app, destination) as con:
             dist = trail_distances(loaded.tg, resolve_destination(con, loaded.tg, destination))
@@ -118,7 +89,7 @@ def finishes(region_id: str, request: Request, trailhead: str, total: str, desti
     if destination is not None:
         with _index_for(request.app, destination) as con:
             through = resolve_destination(con, loaded.tg, destination).node
-    return {"finishes": suggest_finishes(loaded.tg, _trailhead_list(loaded), start, lo * M_PER_MI, hi * M_PER_MI,
+    return {"finishes": suggest_finishes(loaded.tg, loaded.trailheads(), start, lo * M_PER_MI, hi * M_PER_MI,
                                          through=through, dem=loaded.dem)}
 
 
@@ -184,11 +155,15 @@ def area_status(area_id: str, request: Request):
 # --- trails and features ------------------------------------------------------------
 
 
+def _trails_doc(loaded) -> dict:
+    return {"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
+            "features": edges_features(loaded.tg, loaded.node_component)}
+
+
 @router.get("/regions/{region_id}/trails")
 def trails(region_id: str, request: Request):
     loaded = _regions(request).get(region_id)
-    return {"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
-            "features": edges_features(loaded.tg, loaded.node_component)}
+    return Response(loaded.trails_json(_trails_doc), media_type="application/json")  # encoded once per loaded area
 
 
 def _parse_bbox(text: str) -> tuple[float, float, float, float]:
@@ -209,9 +184,10 @@ def features(region_id: str, request: Request, bbox: str):
     def inside(lat, lon):
         return s <= lat <= n and w <= lon <= e
 
-    water = ingest.water_features(loaded.raw)
+    lists = loaded.lists()
+    water = lists["water"]
     return {
-        "camp_sites": [c for c in ingest.camp_sites(loaded.raw) if inside(c["lat"], c["lon"])],
+        "camp_sites": [c for c in lists["camp_sites"] if inside(c["lat"], c["lon"])],
         "water_points": [p for p in water["points"] if inside(p["lat"], p["lon"])],
         "streams": [l for l in water["lines"] if any(inside(lat, lon) for lon, lat in l["coords"])],
     }
@@ -229,17 +205,23 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None) -> dict:
-    """Plan and save a run. `on_snapshot(run)` gets the first trips found (not saved) while the search goes on."""
+def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None, stop=None) -> dict:
+    """Plan and save a run. `on_snapshot(run)` gets the first trips found (not saved) while the search goes on;
+    `stop()` true (the phone gave up) ends the search at its next check: the clock jumps past the deadline."""
     loaded = app.state.regions.get(region_id)
 
     def snapshot(result):
         run = run_payload("partial", loaded.region, result, loaded.raw, loaded.tg, _now(), diff=None)
         on_snapshot(run | {"partial": True})
 
+    search_kw = {"clock": (lambda: time.time() + (1e9 if stop() else 0.0))} if stop else {}
     with _index_for(app, req.destination) as con:
         result = plan_trip(loaded.region, loaded.raw, loaded.tg, req, dem=loaded.dem, raw_dir=app.state.settings.raw_dir,
-                           on_snapshot=snapshot if on_snapshot else None, index=con)
+                           on_snapshot=snapshot if on_snapshot else None, index=con,
+                           feature_index=loaded.feature_index(app.state.settings.raw_dir), names=loaded.names(),
+                           **search_kw)
+    if stop and stop():
+        return {"run_id": "cancelled", "partial": True, "candidates": []}
     runs = app.state.runs
     previous = runs.latest(region_id, req.trailhead) if runs else None
     run = run_payload(runs.new_id() if runs else "unsaved", loaded.region, result, loaded.raw, loaded.tg, _now(),
@@ -253,7 +235,9 @@ def _plan(app, region_id: str, req: GenerateRequest, on_snapshot=None) -> dict:
 
 @router.post("/regions/{region_id}/generate")
 def generate(region_id: str, request: Request, body: dict):
-    return _plan(request.app, region_id, GenerateRequest.from_dict(body))
+    req = GenerateRequest.from_dict(body)
+    with request.app.state.plans.slot():
+        return _plan(request.app, region_id, req)
 
 
 @router.post("/regions/{region_id}/plans")
@@ -261,7 +245,8 @@ def start_plan(region_id: str, request: Request, body: dict):
     """Start planning in the background (settings are checked first); poll /plans/{job_id}."""
     req = GenerateRequest.from_dict(body)
     app = request.app
-    return {"job_id": app.state.plans.start(lambda on_snapshot: _plan(app, region_id, req, on_snapshot))}
+    return {"job_id": app.state.plans.start(lambda on_snapshot, stop: _plan(app, region_id, req, on_snapshot, stop),
+                                            region=region_id)}
 
 
 @router.get("/plans/{job_id}")
@@ -369,16 +354,18 @@ def update_trip(run_id: str, request: Request, body: dict):
         return {"ok": False, "message": f"The route no longer follows the same trails in the newer data (missing: {names}). "
                                         "Your trip is unchanged."}
     req = GenerateRequest.from_dict(run["request"])
-    result = plan_route(loaded.region, loaded.raw, loaded.tg, req, followed["route"], c["kind"],
-                        (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
-                        raw_dir=request.app.state.settings.raw_dir)
+    with request.app.state.plans.slot():
+        result = plan_route(loaded.region, loaded.raw, loaded.tg, req, followed["route"], c["kind"],
+                            (c.get("route") or {}).get("stem_keys") or (), dem=loaded.dem,
+                            raw_dir=request.app.state.settings.raw_dir,
+                            feature_index=loaded.feature_index(request.app.state.settings.raw_dir), names=loaded.names())
     result.start = run["start"]
     if (run.get("search") or {}).get("finish") and "finish" in result.report:  # keep how the finish was named
         result.report["finish"] = run["search"]["finish"] | {"node": result.report["finish"]["node"]}
     runs = request.app.state.runs
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     new = run_payload(runs.new_id(), loaded.region, result, loaded.raw, loaded.tg, now, diff=None)
-    runs.save(new)
+    runs.save(new, pending=True)  # kept only if the user accepts it (POST /runs/{id}/keep)
     return {"ok": True, "run": new, "changes": trip_changes(c, new["candidates"][0])}
 
 
@@ -422,8 +409,25 @@ def candidate_geojson(run_id: str, n: int, request: Request):
 # --- chat ---------------------------------------------------------------------------------
 
 
+@router.post("/runs/{run_id}/keep")
+def keep_run(run_id: str, request: Request):
+    """The user accepted a reviewed update: its run stays (pending ones are cleaned up after a day)."""
+    request.app.state.runs.keep(run_id)
+    return {"ok": True}
+
+
 @router.post("/chat")
 def chat(request: Request, body: dict):
+    slots = request.app.state.chat_slots
+    if not slots.acquire(blocking=False):
+        raise Busy("The chat is answering other questions right now. Try again in a moment.")
+    try:
+        return _chat(request, body)
+    finally:
+        slots.release()
+
+
+def _chat(request: Request, body: dict):
     run_id, n = body.get("run_id"), body.get("candidate")
     message = body.get("message") if isinstance(body.get("message"), str) else ""
     message = message.strip()

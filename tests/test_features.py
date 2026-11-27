@@ -84,3 +84,78 @@ def test_route_summary_lists_features_with_water_warning(route, data, tmp_path):
     assert "nearest water" in md.lower() and "pinned" in md.lower()
     assert " m " not in md
     assert "osm:node/" not in md and "camp_site" not in md  # readable labels, no raw ids in prose
+
+
+# --- the features index: the same answers, computed once per area ---------------------------------------
+
+
+def _crowd(n: int):
+    """Many sites and streams spread over 100 km, like a big park; a few of them near the route."""
+    sites = [_pt(x, y, source=f"osm:node/{i}", kind="camp_site", name=None) for i, (x, y) in enumerate(
+        ((i * 997) % 100_000 - 40_000, (i * 7919) % 100_000 - 40_000) for i in range(n))]
+    streams = [_line([(x, y), (x + 200, y + 150)], source=f"osm:way/{i}", kind="stream", name=None) for i, (x, y) in enumerate(
+        ((i * 1013) % 100_000 - 40_000, (i * 7873) % 100_000 - 40_000) for i in range(n))]
+    return sites, {"points": [], "lines": streams}
+
+
+def test_index_gives_the_same_features_as_the_scan(route, data):
+    from backcountry.features import FeatureIndex
+
+    camp_sites, water = data
+    sites, more = _crowd(400)
+    all_sites, all_water = camp_sites + sites, {"points": water["points"], "lines": water["lines"] + more["lines"]}
+    scanned = along_route(route, all_sites, all_water)
+    index = FeatureIndex(all_sites, all_water, (), route.crs)
+    indexed = along_route(route, index=index)
+    assert indexed == scanned
+    assert [f["source"] for f in indexed] == ["osm:node/60", "osm:node/50", "osm:way/70", "osm:node/61"]
+    # the border: a site exactly NEAR_ROUTE_M away is in, one a hair farther is out, both ways
+    from backcountry.features import NEAR_ROUTE_M
+
+    edge = [_pt(500, NEAR_ROUTE_M, source="osm:node/80", kind="camp_site"), _pt(700, NEAR_ROUTE_M + 0.5, source="osm:node/81", kind="camp_site")]
+    assert [f["source"] for f in along_route(route, index=FeatureIndex(edge, None, (), route.crs))] == ["osm:node/80"]
+    assert [f["source"] for f in along_route(route, edge)] == ["osm:node/80"]
+
+
+def test_index_is_far_cheaper_than_the_scan(route):
+    import time
+
+    from backcountry.features import FeatureIndex
+
+    sites, water = _crowd(3000)
+    index = FeatureIndex(sites, water, (), route.crs)
+    t0 = time.perf_counter()
+    for _ in range(20):
+        along_route(route, index=index)
+    indexed = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    along_route(route, sites, water)
+    scanned = time.perf_counter() - t0
+    assert indexed < scanned, (indexed, scanned)  # 20 indexed lookups beat one scan
+
+
+def test_plan_trip_builds_the_index_once(grid, monkeypatch):
+    from backcountry import features, planning
+    from backcountry.planning import GenerateRequest, plan_trip
+    from backcountry.region import BBox, Region
+
+    region = Region(id="synthetic", name="Synthetic", crs=CRS, bbox=BBox(36.0, -81.1, 36.2, -80.9))
+    built = []
+    real = features.FeatureIndex
+
+    class Counting(real):
+        def __init__(self, *a, **k):
+            built.append(1)
+            super().__init__(*a, **k)
+    monkeypatch.setattr(features, "FeatureIndex", Counting)
+    monkeypatch.setattr(planning, "FeatureIndex", Counting)
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    req = GenerateRequest.from_dict({"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "nights": 1, "daily": "0.5-4"})
+    result = plan_trip(region, raw, tg, req)
+    assert result.report["evaluated"] >= 3 and all(c.features is not None for c in result.report["candidates"])
+    assert len(built) == 1
+    index = real([], None, (), CRS)
+    built.clear()
+    plan_trip(region, raw, tg, req, feature_index=index)  # a caller that keeps one per area passes it in
+    assert built == []

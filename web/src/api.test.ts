@@ -62,3 +62,13 @@ describe("chat", () => {
     expect(url).toBe("/api/chat"); expect(JSON.parse(init.body as string)).toEqual({ run_id: "r1", candidate: 2, message: "hi", history: [{ role: "user", text: "a" }] });
   });
 });
+
+describe("a server that isn't ours", () => {
+  it("a 2xx that isn't JSON (a captive portal) counts as unreachable", async () => {
+    vi.stubGlobal("fetch", respond(200, "<html><body>Sign in to the lodge Wi-Fi</body></html>", false));
+    const err = (await getRegions().catch((e: unknown) => e)) as ApiError;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(0);
+    expect(err.message).toMatch(/server/i);
+  });
+});

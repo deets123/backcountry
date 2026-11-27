@@ -27,7 +27,7 @@ def wait_done(jobs, job_id):
 def test_plan_jobs_are_capped_and_expire():
     clock, release = Clock(), threading.Event()
 
-    def blocking(on_snapshot):
+    def blocking(on_snapshot, stop):
         release.wait(5)
         return {"run_id": "r1"}
 
@@ -47,7 +47,7 @@ def test_job_shows_the_snapshot_then_the_final_run():
     seen = []
     jobs = PlanJobs(Settings(area_thread=False))
 
-    def work(on_snapshot):
+    def work(on_snapshot, stop):
         on_snapshot({"run_id": "partial", "partial": True})
         seen.append(jobs.get(next(iter(jobs._jobs)))["run"])
         return {"run_id": "r1", "partial": False}
@@ -60,10 +60,10 @@ def test_job_shows_the_snapshot_then_the_final_run():
 def test_job_failures_say_what_went_wrong_in_plain_words():
     jobs = PlanJobs(Settings(area_thread=False))
 
-    def bad_setting(on_snapshot):
+    def bad_setting(on_snapshot, stop):
         raise RequestError("trailhead", "No trailhead called X here")
 
-    def crash(on_snapshot):
+    def crash(on_snapshot, stop):
         raise RuntimeError("stack trace details")
 
     a = jobs.get(jobs.start(bad_setting))
@@ -82,24 +82,49 @@ def test_the_cap_is_a_setting():
     release = threading.Event()
     jobs = PlanJobs(Settings(area_thread=True, plan_jobs=3))
     for _ in range(3):
-        jobs.start(lambda on_snapshot: release.wait(5) or {"run_id": "r"})
+        jobs.start(lambda on_snapshot, stop: release.wait(5) or {"run_id": "r"})
     with pytest.raises(Busy):
-        jobs.start(lambda on_snapshot: {"run_id": "r"})
+        jobs.start(lambda on_snapshot, stop: {"run_id": "r"})
     release.set()
 
 
-def test_a_cancelled_job_frees_its_slot():
-    release = threading.Event()
+def test_a_cancelled_job_stops_its_work_and_frees_its_slot():
     jobs = PlanJobs(Settings(area_thread=True, plan_jobs=2))
-    a = jobs.start(lambda on_snapshot: release.wait(5) or {"run_id": "a"})
-    jobs.start(lambda on_snapshot: release.wait(5) or {"run_id": "b"})
-    jobs.cancel(a)  # the phone gave up on it (a new plan, or its time limit)
-    c = jobs.start(lambda on_snapshot: {"run_id": "c"})
-    assert jobs.get(a)["status"] == "cancelled"
-    release.set()
-    assert wait_done(jobs, c)["status"] == "done"
-    for _ in range(200):
-        if jobs.get(a)["run"] is None and jobs.get(a)["status"] == "cancelled":
-            break
-    assert jobs.get(a)["status"] == "cancelled" and jobs.get(a)["run"] is None  # a late result is dropped
+    stopped = threading.Event()
 
+    def obedient(on_snapshot, stop):
+        while not stop():
+            threading.Event().wait(0.005)
+        stopped.set()
+        return {"run_id": "late"}
+    a = jobs.start(obedient)
+    jobs.start(obedient)
+    jobs.cancel(a)
+    assert stopped.wait(2), "the search must notice the stop and end"
+    for _ in range(200):
+        if jobs.running() == 1:
+            break
+        threading.Event().wait(0.01)
+    assert jobs.running() == 1  # the cancelled thread is gone; its slot is free
+    c = jobs.start(lambda on_snapshot, stop: {"run_id": "c"})
+    assert jobs.get(a)["status"] == "cancelled" and jobs.get(a)["run"] is None  # the late result was dropped
+    assert wait_done(jobs, c)["status"] == "done"
+    jobs.cancel(jobs.get(c) and [j for j in jobs._jobs][1])
+
+
+def test_the_cap_counts_work_that_is_still_running_after_a_cancel():
+    release = threading.Event()
+    jobs = PlanJobs(Settings(area_thread=True, plan_jobs=1))
+    a = jobs.start(lambda on_snapshot, stop: release.wait(5) or {"run_id": "a"})  # ignores stop: still running
+    jobs.cancel(a)
+    with pytest.raises(Busy):
+        jobs.start(lambda on_snapshot, stop: {"run_id": "b"})
+    release.set()
+
+
+def test_a_run_slot_is_shared_with_requests_that_plan_inline():
+    jobs = PlanJobs(Settings(area_thread=False, plan_jobs=1))
+    with jobs.slot():
+        with pytest.raises(Busy):
+            jobs.start(lambda on_snapshot, stop: {"run_id": "x"})
+    assert jobs.get(jobs.start(lambda on_snapshot, stop: {"run_id": "x"}))["status"] == "done"

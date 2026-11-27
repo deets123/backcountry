@@ -5,6 +5,7 @@ environment or a git-ignored `.env` at the repo root: BACKCOUNTRY_LLM=ollama:<mo
 """
 
 import json
+import logging
 import os
 import socket
 import urllib.error
@@ -82,6 +83,9 @@ def shape_problem(value, schema: dict, path: str = "answer") -> str | None:
     return None
 
 
+log = logging.getLogger("backcountry.chat")
+
+
 class OllamaModel:
     def __init__(self, model: str, url: str = DEFAULT_OLLAMA_URL, opener: Callable = urllib.request.urlopen):
         self.model, self.url, self._open = model, url.rstrip("/"), opener
@@ -99,13 +103,15 @@ class OllamaModel:
             if e.code == 404:
                 raise ModelUnavailable(f"Ollama doesn't have the model {self.model}. Run `ollama pull {self.model}`, "
                                        "or pick another model in .env.") from e
-            raise ModelBadOutput(f"Ollama answered {e.code}: {e.read().decode(errors='replace')[:200]}") from e
+            log.warning("Ollama answered %s: %s", e.code, e.read().decode(errors="replace")[:500])
+            raise ModelBadOutput(f"The chat model answered with an error ({e.code}). Try again.") from e
         except (TimeoutError, socket.timeout) as e:
             raise slow from e
         except urllib.error.URLError as e:
             if isinstance(e.reason, (TimeoutError, socket.timeout)):
                 raise slow from e
-            raise ModelUnavailable(f"The chat model isn't reachable (Ollama at {where}). Start Ollama, or plan with the form.") from e
+            log.warning("Ollama at %s isn't reachable: %s", where, e.reason)
+            raise ModelUnavailable("The chat model isn't reachable. Start Ollama, or plan with the form.") from e
         except json.JSONDecodeError as e:
             raise ModelBadOutput("Ollama sent something that isn't JSON.") from e
 

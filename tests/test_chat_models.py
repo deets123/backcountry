@@ -72,7 +72,7 @@ def test_ollama_retries_once_with_the_problem_then_gives_up():
 
 def test_ollama_errors_become_user_facing_messages():
     refused = OllamaModel("x", opener=opener_returning(urllib.error.URLError(ConnectionRefusedError(61, "refused"))))
-    with pytest.raises(ModelUnavailable, match=r"isn't reachable \(Ollama at 127.0.0.1:11434\). Start Ollama"):
+    with pytest.raises(ModelUnavailable, match=r"isn't reachable. Start Ollama"):
         refused.complete("s", [], SCHEMA)
     slow = OllamaModel("x", opener=opener_returning(socket.timeout("timed out")))
     with pytest.raises(ModelTimeout, match="took longer than 60 s"):

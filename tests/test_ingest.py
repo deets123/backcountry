@@ -382,3 +382,37 @@ def test_a_cell_with_no_usgs_tile_is_left_empty(tmp_path):
     assert calls == [cells[0]]
     dem = ingest.load_dem(REGION, raw_dir=tmp_path)
     assert dem.array[0, 0] == 700.0 and json.loads(path.read_text())["cells"] == 2
+
+
+def test_load_dem_reads_blocks_from_the_file_with_the_same_values(tmp_path):
+    """Memory follows the trails, not the park's box: the DEM stays on disk and only touched blocks are kept."""
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from backcountry.elevation import DEM
+
+    res = 0.0005
+
+    def reader(urls, bounds):  # z depends on position, so a wrong block or a wrong pixel shows
+        w, s_, e, n = bounds
+        rows, cols = round((n - s_) / res), round((e - w) / res)
+        r = np.arange(rows)[:, None] + round((40.0 - n) / res)
+        c = np.arange(cols)[None, :] + round((w + 80.0) / res)
+        return (1000.0 + 0.5 * r + 0.25 * c).astype("float32"), from_origin(w, n, res, res), "EPSG:4326"
+
+    cells = [(-80.0, 39.95, -79.95, 40.0), (-79.1, 39.0, -79.05, 39.05)]  # far apart; empty between
+    path = ingest.fetch_dem(REGION, (-80.0, 39.0, -79.05, 40.0), raw_dir=tmp_path, cells=cells,
+                            searcher=lambda d, b: ITEMS_13, reader=reader)
+    dem = ingest.load_dem(REGION, raw_dir=tmp_path)
+    with rasterio.open(path.parent / json.loads(path.read_text())["tif"]) as ds:
+        full = DEM(array=ds.read(1).astype("float64"), transform=ds.transform, crs=str(ds.crs))
+        total_bytes = ds.width * ds.height * 4
+    rng = np.random.default_rng(1)
+    lons = np.concatenate([rng.uniform(-80.0, -79.95, 200), rng.uniform(-79.1, -79.05, 200), [-79.5, -79.3, -79.8],
+                           [-79.95, -79.95 - 1e-9, -80.0, -79.1]])  # in each cell, a few in the empty middle, borders
+    lats = np.concatenate([rng.uniform(39.95, 40.0, 200), rng.uniform(39.0, 39.05, 200), [39.5, 39.2, 39.7],
+                           [39.97, 39.97, 40.0, 39.0]])
+    np.testing.assert_allclose(dem.sample(lons, lats, "EPSG:4326"), full.sample(lons, lats, "EPSG:4326"), equal_nan=True)
+    assert dem.resident_bytes() < total_bytes / 4, (dem.resident_bytes(), total_bytes)
+    assert dem.source["cache_path"].endswith(".json") and dem.crs == full.crs

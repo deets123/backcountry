@@ -46,7 +46,8 @@ FOOT_ALLOWED = ("yes", "designated", "permissive")
 BLOCKED = ("no", "private")
 
 # Way tags carried onto graph edges. The raw cache keeps every tag.
-KEEP_TAGS = ("highway", "name", "ref", "sac_scale", "trail_visibility", "access", "foot", "informal", "service")
+KEEP_TAGS = ("highway", "name", "ref", "sac_scale", "trail_visibility", "access", "foot", "informal", "service",
+             "oneway", "oneway:foot")
 
 
 def way_class(tags: dict) -> str | None:
@@ -548,12 +549,12 @@ def load_dem(region: Region, kind: str = "13", name: str | None = None, raw_dir:
     """The latest cached DEM as an elevation.DEM, or None."""
     import rasterio
 
-    from backcountry.elevation import DEM
-
     path = latest_cache(region, raw_dir, prefix=_dem_prefix(kind, name))
     if path is None:
         return None
+    from backcountry.elevation import FileDEM
+
     meta = json.loads(path.read_text())
-    with rasterio.open(path.parent / meta["tif"]) as ds:
-        array = ds.read(1).astype("float64")
-        return DEM(array=array, transform=ds.transform, crs=meta["crs"], source=meta | {"cache_path": str(path)})
+    tif = path.parent / meta["tif"]
+    with rasterio.open(tif) as ds:  # the file stays on disk: blocks are read as routes need them
+        return FileDEM(tif, ds.transform, meta["crs"], (ds.height, ds.width), source=meta | {"cache_path": str(path)})

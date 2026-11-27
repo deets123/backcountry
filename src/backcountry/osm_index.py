@@ -309,10 +309,32 @@ def _areas_at(con, lon: float, lat: float, states: bool) -> list[sqlite3.Row]:
     return [r for r in rows if wkb.loads(r["wkb"]).covers(pt)]
 
 
+_STATES: dict[str, tuple[list[str], list, object]] = {}  # index file -> (names, outlines, tree)
+
+
+def _states(con):
+    """Every state outline, decoded once per index file and kept with a spatial tree."""
+    path = con.execute("PRAGMA database_list").fetchone()[2]
+    hit = _STATES.get(path)
+    if hit is None:
+        rows = con.execute("SELECT name, wkb FROM areas WHERE is_state = 1 ORDER BY id").fetchall()
+        names, geoms = [r["name"] for r in rows], [wkb.loads(r["wkb"]) for r in rows]
+        from shapely import STRtree
+
+        hit = _STATES[path] = (names, geoms, STRtree(geoms) if geoms else None)
+    return hit
+
+
 def state_at(con, lon: float, lat: float) -> str | None:
     """The US state boundary containing this point, or None (outside the US, as far as the index knows)."""
-    rows = _areas_at(con, lon, lat, states=True)
-    return rows[0]["name"] if rows else None
+    names, geoms, tree = _states(con)
+    if tree is None:
+        return None
+    pt = Point(lon, lat)
+    for i in sorted(int(i) for i in tree.query(pt)):
+        if geoms[i].covers(pt):
+            return names[i]
+    return None
 
 
 def touches_us(con, bbox: tuple) -> bool:

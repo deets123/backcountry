@@ -3,7 +3,7 @@
 // Failures are kept and reported ("incomplete"), never hidden.
 import { getTrails, gpxUrl } from "../api";
 import type { Run, TrailFeatureCollection } from "../types";
-import { putTrip, type SavedTrip } from "./db";
+import { getTrip, putTrip, type SavedTrip } from "./db";
 import { tileList, tripBox, type Box, type Tile } from "./tiles";
 
 export const CONCURRENCY = 4;
@@ -46,7 +46,10 @@ export async function saveTrip(run: Run, n: number, startName: string, onProgres
   if (!box) throw new Error("This candidate has no route line to save.");
   const cs = deps.caches;
   if (!cs) throw new Error("This browser can't store map tiles. Offline saving needs a secure (https) address; see the README's Tailscale step.");
-  const tiles = tileList(box), cacheName = `trip-${tripId(run, n)}`;
+  // each save fills its own cache and only then replaces the old one: a cancelled re-save keeps what was there
+  const stamp = deps.now().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const tiles = tileList(box), cacheName = `trip-${tripId(run, n)}-${stamp}`;
+  const before = await getTrip(tripId(run, n)).catch(() => undefined);
   const missing: Record<string, number> = {};
   const problems: string[] = [];
   let done = 0, failed = 0, bytes = 0, full = false;
@@ -109,6 +112,7 @@ export async function saveTrip(run: Run, n: number, startName: string, onProgres
       bytes, persisted, complete: problems.length === 0, problems,
     };
     await putTrip(rec);
+    if (before && before.tiles.cache !== cacheName) await cs.delete(before.tiles.cache).catch(() => false);
     return rec;
   } catch (e) {
     await cs.delete(cacheName);

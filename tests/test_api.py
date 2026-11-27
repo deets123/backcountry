@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -303,7 +304,8 @@ def test_every_error_is_json_with_an_error_key(env, grid):
     assert r.status_code == 400 and r.json()["field"] == "n"
     r = c.get("/api/explode")
     assert r.status_code == 500 and r.headers["content-type"].startswith("application/json")
-    assert "engine fell over" in r.json()["error"]
+    assert "engine fell over" not in r.json()["error"]  # details (often paths) stay in the server log
+    assert re.fullmatch(r"Something went wrong on the server \(error [0-9a-f]{8}\)\. Try again\.", r.json()["error"])
 
 
 def test_a_corrupt_run_file_does_not_break_generate(client, grid):
@@ -489,3 +491,85 @@ def test_finishes_endpoint(client, grid):
 def test_cancel_endpoint(client):
     assert client.delete("/api/plans/0123456789abcdef").status_code == 404
     assert client.delete("/api/plans/..%2Fx").status_code in (400, 404)
+
+
+def test_generate_and_update_count_against_the_plan_cap(env, grid, monkeypatch):
+    import threading
+
+    from backcountry.api import endpoints
+
+    env.plan_jobs = 1
+    client = TestClient(create_app(env, web_dist=env.runs_dir / "no-web"))
+    body = {"trailhead": str(grid.ids["g00"]), "total": "2.4-5.1", "type": "loop"}
+    run = client.post("/api/regions/dolly_sods/generate", json=body).json()  # fine on its own: the slot was free
+    release, started = threading.Event(), threading.Event()
+    real = endpoints.plan_trip
+
+    def slow(*a, **k):
+        started.set()
+        release.wait(5)
+        return real(*a, **k)
+    monkeypatch.setattr(endpoints, "plan_trip", slow)
+    job = client.post("/api/regions/dolly_sods/plans", json=body).json()["job_id"]
+    started.wait(5)
+    try:
+        assert client.post("/api/regions/dolly_sods/generate", json=body).status_code == 429
+        assert run["run_id"]  # (the saved-trip update takes the same slot; it needs newer data to run at all)
+    finally:
+        release.set()
+    for _ in range(200):
+        if client.get(f"/api/plans/{job}").json()["status"] == "done":
+            break
+        threading.Event().wait(0.02)
+    assert client.get(f"/api/plans/{job}").json()["status"] == "done"
+
+
+# --- request limits and run ids ---------------------------------------------------------------------
+
+
+def test_bodies_over_a_megabyte_are_refused(client):
+    big = "[" + ",".join(["1"] * 600_000) + "]"  # about 1.2 MB
+    r = client.post("/api/difficulty", content=big, headers={"content-type": "application/json"})
+    assert r.status_code == 413 and "error" in r.json()
+
+
+@pytest.mark.parametrize("bad", ["index", "..%2Findex", "20261027T000000Z-zzzz", "%00x", "a" * 200])
+def test_run_ids_are_validated(client, bad):
+    assert client.get(f"/api/runs/{bad}").status_code == 404
+    assert client.get(f"/api/runs/{bad}/candidates/1.gpx").status_code in (400, 404)
+
+
+# --- work done once per loaded area, not per request --------------------------------------------------
+
+
+def test_trails_are_encoded_once_per_loaded_area_and_gzipped(client, monkeypatch):
+    from backcountry.api import endpoints
+
+    calls = []
+    real = endpoints.edges_features
+    monkeypatch.setattr(endpoints, "edges_features", lambda *a, **k: calls.append(1) or real(*a, **k))
+    a = client.get("/api/regions/dolly_sods/trails")
+    b = client.get("/api/regions/dolly_sods/trails", headers={"accept-encoding": "gzip"})
+    assert a.status_code == b.status_code == 200 and a.json() == b.json() and len(calls) == 1
+    assert b.headers.get("content-encoding") == "gzip" and a.headers["content-type"].startswith("application/json")
+
+
+def test_features_lists_are_built_once_per_loaded_area(client, monkeypatch):
+    from backcountry import ingest
+
+    calls = []
+    real = ingest.camp_sites
+    monkeypatch.setattr(ingest, "camp_sites", lambda raw: calls.append(1) or real(raw))
+    for _ in range(3):
+        assert client.get("/api/regions/dolly_sods/features", params={"bbox": "-81.1,36,-80.9,36.2"}).status_code == 200
+    assert len(calls) == 1
+
+
+def test_region_summaries_read_each_cache_once(client, monkeypatch):
+    from backcountry.api import store as store_mod
+
+    calls = []
+    real = store_mod.json.loads
+    monkeypatch.setattr(store_mod.json, "loads", lambda text, *a, **k: calls.append(text) or real(text, *a, **k))
+    client.get("/api/regions"), client.get("/api/regions")
+    assert sum(1 for t in calls if '"response"' in t) <= 1  # the Overpass cache (big) is parsed at most once

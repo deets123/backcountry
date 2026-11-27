@@ -28,6 +28,8 @@ export interface TripMap {
   destroy(): void;
 }
 
+const DRAG_MIN_PX = 12;  // a camp marker moved less than this on screen snaps back: a touch that wobbled
+
 function removeAll(map: MLMap, prefix: string) {
   for (const l of map.getStyle().layers ?? []) if (l.id.startsWith(prefix)) map.removeLayer(l.id);
   for (const id of Object.keys(map.getStyle().sources ?? {})) if (id.startsWith(prefix)) map.removeSource(id);
@@ -184,7 +186,14 @@ export function createMap(container: HTMLElement, basemap: Basemap, center: [num
           const m = new maplibregl.Marker({ element: badge(text, "#1b5e20", `${w.name}: ${w.desc}`), draggable }).setLngLat([w.lon, w.lat]).addTo(map);
           if (draggable) {
             const index = Number(w.name.split(" ")[1]);
-            m.on("dragend", () => { const p = m.getLngLat(); campDrop?.(index, p.lng, p.lat); });
+            let from = m.getLngLat();
+            m.on("dragstart", () => { from = m.getLngLat(); });
+            m.on("dragend", () => {
+              const p = m.getLngLat();
+              const a = map.project(from), b = map.project(p);
+              if (Math.hypot(a.x - b.x, a.y - b.y) < DRAG_MIN_PX) { m.setLngLat(from); return; }  // a wobble, not a move
+              campDrop?.(index, p.lng, p.lat);
+            });
           }
           tripMarkers.push(m);
         }

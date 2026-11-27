@@ -45,8 +45,8 @@ describe("saveTrip", () => {
     const progress: SaveProgress[] = [];
     const rec = await saveTrip(run, 1, "Bear Rocks Trailhead", (p) => progress.push(p), new AbortController().signal, d);
     expect(rec.complete).toBe(true); expect(rec.problems).toEqual([]);
-    expect(rec.tiles).toEqual({ cache: "trip-r1-1", total: tiles.length, saved: tiles.length, missingByZoom: {} });
-    expect(stored.get("trip-r1-1")!.size).toBe(tiles.length);
+    expect(rec.tiles).toEqual({ cache: "trip-r1-1-20261014T120000Z", total: tiles.length, saved: tiles.length, missingByZoom: {} });
+    expect(stored.get(rec.tiles.cache)!.size).toBe(tiles.length);
     expect(rec.bytes).toBe(100 * tiles.length);
     expect(rec.gpx.whole).toContain("/api/runs/r1/candidates/1.gpx"); expect(rec.gpx.days).toHaveLength(2);
     expect(rec.trails.features.map((f) => f.properties.name)).toEqual(["Near Trail"]);
@@ -89,5 +89,26 @@ describe("saveTrip, re-saving", () => {
     const rec = await saveTrip(run, 1, "x", () => {}, new AbortController().signal, d, [400]);
     expect(inits.every((i) => i?.cache === "reload")).toBe(true);
     expect(rec.campsM).toEqual([400]);
+  });
+});
+
+describe("saving again", () => {
+  it("a cancelled re-save keeps the tiles already saved and leaves nothing half done", async () => {
+    const { d, stored } = deps();
+    const first = await saveTrip(run, 1, "x", () => {}, new AbortController().signal, d);
+    const ctl = new AbortController();
+    const later = { ...d, now: () => new Date("2026-10-15T12:00:00Z") };
+    const p = saveTrip(run, 1, "x", (prog) => { if (prog.done >= 2) ctl.abort(); }, ctl.signal, later);
+    await expect(p).rejects.toMatchObject({ name: "AbortError" });
+    expect(stored.get(first.tiles.cache)!.size).toBe(tiles.length);  // the first save's tiles are untouched
+    expect([...stored.keys()]).toEqual([first.tiles.cache]);  // the half-done cache is gone
+    expect((await getTrip("r1-1"))!.tiles.cache).toBe(first.tiles.cache);
+  });
+  it("a finished re-save replaces the old tiles", async () => {
+    const { d, stored } = deps();
+    const first = await saveTrip(run, 1, "x", () => {}, new AbortController().signal, d);
+    const second = await saveTrip(run, 1, "x", () => {}, new AbortController().signal, { ...d, now: () => new Date("2026-10-15T12:00:00Z") });
+    expect(second.tiles.cache).not.toBe(first.tiles.cache);
+    expect([...stored.keys()]).toEqual([second.tiles.cache]);
   });
 });

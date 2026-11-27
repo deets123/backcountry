@@ -33,7 +33,7 @@ function finishesHtml(f: FormState, finishes: Finish[] | null): string {
   if (!finishes.length) return `<p class="note">No finishing trailhead fits ${total ? `${total[0]}–${total[1]}` : esc(f.total)} mi from this start.</p>`;
   return `<p class="note">Finish at (pick one):</p><div class="finishes">${finishes.map((x) =>
     `<button type="button" class="finish${f.finish === x.id ? " on" : ""}" data-finish="${esc(x.id)}">`
-    + `<b>${esc(x.name ?? x.id)}</b> · ${miles(x.length_m)} · gain ${feet(x.gain_ft)}, loss ${feet(x.loss_ft)} · `
+    + `<b>${esc(x.name ?? "Unnamed trailhead")}</b> · ${miles(x.length_m)} · gain ${feet(x.gain_ft)}, loss ${feet(x.loss_ft)} · `
     + `${(x.straight_line_m / M_PER_MI).toFixed(1)} mi apart in a straight line${x.source === "data" ? " (from the data, unverified)" : ""}</button>`).join("")}</div>`;
 }
 
@@ -88,7 +88,8 @@ export function renderPerDay(f: FormState, open: number | null): string {
 
 function option(th: Trailhead, current: string): string {
   const usable = th.in_graph && th.lat != null && th.lon != null;
-  const label = `${th.name ?? th.id}${usable ? "" : " (not on the trail network)"}${th.source === "data" && usable ? " (from the data, unverified)" : ""}`;
+  const name = th.name ?? (th.source === "data" ? "Unnamed start point" : th.id);
+  const label = `${name}${usable ? "" : " (not on the trail network)"}${th.source === "data" && usable ? " (from the data, unverified)" : ""}`;
   return `<option value="${esc(th.id)}"${usable ? "" : " disabled"}${th.id === current ? " selected" : ""}>${esc(label)}</option>`;
 }
 

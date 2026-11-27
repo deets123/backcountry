@@ -175,3 +175,49 @@ def test_out_and_back_payload_names_its_turnaround(grid):
     c = plan_trip(REGION, raw, tg, req).report["candidates"][0]
     p = candidate_payload(1, c, "osm:node/1000", tg.retrieved_at)
     assert p["kind"] == "out_and_back" and p["turnaround"] == c.turnaround and "out and back" in p["title"]
+
+
+# --- no raw OSM ids in anything a GPX or a phone shows ------------------------------------------------------
+
+
+def _no_osm_ids(run: dict) -> None:
+    for c in run["candidates"]:
+        assert "osm:" not in c["title"], c["title"]
+        for w in c["waypoints"]:
+            assert "osm:" not in w["name"] and "osm:" not in w["desc"], w
+        if c.get("finish"):
+            assert "osm:" not in (c["finish"]["name"] or "")
+
+
+def test_titles_and_waypoints_name_the_start_not_its_node_id(grid):
+    from backcountry.trailheads import find_candidates
+
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    from backcountry.graph import qa_summary
+
+    names = {c["id"]: " | ".join(c["names"]) for c in find_candidates(tg, raw, qa_summary(tg)["node_component"])["candidates"]}
+    g20 = grid.ids["g20"]  # Row 0 meets Grid Road: a start point from the data, named after both
+    req = GenerateRequest.from_dict({"trailhead": str(g20), "total": "2.4-5.1", "type": "loop"})
+    result = plan_trip(REGION, raw, tg, req, names=names)
+    assert result.start["name"] == names[g20] and "osm:" not in result.start["name"]
+    run = run_payload("r1", REGION, result, raw, tg, "2026-10-27T00:00:00Z", None)
+    _no_osm_ids(run)
+    assert run["candidates"][0]["title"] == f"{names[g20]} to {names[g20]} (loop)"
+    assert run["candidates"][0]["waypoints"][0]["desc"] == names[g20]
+    assert result.start["how"].startswith("osm:node/")  # provenance keeps the id
+
+
+def test_unnamed_starts_and_finishes_get_plain_words(grid):
+    raw = grid.doc()
+    tg = build_graph(raw, crs=CRS)
+    ids = grid.ids
+    lat, lon = tg.graph.nodes[ids["g11"]]["lat"], tg.graph.nodes[ids["g11"]]["lon"]
+    req = GenerateRequest.from_dict({"trailhead": f"{lat:.5f},{lon:.5f}", "total": "2.4-5.1", "type": "one_way",
+                                     "finish": str(ids["g22"])})
+    result = plan_trip(REGION, raw, tg, req)
+    run = run_payload("r1", REGION, result, raw, tg, "2026-10-27T00:00:00Z", None)
+    _no_osm_ids(run)
+    c = run["candidates"][0]
+    assert c["waypoints"][0]["desc"].startswith("Start: ") and "," in c["waypoints"][0]["desc"]  # the tapped point
+    assert c["finish"]["name"] and "osm:" not in c["finish"]["name"]

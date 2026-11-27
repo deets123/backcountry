@@ -29,11 +29,12 @@ import type { GenerateRequest, RecentArea, Region, Trailhead } from "./types";
 const DRAG_SNAP_M = 150; // a dropped camp must land this close to the route line
 
 // Changes to these re-render the panel. (Form edits typed in the panel don't; see editForm.)
-const RENDER_KEYS: (keyof State)[] = ["view", "status", "error", "busy", "run", "selected", "trailheads", "sheet", "regions", "recentAreas",
+const RENDER_KEYS: (keyof State)[] = ["view", "status", "error", "busy", "run", "selected", "trailheads", "regions", "recentAreas",
   "saved", "savedId", "campsM", "gps", "saving", "offline", "updateReady", "mapNote", "tilesMissing", "junctions",
   "chat", "chatBusy", "chatError", "tripUpdate", "elevationPending", "canRetryOpen", "destination"];
 const LIVE_KEYS = new Set<keyof State>(["gps", "saving"]); // updated in place in the trip view (patchTrip)
 const BOOT_TIMEOUT_MS = 5000; // with saved trips on the phone, don't wait longer than this for the server
+const BOOT_TIMEOUT_NO_SAVED_MS = 15_000; // without them, still don't leave a blank screen for ever
 
 export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, handle: HTMLElement, storage: Storage = localStorage) {
   const store: Store = createStore(loadPersisted(storage));
@@ -49,6 +50,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   let pendingUpdate: (() => void) | null = null;
   let lastView: { view: Box; zoom: number } | null = null;
   let lastTarget: Target | null = null;  // the last area opened, for "Try again"
+  let openSeq = 0;  // the latest area open or region pick; slower earlier ones change nothing when they land
 
   function updateMapNote() {
     const s = store.get();
@@ -113,42 +115,54 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       const s0 = store.get();
       const b = s0.regions.find((r) => r.id === id)?.bbox ?? s0.recentAreas.find((r) => r.id === id)?.bbox ?? bbox;
       if (!b) return;
+      const seq = ++openSeq;
+      const moved = id !== s0.region;  // a start belongs to its area: another area starts with none
       store.set({ region: id, trailheads: [], run: null, savedId: null, campsM: null, view: "plan", status: "Loading trails…", error: null, busy: false,
-        searchQuery: "", searchResults: null, elevationPending: false, canRetryOpen: false });
+        searchQuery: "", searchResults: null, searchError: null, elevationPending: false, canRetryOpen: false, finishes: null,
+        form: moved ? { ...s0.form, trailhead: "", finish: "" } : s0.form });
       map?.fitBounds([b.west, b.south, b.east, b.north]);
       try {
         const dest = store.get().destination;
         const [ths, trails] = await Promise.all([getTrailheads(id, dest?.ref), getTrails(id)]);
+        if (seq !== openSeq || store.get().region !== id) return;  // the user opened something else meanwhile
         store.set({ trailheads: ths, status: "" });
         map?.setTrails(trails);
         map?.setTrailheads(ths, (th) => actions.pickTrailhead(th));
         map?.setDestination(dest);
-      } catch (e) { store.set({ status: "", error: (e as Error).message }); }
+        const f = store.get().form;
+        if (f.type === "one_way" && f.trailhead) void loadFinishes();
+      } catch (e) { if (seq === openSeq) store.set({ status: "", error: (e as Error).message }); }
     },
     setQuery(q: string) { store.set({ searchQuery: q }); },
     async searchAreas(q: string) {
-      store.set({ searchQuery: q });
+      store.set({ searchQuery: q, searchError: null });
       if (!q.trim()) return store.set({ searchResults: null });
       try {
         const results = await search(q.trim());
         if (store.get().searchQuery === q) store.set({ searchResults: results });  // a later keystroke wins
-      } catch (e) { store.set({ error: (e as Error).message }); }
+      } catch (e) { store.set({ searchResults: [], searchError: (e as Error).message }); }  // inside the results: the keyboard stays
     },
     openTarget(t: Target) {
       lastTarget = t;
+      const seq = ++openSeq;
       store.set({ canRetryOpen: false });
       return openSearchResult(t, {
         openArea, areaStatus, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-        pickRegion: (id, bbox) => actions.pickRegion(id, bbox),
+        current: () => seq === openSeq,
+        pickRegion: (id, bbox) => { openSeq = seq; return actions.pickRegion(id, bbox); },  // this open's own pick keeps its turn
         setStatus: (message) => store.set({ status: message, error: null, busy: true }),
         setError: (message) => store.set({ error: message, status: "", busy: false, elevationPending: false, canRetryOpen: true }),
         setElevationPending: (on) => store.set({ elevationPending: on, status: "" }),
-        setDestination: (destination) => store.set({ destination, finishes: null }),
+        setDestination: (destination) => { store.set({ destination, finishes: null }); if (store.get().form.type === "one_way") void loadFinishes(); },
         addRecent: (a: RecentArea) => store.set((s) => ({ recentAreas: [a, ...s.recentAreas.filter((r) => r.id !== a.id)].slice(0, 8) })),
       });
     },
-    retryOpen() { if (lastTarget) void actions.openTarget(lastTarget); },
-    openRecent(r: RecentArea) { return actions.pickRegion(r.id, r.bbox); },
+    retryOpen() { if (lastTarget) void actions.openTarget(lastTarget); else void boot(); },
+    openRecent(r: RecentArea) {
+      store.set({ destination: null, finishes: null });  // an area opened from the list is not a place to go to
+      map?.setDestination(null);
+      return actions.pickRegion(r.id, r.bbox);
+    },
     planHere() {
       if (!lastView) return Promise.resolve(store.set({ error: "Move the map to the area first." }));
       return actions.openTarget({ box: lastView.view });
@@ -169,15 +183,21 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       abort?.abort();
       abort = new AbortController();
       const timer = setTimeout(() => abort?.abort(), 120_000);
-      store.set({ busy: true, error: null, status: "Searching… the first trips show in about 10 s." });
+      store.set({ busy: true, error: null, status: "Searching… the first trips show in about 8 s." });
+      const formAtStart = store.get().form;
       try {
         const signal = abort.signal;
         const run = await runPlanJob({
           startPlan, getPlan, cancelPlan, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
           // the first trips found: shown while the search goes on (status stays busy; not saved)
-          onPartial: (partial) => store.set({ run: partial, form: fromRun(partial), selected: 1, view: "compare", savedId: null, campsM: null }),
+          onPartial: (partial) => store.set({ run: partial, selected: 1, view: "compare", savedId: null, campsM: null }),
         }, s.region, built.request, signal);
-        store.set({ run, form: fromRun(run), selected: 1, view: "compare", busy: false, status: "", savedId: null, campsM: null });
+        const now = store.get();
+        const untouched = now.form === formAtStart;  // the user may have gone back and edited while the search went on
+        const left = now.run?.partial && now.view !== "compare";
+        store.set({ run, selected: 1, busy: false, savedId: null, campsM: null,
+          ...(untouched ? { form: fromRun(run) } : {}),
+          ...(left ? { status: "The results are ready: see the last results." } : { view: "compare", status: "" }) });
       } catch (e) {
         const msg = (e as Error).name === "AbortError"
           ? "The search took longer than 2 minutes and was stopped. Try a narrower range or fewer must-visits."
@@ -194,7 +214,19 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       if (rec) void tilesPresent(rec).then((ok) => { if (!ok && openTripId(store.get()) === rec.id) store.set({ tilesMissing: true }); });
     },
     backToCompare() { store.set({ view: "compare", status: "", error: null }); },
-    replan() { const run = store.get().run; store.set({ view: "plan", form: run ? fromRun(run) : store.get().form }); },
+    async replan() {
+      const s = store.get(), run = s.run;
+      if (!run) return store.set({ view: "plan" });
+      if (run.region !== s.region) await actions.pickRegion(run.region);  // a saved trip from another area
+      const d = run.search.destination, ref = run.request.destination;
+      const destination = d && ref ? { ref, name: d.name, center: d.center } : null;
+      store.set({ view: "plan", form: fromRun(run), destination, finishes: null, status: "", error: null });
+      map?.setDestination(destination);
+      if (run.request.type === "one_way") void loadFinishes();
+      if (destination && store.get().region === run.region) {
+        try { store.set({ trailheads: await getTrailheads(run.region, ref) }); } catch { /* the plain list stays */ }
+      }
+    },
     async sendChat(text: string) {
       const s = store.get();
       const message = text.trim();
@@ -404,6 +436,7 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
     const live = changed.length > 0 && !formChanged && changed.every((k) => LIVE_KEYS.has(k));
     // GPS fixes and save progress arrive several times a second: patch them in place in the trip view and
     // don't touch other views, so buttons and form fields aren't replaced under the user's finger.
+    if (s.sheet !== prev.sheet) handle.parentElement!.className = `sheet sheet-${s.sheet}`;  // never a redraw: a drag mid-typing keeps the text
     if (live && (s.view !== "trip" || patchTrip(panel, prev, s))) { /* nothing else to redraw */ }
     else if (changed.length || formChanged) render();
     if (s.finishes !== prev.finishes && s.view === "plan" && !(changed.length || formChanged)) patchFinishes(panel, s);  // in place
@@ -426,14 +459,14 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
   map = createMap(mapEl, store.get().basemap, [-79.35, 39.02], 11, basemapEl);
   map.onMapTap((lon, lat, name) => actions.tapPoint(lon, lat, name));
   map.onMove((view, zoom) => { lastView = { view, zoom }; updateMapNote(); });
-  render();
-  void (async () => {
+  async function boot() {
     await cleanOrphans().catch(() => []);
     await refreshSaved();
     const hasSaved = store.get().saved.length > 0;
+    store.set({ status: "Connecting to the server…", error: null, canRetryOpen: false });
     try {
-      const { regions, recent_areas: recentAreas } = await getRegions(hasSaved ? BOOT_TIMEOUT_MS : undefined);
-      store.set({ regions, recentAreas, offline: false });
+      const { regions, recent_areas: recentAreas } = await getRegions(hasSaved ? BOOT_TIMEOUT_MS : BOOT_TIMEOUT_NO_SAVED_MS);
+      store.set({ regions, recentAreas, offline: false, status: "" });
       void refreshTripLevels();
       const saved = store.get().region;
       const known = (id: string) => regions.some((r) => r.id === id) || recentAreas.some((r) => r.id === id);
@@ -448,9 +481,11 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
         getRegions().then(({ regions, recent_areas: recentAreas }) => { store.set({ regions, recentAreas, offline: false }); void refreshTripLevels(); })
           .catch(() => { /* still offline */ });
       }
-      else store.set({ offline: unreachable, error: (e as Error).message });
+      else store.set({ offline: unreachable, status: "", error: (e as Error).message, canRetryOpen: true });  // Try again re-connects
     }
-  })();
+  }
+  render();
+  void boot();
 
   return { store, actions, map };
 }

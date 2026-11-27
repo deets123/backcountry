@@ -174,6 +174,8 @@ def split_route(route: Route, nights: int, daily_min_m: float, daily_max_m: floa
     else:
         stride = max(1, int(round(CANDIDATE_STEP_M / max(d[1] - d[0], 1e-9)))) if len(d) > 1 else 1
         cd = np.array(sorted({*d[::stride].tolist(), float(d[-1]), *pins}))
+    if len(cd) < ndays + 1:  # too short for the usual camp points: split it evenly and let the day checks say so
+        cd = np.array(sorted({*cd.tolist(), *np.linspace(0.0, float(d[-1]), ndays + 1).tolist()}))
     cg = np.interp(cd, d, G) if gain_known else None
     cl = np.interp(cd, d, L) if gain_known else None
     P = len(cd)

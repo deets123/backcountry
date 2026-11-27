@@ -316,8 +316,11 @@ def generate(
         typer.echo(f"--{e.field.replace('_', '-')}: {e}", err=True)
         raise typer.Exit(code=1)
     r, raw, tg = _load(region)
+    from backcountry.trailheads import trailhead_list, trailhead_names
+
+    names = trailhead_names(trailhead_list(r, tg, raw, qa_summary(tg)["node_component"]))
     try:
-        result = plan_trip(r, raw, tg, req)
+        result = plan_trip(r, raw, tg, req, names=names)
     except RequestError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
@@ -329,7 +332,7 @@ def generate(
                "direction": direction}  # the CLI's own record format, unchanged from before the API
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
     try:
-        paths = write_candidates(report, r, out_dir, start["how"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,
+        paths = write_candidates(report, r, out_dir, start["name"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,
                                  basemap=basemap, request=request)
     except ValueError as e:
         typer.echo(str(e), err=True)
@@ -463,11 +466,21 @@ def usdata_status():
 
 
 def _run_server(host: str, port: int) -> None:
+    import logging
+
     import uvicorn
 
     from backcountry.api.app import create_app
+    from backcountry.api.area_worker import status_summary
 
-    uvicorn.run(create_app(), host=host, port=port)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    app = create_app()
+    s = status_summary(app.state.settings, app.state.areas)
+    typer.echo(f"Index: {s['index_date'] or 'none (search finds hand-made regions only)'}. Areas on disk: {s['areas']} "
+               f"({s['used_gb']} GB; {s['prepared']} prepared ahead). Free disk: {s['free_gb']} GB. "
+               f"Limits: {s['limits']['disk_gb']:g} GB for areas, {s['limits']['min_free_gb']:g} GB kept free, "
+               f"{s['plan_jobs']} plans at once.")
+    uvicorn.run(app, host=host, port=port)
 
 
 @app.command()

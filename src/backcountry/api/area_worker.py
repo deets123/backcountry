@@ -17,7 +17,7 @@ from pathlib import Path
 from backcountry import areas, ingest, osm_index, usdata
 from backcountry.region import load_region
 
-DEFAULT_LIMITS = {"max_queue": 3, "per_hour": 6, "disk_gb": 40.0}
+DEFAULT_LIMITS = {"max_queue": 3, "per_hour": 6, "disk_gb": 40.0, "min_free_gb": 3.0}
 FAILED = "Couldn't get the trail data ready for this area. Try again later."
 ELEVATION = "Adding elevation…"
 log = logging.getLogger("backcountry.api")
@@ -50,6 +50,7 @@ class AreaWorker:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._index_path: Path | None = None
+        self.in_use = lambda: set()  # areas with a plan being worked on (the app wires the plan jobs in)
 
     # --- the index ------------------------------------------------------------------------------------------
 
@@ -94,7 +95,10 @@ class AreaWorker:
         cuts = self._cuts(area_id)
         if not cuts:
             return False
-        region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+        try:
+            region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+        except FileNotFoundError:  # removed between the listing and now
+            return False
         return areas.elevation_done(region, self.settings.raw_dir, cuts[-1])
 
     def _index_date(self) -> str | None:
@@ -133,6 +137,8 @@ class AreaWorker:
                     if len(self._started) >= self.limits["per_hour"]:
                         raise Busy("Lots of new areas were opened in the last hour. Try again later, or pick one opened recently.")
                     self._make_room()
+                    if usdata.disk_free_gb(self.settings.raw_dir or ingest.RAW_DIR) < self.limits["min_free_gb"]:
+                        raise NoRoom("The server's disk is nearly full, so no new areas can be set up right now.")
                     self._started.append(now)
                 st = self._set(spec, "queued")
             self._queue.put(spec)
@@ -164,7 +170,10 @@ class AreaWorker:
         if st is None:
             if not self._ready(area_id):
                 return {"status": "unknown", "message": None}
-            region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+            try:
+                region = load_region(area_id, Path("/nonexistent"), self.settings.areas)
+            except FileNotFoundError:
+                return {"status": "unknown", "message": None}
             return {"status": "ready", "message": None, "name": region.name, "bbox": vars(region.bbox)}
         if st["status"] == "failed":
             return {"status": "failed", "message": st["message"], "name": st["name"]}
@@ -174,6 +183,14 @@ class AreaWorker:
 
     def _referenced(self) -> set[str]:
         return {meta.get("region") for meta in (self.runs._index().values() if self.runs else [])}
+
+    def _referenced_cuts(self) -> dict[str, set[str]]:
+        """Region -> the extract dates saved trips were planned on (those cuts must stay)."""
+        out: dict[str, set[str]] = {}
+        for meta in (self.runs._index().values() if self.runs else []):
+            if meta.get("region") and meta.get("cut"):
+                out.setdefault(meta["region"], set()).add(meta["cut"])
+        return out
 
     def _area_ids(self) -> list[Path]:
         return sorted(self.settings.areas.glob("*.yaml"), key=lambda p: p.stat().st_mtime)  # oldest first
@@ -192,7 +209,13 @@ class AreaWorker:
         budget = self._budget()
         if self._usage() <= budget:
             return
-        keep = (self._referenced() | areas.prepared_ids(self.settings.areas)
+        # first the cheap room: cuts and elevation from before a refresh that no saved trip was planned on
+        raw, keep_cuts = self.settings.raw_dir or ingest.RAW_DIR, self._referenced_cuts()
+        for p in self._area_ids():
+            areas.prune_area(p.stem, raw, keep_cuts.get(p.stem, set()))
+        if self._usage() <= budget:
+            return
+        keep = (self._referenced() | areas.prepared_ids(self.settings.areas) | self.store.loaded_ids() | self.in_use()
                 | {k for k, st in self.status.items() if st["status"] in ("queued", "preparing", "trails")})
         raw = self.settings.raw_dir or ingest.RAW_DIR
         for p in self._area_ids():
@@ -244,3 +267,13 @@ class AreaWorker:
         except Exception:
             log.exception("preparing area %s failed", spec.id)  # details stay in the server log
             self._set(spec, "failed", FAILED)
+
+
+def status_summary(settings, worker: AreaWorker) -> dict:
+    """What the operator wants to see at start: the index in use, areas on disk and their size, free disk, limits."""
+    raw = settings.raw_dir or ingest.RAW_DIR
+    area_dirs = [p.stem for p in worker._area_ids()]
+    used = sum(_dir_bytes(raw / a) for a in area_dirs)
+    return {"index_date": worker._index_date(), "areas": len(area_dirs), "prepared": len(areas.prepared_ids(settings.areas)),
+            "used_gb": round(used / 1e9, 2), "free_gb": round(usdata.disk_free_gb(raw), 1), "limits": dict(worker.limits),
+            "prepared_gb": settings.prepared_gb, "plan_jobs": getattr(settings, "plan_jobs", 2)}
