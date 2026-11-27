@@ -138,3 +138,131 @@ def alert_kind(title: str, text: str, category: str) -> str:
     if _PERMIT.search(text):
         return "permit"
     return "info"
+
+
+# --- from OpenStreetMap tags ---------------------------------------------------------------------------
+
+M_PER_MI = 1609.344
+OSM = "OpenStreetMap"
+CLOSED_WAY_M = 400.0  # a closed way this near a destination is quoted in the "nothing reaches" note
+_SITE_RULE_TAGS = ("access", "fee", "reservation", "permit")
+
+
+def _mi(m: float) -> str:
+    return f"{m / M_PER_MI:.1f} mi"
+
+
+def _trail(name) -> str:
+    return name or "an unnamed trail"
+
+
+def _tag_links(tags: dict) -> list[str]:
+    return [tags[k] for k in ("operator", "website") if isinstance(tags.get(k), str)]
+
+
+def osm_route_notices(edges: list[dict], cut_date: str | None) -> list[dict]:
+    """What the route's own ways say: permits per trail, dogs, hours and seasons, and closure notes on trails
+    (a road's "closed to private vehicles" is about cars, so roads are left out)."""
+    by_name: dict[str, list[dict]] = {}
+    for e in edges:
+        by_name.setdefault(_trail(e.get("name")), []).append(e)
+    out: list[dict] = []
+    dogs: dict[str, list[tuple[str, float]]] = {}
+    for name, group in by_name.items():
+        tags = {}
+        for e in group:
+            tags = {**e.get("tags", {}), **tags}  # the first edge's values win
+        ref = group[0].get("source")
+        permit_m = sum(e["length_m"] for e in group if e.get("permit"))
+        if permit_m > 0:
+            text = f"Permit to hike {name}, {_mi(permit_m)} of this trip."
+            if tags.get("reservation") == "required":
+                text += " Reservation required."
+            elif tags.get("reservation"):
+                text += f" Reservation: {tags['reservation']}."
+            if tags.get("fee") == "yes":
+                text += " Fee."
+            if tags.get("permit"):
+                text += f" Permit: {tags['permit']}."
+            for k in ("note", "description"):
+                if tags.get(k):
+                    text += f' "{tags[k]}"'
+            out.append(notice("permit", text, applies_to=f"trail: {name}", matched=True, source=OSM, ref=ref, as_of=cut_date,
+                              links=_tag_links(tags)))
+        if tags.get("dog"):
+            dogs.setdefault(tags["dog"], []).append((name, sum(e["length_m"] for e in group)))
+        for key, label in (("opening_hours", "opening hours"), ("seasonal", "seasonal")):
+            if tags.get(key):
+                out.append(notice("rule", f"{name}: {label} {tags[key]}.", applies_to=f"trail: {name}", matched=True, source=OSM,
+                                  ref=ref, as_of=cut_date))
+        if not all(e.get("is_road") for e in group):
+            for k in ("note", "description"):
+                if tags.get(k) and _CLOSED.search(tags[k]):
+                    extra = ", ".join(x for x in (tags.get("damage:type"), tags.get("damage:date")) if x)
+                    out.append(notice("closure", f'{name}: "{tags[k]}"' + (f" ({extra})" if extra else ""), applies_to=f"trail: {name}",
+                                      matched=True, source=OSM, ref=ref, as_of=cut_date))
+                    break
+    for value, trails in dogs.items():
+        names = ", ".join(n for n, _ in trails)
+        out.append(notice("rule", f"Dogs: {value}, on {_mi(sum(m for _, m in trails))} ({names}).",
+                          applies_to=f"trail: {trails[0][0]}" if len(trails) == 1 else "route", matched=True, source=OSM,
+                          ref=by_name[trails[0][0]][0].get("source"), as_of=cut_date))
+    return out
+
+
+def camp_notices(camps, sites: list[dict], cut_date: str | None) -> list[dict]:
+    """What the camp sites near the plan's camps say about camping there (permit, fee, reservation, capacity)."""
+    from backcountry.split import NEARBY_CAMP_M
+
+    by_source = {s["source"]: s for s in sites}
+    out: list[dict] = []
+    for camp in camps:
+        src = camp.site
+        if src is None and camp.nearby and camp.nearby[0].get("distance_m", 0.0) <= NEARBY_CAMP_M:
+            src = camp.nearby[0]["source"]
+        site = by_source.get(src) if src else None
+        tags = (site or {}).get("tags", {})
+        if not site or not any(k in tags for k in _SITE_RULE_TAGS):
+            continue
+        parts = []
+        if tags.get("access") == "permit" or tags.get("permit"):
+            parts.append("permit")
+        if tags.get("fee") == "yes":
+            parts.append("fee")
+        if tags.get("reservation") == "required":
+            parts.append("reservation required")
+        elif tags.get("reservation") == "no":
+            parts.append("no reservation")
+        if tags.get("capacity:persons"):
+            parts.append(f"{tags['capacity:persons']} people")
+        if not parts:
+            continue
+        out.append(notice("camp", f"Camp {camp.index} near {site.get('name') or 'a mapped camp site'} ({OSM}): {', '.join(parts)}.",
+                          applies_to=f"camp {camp.index}", matched=True, source=OSM, ref=site["source"], as_of=cut_date,
+                          links=_tag_links(tags)))
+    return out
+
+
+def closed_ways_near(tg, lon: float, lat: float, within_m: float = CLOSED_WAY_M) -> list[str]:
+    """Why the ways near a point are shut, quoted from OpenStreetMap, nearest first: excluded ways within
+    `within_m` that carry a note, description or damage tag."""
+    from pyproj import Transformer
+    from shapely.geometry import LineString, Point
+
+    to_utm = Transformer.from_crs("EPSG:4326", tg.crs, always_xy=True)
+    here = Point(*to_utm.transform(lon, lat))
+    found = []
+    for rec in tg.excluded:
+        tags = rec.get("tags") or {}
+        if not any(tags.get(k) for k in ("note", "description", "damage:type")) or len(rec.get("geometry", [])) < 2:
+            continue
+        line = LineString([to_utm.transform(x, y) for x, y in rec["geometry"]])
+        dist = line.distance(here)
+        if dist > within_m:
+            continue
+        name = rec.get("name") or "An unnamed trail"
+        quote = tags.get("note") or tags.get("description")
+        extra = ", ".join(x for x in (tags.get("damage:type"), tags.get("damage:date")) if x)
+        text = f"{name} is tagged closed in {OSM}" + (f': "{quote}"' if quote else "") + (f" ({extra})" if extra else "")
+        found.append((dist, text))
+    return [text for _, text in sorted(found)]

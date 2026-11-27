@@ -53,3 +53,62 @@ def test_alert_kind_precedence():
     assert N.alert_kind("Infrastructure Improvements to Old Rag Trailhead",
                         "lot is closed. Day-use tickets are still required.", "Information") == "ticket"
     assert N.alert_kind("Get Skyline Drive Status Updates", "text SHENALERTS", "Information") == "info"
+
+
+# --- from OpenStreetMap tags ---------------------------------------------------------------------------
+
+
+def _edge(name, length_m, permit=False, is_road=False, **tags):
+    return {"name": name, "tags": tags, "is_road": is_road, "length_m": length_m, "source": "osm:way/1", "permit": permit}
+
+
+def test_osm_route_notices_group_permits_dogs_hours_and_trail_closures():
+    edges = [_edge("Angels Landing Trail", 700.0, permit=True, access="permit", foot="permit", fee="yes", reservation="required",
+                   operator="https://www.recreation.gov/permits/4675310", dog="no"),
+             _edge("West Rim Trail", 3000.0, dog="no", opening_hours="sunrise-sunset"),
+             _edge("Scenic Drive", 500.0, is_road=True, description="Closed to private vehicles March-October"),
+             _edge("Hidden Trail", 200.0, note="Closed indefinitely due to 2019 rockfall.")]
+    out = N.osm_route_notices(edges, "2026-10-26")
+    kinds = [(n["kind"], n["applies_to"]) for n in out]
+    assert ("permit", "trail: Angels Landing Trail") in kinds and ("closure", "trail: Hidden Trail") in kinds
+    assert not any("Scenic Drive" in n["text"] for n in out)  # a road's vehicle closure is not a hiking closure
+    permit = next(n for n in out if n["kind"] == "permit")
+    assert permit["text"].startswith("Permit to hike Angels Landing Trail, 0.4 mi of this trip.")
+    assert "Reservation required" in permit["text"] and "fee" in permit["text"].lower()
+    assert permit["links"] == ["https://www.recreation.gov/permits/4675310"] and permit["source"]["as_of"] == "2026-10-26"
+    dogs = next(n for n in out if n["kind"] == "rule" and n["text"].startswith("Dogs: no"))
+    assert "2.3 mi" in dogs["text"] and "Angels Landing Trail" in dogs["text"] and "West Rim Trail" in dogs["text"]
+    assert any(n["kind"] == "rule" and "opening hours sunrise-sunset" in n["text"] for n in out)
+    assert all(n["matched"] for n in out) and all("osm:" not in n["text"] for n in out)
+
+
+def test_camp_notices_quote_the_site_tags_within_500_m():
+    from backcountry.split import Camp
+
+    sites = [{"source": "osm:node/7", "name": "La Verkin Creek 7",
+              "tags": {"access": "permit", "fee": "yes", "reservation": "no", "capacity:persons": "2",
+                       "website": "https://www.nps.gov/zion/wild.htm"}},
+             {"source": "osm:node/8", "name": "Plain Site", "tags": {"tourism": "camp_site"}}]
+    camps = [Camp(index=1, dist_m=1000.0, lat=0.0, lon=0.0, on_source="osm:way/1", on_name="T",
+                  nearby=[{"source": "osm:node/7", "kind": "camp_pitch", "name": "La Verkin Creek 7", "distance_m": 120.0}]),
+             Camp(index=2, dist_m=9000.0, lat=0.0, lon=0.0, on_source="osm:way/1", on_name="T",
+                  nearby=[{"source": "osm:node/8", "kind": "camp_site", "name": "Plain Site", "distance_m": 50.0}]),
+             Camp(index=3, dist_m=12000.0, lat=0.0, lon=0.0, on_source="osm:way/1", on_name="T", nearby=[])]
+    out = N.camp_notices(camps, sites, "2026-10-26")
+    assert len(out) == 1 and out[0]["kind"] == "camp" and out[0]["applies_to"] == "camp 1"
+    assert out[0]["text"] == "Camp 1 near La Verkin Creek 7 (OpenStreetMap): permit, fee, no reservation, 2 people."
+    assert out[0]["links"] == ["https://www.nps.gov/zion/wild.htm"]
+
+
+def test_closed_ways_near_a_point_quote_the_reason(network):
+    from backcountry.graph import build_graph
+    from conftest import CRS
+
+    network.way(21, ["D", "E"], highway="path", name="Hidden Canyon", access="no", note="Closed indefinitely due to 2019 rockfall.",
+                **{"damage:date": "2019-08-24", "damage:type": "landslide"})
+    tg = build_graph(network.doc(), CRS)
+    lon, lat = network.coords[network.ids["d1"]]
+    assert N.closed_ways_near(tg, lon, lat) == [
+        'Hidden Canyon is tagged closed in OpenStreetMap: "Closed indefinitely due to 2019 rockfall." (landslide, 2019-08-24)']
+    far_lon, far_lat = network.coords[network.ids["G"]]
+    assert N.closed_ways_near(tg, far_lon, far_lat) == []
