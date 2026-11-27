@@ -16,6 +16,7 @@ from backcountry.difficulty import LEVEL_TARGETS, LEVELS, level_index, rate_stre
 from backcountry.elevation import densify
 from backcountry.features import FeatureIndex, along_route
 from backcountry.loops import Candidate, avoided_keys, search
+from backcountry.notices import assemble, camp_notices, closed_ways_near, osm_route_notices, route_items
 from backcountry.route import _LATLON, add_elevation, resolve_point
 from backcountry.scoring import M_PER_MI, Weights
 from backcountry.split import resolve_pins, split_route
@@ -158,6 +159,7 @@ class GenerateRequest:
     level: str | None = None  # trip-level filter: keep only loops whose hardest day is this level
     destination: str | None = None  # a searched place's OSM ref: every trip goes to and through it
     finish: str | None = None  # one way: where it ends (a trailhead id, an OSM node id, or lat,lon)
+    avoid_permit: bool = False  # stay off trails tagged as needing a permit (OpenStreetMap access/foot=permit)
 
     @classmethod
     def from_dict(cls, data: dict) -> "GenerateRequest":
@@ -191,6 +193,7 @@ class GenerateRequest:
             days=_day_targets(data, nights, daily, total), level=_level(data.get("level"), "level"),
             destination=check_ref(data["destination"]) if data.get("destination") is not None else None,
             finish=str(data["finish"]) if type_ == "one_way" else None,
+            avoid_permit=_flag(data, "avoid_permit"),
         )
 
     def to_dict(self) -> dict:
@@ -201,7 +204,7 @@ class GenerateRequest:
             "repeat_weight": self.repeat_weight, "camps": list(self.camps), "camps_at_sites": self.camps_at_sites,
             "must_visit": list(self.must_visit), "avoid": list(self.avoid), "direction": self.direction,
             "days": [t.to_dict() for t in self.days], "level": self.level, "destination": self.destination,
-            "finish": self.finish,
+            "finish": self.finish, "avoid_permit": self.avoid_permit,
         }
 
     def targets_for(self, ndays: int) -> list[dict]:
@@ -346,7 +349,7 @@ def _destination_notes(tg, report: dict, dest, req: "GenerateRequest", evaluate,
     if report["candidates"]:
         return
     lo, hi = req.total
-    excluded = avoided_keys(tg, req.avoid) if req.avoid else frozenset()
+    excluded = _excluded(tg, req)
     short = out_and_back_to(tg, start, dest.node, req.no_roads, excluded)
     if short is None:
         report["notes"].append(f"The search ran out of time before finding a trip to {dest.name}." if report.get("truncated")
@@ -453,8 +456,25 @@ def feature_index(region, raw, tg, raw_dir=None) -> FeatureIndex:
     return FeatureIndex(ingest.camp_sites(raw), ingest.water_features(raw), usfs_campgrounds(region, raw_dir), tg.crs)
 
 
+def _cut_date(raw: dict) -> str | None:
+    return raw.get("cut") or (str(raw.get("retrieved_at") or "")[:10] or None)
+
+
+def _attach_notices(cands, sites, cut: str | None, start_name, finish_name, dest_name, park) -> bool:
+    """Each candidate's "Before you go" (notices.assemble): what its own ways and camp sites say, plus the park's
+    notices matched to its trails, start, finish, destination and camps. Returns whether the park's data is still
+    pending."""
+    for c in cands:
+        trails = list(dict.fromkeys(e["name"] for e in c.route.edges if e.get("name")))
+        camps = c.plan.camps if c.plan else []
+        sites_near = [(cp.index, cp.nearby[0]["name"]) for cp in camps if cp.nearby and cp.nearby[0].get("name")]
+        osm = osm_route_notices(c.route.edges, cut) + (camp_notices(camps, sites, cut) if camps else [])
+        c.notices, _ = assemble(osm, park, route_items(trails, start_name, finish_name, dest_name, sites_near))
+    return assemble([], park, [])[1]
+
+
 def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_keys=(), dem="auto",
-               raw_dir=None, feature_index=None, names: dict | None = None) -> PlanResult:
+               raw_dir=None, feature_index=None, names: dict | None = None, park: dict | None = None) -> PlanResult:
     """Plan one given route (e.g. a saved trip followed on newer data) the way plan_trip plans a found loop."""
     lengths = {e["key"]: e["length_m"] for e in route.edges}
     c = Candidate(kind=kind, start=route.nodes[0], keys=[e["key"] for e in route.edges], nodes=list(route.nodes),
@@ -475,8 +495,11 @@ def plan_route(region, raw, tg, req: "GenerateRequest", route, kind: str, stem_k
     if kind == "one_way":
         report["finish"] = {"node": c.finish, "how": f"osm:node/{c.finish}",
                             "name": display_name("", c.finish, str(c.finish), names)}
-    return PlanResult(report=report, start={"node": c.start, "how": f"osm:node/{c.start}", "snap_m": 0.0,
-                                            "name": display_name("", c.start, str(c.start), names)}, request=req)
+    start_name = display_name("", c.start, str(c.start), names)
+    report["notices_pending"] = _attach_notices([c], steps.sites, _cut_date(raw), start_name,
+                                                (report.get("finish") or {}).get("name"), None, park)
+    return PlanResult(report=report, start={"node": c.start, "how": f"osm:node/{c.start}", "snap_m": 0.0, "name": start_name},
+                      request=req)
 
 
 _TRAILHEAD_HOW = re.compile(r"^trailhead \S+ \((.+?)\)")
@@ -580,6 +603,19 @@ def suggest_finishes(tg, trailheads: list[dict], start: int, lo: float, hi: floa
     return out
 
 
+def permit_keys(tg) -> frozenset:
+    """Edge keys of ways tagged as needing a permit to walk (graph.py's `permit`, OSM foot-over-access semantics)."""
+    return frozenset(k for *_, k, d in tg.graph.edges(keys=True, data=True) if d.get("permit"))
+
+
+def _excluded(tg, req: "GenerateRequest") -> frozenset:
+    """Edges the request stays off: --avoid names and, with avoid_permit, permit trails."""
+    keys = set(avoided_keys(tg, req.avoid)) if req.avoid else set()
+    if req.avoid_permit:
+        keys |= permit_keys(tg)
+    return frozenset(keys)
+
+
 def _destination_search(tg, start: int, req: "GenerateRequest", index) -> tuple:
     """(dest, search settings, notes) for a trip to a destination; dest None without one."""
     from backcountry import destination as dmod
@@ -590,9 +626,12 @@ def _destination_search(tg, start: int, req: "GenerateRequest", index) -> tuple:
         raise RequestError("destination", "Destinations need the trail index on this server.")
     dest = dmod.resolve(index, tg, req.destination)
     lo, hi = req.total_m
-    excluded = avoided_keys(tg, req.avoid) if req.avoid else frozenset()
+    excluded = _excluded(tg, req)
     if not dmod.reachable_from(tg, start, dest, req.no_roads, excluded):
-        return dest, None, [f"{dest.name} can't be reached from this start on the mapped trails."]
+        why = ""
+        if req.avoid_permit and dmod.reachable_from(tg, start, dest, req.no_roads, avoided_keys(tg, req.avoid) if req.avoid else frozenset()):
+            why = " (trails that need a permit are avoided)"
+        return dest, None, [f"{dest.name} can't be reached from this start on the mapped trails{why}."]
     spur = dmod.spur_m(tg, dest.node)
     # the destination's own reach and side trips are described by its notes, not as a must-visit
     must = ({"name": dest.trail_name} if dest.kind == "trail" else {"node": dest.node}) | {"internal": True}
@@ -604,14 +643,15 @@ def _destination_search(tg, start: int, req: "GenerateRequest", index) -> tuple:
 
 
 def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, on_snapshot=None, index=None,
-              feature_index=None, names: dict | None = None, **search_kw) -> PlanResult:
+              feature_index=None, names: dict | None = None, park: dict | None = None, **search_kw) -> PlanResult:
     """Resolve the start, search, and attach elevation/days/features.
 
     `dem="auto"` loads the cached DEM from `raw_dir` (default: the repo's data/raw); pass a DEM or None to override.
     `on_snapshot(PlanResult)`: the first trips found, planned like the final ones, while the search goes on
     (see loops.search; `search_kw` passes its `first_s` and `clock`). `index`: the US index connection, needed
     for a destination (its place is looked up there). `feature_index`: the area's FeatureIndex (built once per
-    loaded area; built here when not given). `names`: node -> name for start points found in the data.
+    loaded area; built here when not given). `names`: node -> name for start points found in the data. `park`: the
+    area's National Park Service data for notices.assemble ({"code", "configured", "data"}); None means no feed.
     """
     t0 = time.perf_counter()
     try:
@@ -627,7 +667,10 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
             raise RequestError("avoid", str(e))
     finish_node, finish_how = _resolve_finish(tg, region, req, start["node"])
     dest, dest_kw, dest_notes = _destination_search(tg, start["node"], req, index)
+    if dest is not None:  # a closed way at the destination: say why, quoting OpenStreetMap
+        dest_notes = dest_notes + closed_ways_near(tg, *dest.center)
     steps = _Steps(region, raw, tg, req, dem, raw_dir, feature_index)
+    cut = _cut_date(raw)
     split_s = [0.0]  # time spent planning days, inside and after the search
 
     def timed(fn):
@@ -647,6 +690,9 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
             _filter_by_level(report, req)
         for c in report["candidates"]:
             steps.suggest(c)
+        report["notices_pending"] = _attach_notices(report["candidates"], steps.sites, cut, start["name"],
+                                                    (report.get("finish") or {}).get("name"),
+                                                    dest.name if dest is not None else None, park)
 
     def snapshot(report: dict) -> None:
         finish(report, steps.day_hike)
@@ -669,7 +715,7 @@ def plan_trip(region, raw, tg, req: GenerateRequest, dem="auto", raw_dir=None, o
         report = search(tg, start["node"], lo, hi, kinds=req.kinds, count=req.count * 4 if req.level else req.count,
                         no_roads=req.no_roads, weights=steps.weights, evaluate=evaluate, avoid=req.avoid,
                         must_visit=musts, direction=req.direction, on_snapshot=snapshot if on_snapshot else None,
-                        finish=finish_node, **kw, **search_kw)
+                        finish=finish_node, exclude_keys=_excluded(tg, req), **kw, **search_kw)
     if finish_node is not None:
         report["finish"] = {"node": finish_node, "how": finish_how,
                             "name": display_name(finish_how, finish_node, req.finish, names)}

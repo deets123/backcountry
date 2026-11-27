@@ -221,3 +221,14 @@ def test_unnamed_starts_and_finishes_get_plain_words(grid):
     c = run["candidates"][0]
     assert c["waypoints"][0]["desc"].startswith("Start: ") and "," in c["waypoints"][0]["desc"]  # the tapped point
     assert c["finish"]["name"] and "osm:" not in c["finish"]["name"]
+
+
+def test_payload_carries_notices_and_the_gap_list_points_at_them(planned):
+    raw, tg, result = planned
+    run = run_payload("r", REGION, result, raw, tg, "2026-01-01T00:00:00Z", diff=None)
+    c = run["candidates"][0]
+    assert c["notices"][-1]["kind"] == "unknown"
+    json.dumps(c["notices"])
+    assert not any(g.startswith("permits:") or g.startswith("closures:") for g in run["known_gaps"])
+    assert any("Before you go" in g for g in run["known_gaps"])
+    assert run["search"]["notices_pending"] is False

@@ -169,3 +169,16 @@ def test_the_fallback_is_one_shortest_path_not_every_turnaround(index, park, mon
     r = plan(index, park, total="40-50", destination="node/1060")
     assert r.report["candidates"] and r.report["candidates"][0].turnaround == 1029
     assert calls and all(hi != float("inf") for lo, hi in calls)  # no "every turnaround" sweep
+
+
+def test_destination_on_a_closed_way_names_the_closure(index, park):
+    import copy
+
+    region, raw, _ = park
+    raw2 = copy.deepcopy(raw)
+    spur = next(e for e in raw2["response"]["elements"] if e["type"] == "way" and e["id"] == 2009)  # Peak Spur, to Spur Top
+    spur["tags"] |= {"access": "no", "note": "Closed indefinitely due to 2019 rockfall.", "damage:date": "2019-08-24", "damage:type": "landslide"}
+    tg2 = build_graph(raw2, region.crs)
+    req = GenerateRequest.from_dict({"trailhead": "10.2495,-149.8505", "total": "18-24", "destination": "node/1060"})
+    r = plan_trip(region, raw2, tg2, req, dem=None, index=index)
+    assert 'Peak Spur is tagged closed in OpenStreetMap: "Closed indefinitely due to 2019 rockfall." (landslide, 2019-08-24)' in r.report["notes"]

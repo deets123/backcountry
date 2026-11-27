@@ -16,8 +16,7 @@ from backcountry.planning import candidate_level
 KNOWN_GAPS = [
     "water: map features only; whether water is present, flowing, or drinkable is unknown",
     "campsites: map features only; existence, status, and legality are unknown",
-    "permits: not checked",
-    "closures: not checked",
+    "permits and closures: only what OpenStreetMap and the National Park Service list (see Before you go); everything else unknown",
     "trail conditions: not checked",
     "trailhead access: not checked",
 ]
@@ -133,6 +132,7 @@ def candidate_payload(i: int, c, start_text: str, osm_retrieved_at: str, finish_
         "terrain": c.terrain or [],
         "suggestion": c.suggestion,
         "features": c.features or [],
+        "notices": c.notices or [],
         "profile": c.route.profile,
         "title": title,
         "description": description,
