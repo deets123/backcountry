@@ -488,6 +488,39 @@ def _run_server(host: str, port: int) -> None:
 
 
 @app.command()
+def notices(
+    region: str = RegionOpt,
+    refresh: bool = typer.Option(False, "--refresh", help="Fetch the park's current notices (needs BACKCOUNTRY_NPS_API_KEY); "
+                                                        "otherwise show what the server has cached."),
+):
+    """Park notices (permits, closures, fees, rules) for a region or area, as the server would show them."""
+    from backcountry.api.store import Settings
+    from backcountry.notices import NOT_SET_UP, assemble
+    from backcountry.nps import NpsClient
+
+    settings = Settings.default()
+    client = NpsClient(settings.nps_dir, settings.nps_key, thread=False)
+    r, _raw, _tg = _load(region)
+    code = client.park_for(r, refresh=refresh and client.configured)
+    typer.echo(f"Park: {client.park_name(code) or code} ({code})" if code else "No official notice feed for this area.")
+    if not client.configured:
+        typer.echo(NOT_SET_UP + (" Showing the cache." if code and client.cached(code) else ""))
+    data = (client.refresh(code) if refresh and client.configured else client.cached(code)) if code else None
+    if data:
+        typer.echo(f"Checked {data['fetched_at']}" + (f"; couldn't refresh: {data['error']}" if data.get("stale") and data.get("error") else ""))
+    elif code and client.configured:
+        typer.echo("Nothing cached yet; run with --refresh to fetch.")
+    block, _pending = assemble([], {"code": code, "configured": client.configured, "data": data}, [])
+    for n in block:
+        if n["kind"] == "unknown":
+            continue
+        src = n.get("source") or {}
+        when = src.get("as_of") or (src.get("checked_at") or "")[:10]
+        tail = f" ({src['name']}{', ' + when if when else ''})" if src.get("name") else ""
+        typer.echo(f"[{n['kind']}] {n['text']}{tail}" + "".join(f" {u}" for u in n.get("links") or []))
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Use 0.0.0.0 to let your phone connect over Wi-Fi."),
     port: int = typer.Option(8000),
