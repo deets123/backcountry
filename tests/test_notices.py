@@ -205,3 +205,38 @@ def test_payload_items_read_a_stored_run():
 def test_assemble_pending_while_the_parks_list_is_still_coming():
     block, pending = N.assemble([], {"code": None, "configured": True, "data": None, "pending": True}, [])
     assert pending is True and [n["kind"] for n in block] == ["unknown"]  # no "no feed" line while the mapping is unknown
+
+
+def _park(code):
+    """The real recorded park entry, alerts and things to do."""
+    alerts = json.loads((FIX / f"{code}_alerts.json").read_text())["data"]
+    things = json.loads((FIX / f"{code}_things.json").read_text())["data"]
+    park = next(p for p in json.loads((FIX / "parks_small.json").read_text())["data"] if p["parkCode"] == code)
+    return {"park": park, "alerts": alerts, "things": things, "fetched_at": "2026-11-26T10:04:00Z", "stale": False, "error": None}
+
+
+def test_old_rag_gets_the_ticket_alert_the_circuit_record_and_the_fee():
+    items = N.route_items(["Ridge Trail", "Saddle Trail"], "Old Rag Lower Lot", None, "Old Rag Mountain", [])
+    out = N.nps_notices(_park("shen"), items)
+    ticket = next(n for n in out if n["kind"] == "ticket" and n["text"].startswith("Ticket Required to Hike Old Rag"))
+    assert ticket["matched"] and ticket["applies_to"] == "destination: Old Rag Mountain"
+    assert ticket["source"] == {"name": "National Park Service", "ref": ticket["source"]["ref"], "as_of": "2024-01-17",
+                                "checked_at": "2026-11-26T10:04:00Z"}
+    assert ticket["links"] == ["https://www.nps.gov/shen/planyourvisit/faqs-oldrag.htm"]
+    circuit = next(n for n in out if n["kind"] == "ticket" and n["text"].startswith("Old Rag Circuit:"))
+    assert "day-use ticket" in circuit["text"] and "<" not in circuit["text"] and circuit["matched"]
+    pets = next(n for n in out if n["kind"] == "rule" and n["text"].startswith("Pets:"))
+    assert "Ridge, Saddle" in pets["text"]
+    fee = next(n for n in out if n["kind"] == "fee" and n["applies_to"] == "park")
+    assert fee["text"].startswith("Entrance fee: Shenandoah National Park") and "$" in fee["text"]
+    assert not any("Nicholson Hollow" in n["text"] for n in out)  # an unmatched record is not shown
+
+
+def test_west_rim_day_hike_gets_the_road_closure_but_not_the_angels_landing_record():
+    items = N.route_items(["West Rim Trail"], "West Rim Trailhead North | West Rim Trail @ Lava Point Road", "Grotto Trailhead", None, [])
+    out = N.nps_notices(_park("zion"), items)
+    road = next(n for n in out if n["kind"] == "closure" and "Lava Point" in n["text"])
+    assert road["matched"] and "West Rim" in road["applies_to"]
+    assert not any(n["matched"] and "Angels Landing" in n["text"] for n in out)  # its tags say "west rim"; titles only
+    assert any(not n["matched"] and n["kind"] == "permit" and "Angels Landing" in n["text"] for n in out)  # park-wide, still shown
+    assert any(n["matched"] and "West Rim to Scout Lookout" in n["text"] for n in out)  # the record that does name the trail

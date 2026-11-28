@@ -1,0 +1,220 @@
+{
+ "total": "4",
+ "limit": "50",
+ "start": "0",
+ "data": [
+  {
+   "parkCode": "grca",
+   "fullName": "Grand Canyon National Park",
+   "name": "Grand Canyon",
+   "designation": "National Park",
+   "states": "AZ",
+   "latitude": "36.0001165336",
+   "longitude": "-112.121516363",
+   "url": "https://www.nps.gov/grca/index.htm",
+   "entranceFees": [
+    {
+     "title": "Entrance - Private Vehicle",
+     "cost": "35.00",
+     "description": "Admits one single, private, non-commercial vehicle and all its passengers, up to a 15 person passenger van. Organized non-commercial groups over 16 passengers require different charges. Commercial groups are not eligible for the vehicle permit."
+    },
+    {
+     "title": "Entrance - Motorcycle",
+     "cost": "30.00",
+     "description": "Valid for 7 days. Admits up to 2 private, non-commercial motorcycles with up to 4 total passengers."
+    },
+    {
+     "title": "Entrance - Per Person",
+     "cost": "20.00",
+     "description": "Individual ($20 valid for 7 days): for bicyclists, hikers, and pedestrians."
+    },
+    {
+     "title": "Nonresident",
+     "cost": "100.00",
+     "description": "Each non-US resident aged 16 and older visiting Grand Canyon National Park must pay a $100 nonresident fee (in addition to the standard entrance fee), unless admitted with an Annual or America the Beautiful Pass. This includes nonresidents entering as part of a commercial tour group, commercial use authorization (CUA) group, or concessioner tour group."
+    }
+   ]
+  },
+  {
+   "parkCode": "shen",
+   "fullName": "Shenandoah National Park",
+   "name": "Shenandoah",
+   "designation": "National Park",
+   "states": "VA",
+   "latitude": "38.49236644",
+   "longitude": "-78.46907715",
+   "url": "https://www.nps.gov/shen/index.htm",
+   "entranceFees": [
+    {
+     "title": "Entrance - Private Vehicle",
+     "cost": "30.00",
+     "description": "Unlimited entry for one vehicle and all passengers for seven consecutive days, beginning on the day of purchase. Admits the pass holder and occupants of a single, private non-commercial vehicle."
+    },
+    {
+     "title": "Entrance - Motorcycle",
+     "cost": "25.00",
+     "description": "Valid for 7 days. Admits up to 2 private, non-commercial motorcycles with up to 4 total passengers."
+    },
+    {
+     "title": "Entrance - Per Person",
+     "cost": "15.00",
+     "description": "Entry for walk-up or bicycling visitors, when 16 years of age or older (children under 16 are admitted for free). Includes entering the Park by all means other than a private, non-commercial vehicle. A family traveling together shall pay no more than the vehicle fee."
+    },
+    {
+     "title": "Commercial Entrance - Sedan",
+     "cost": "25.00",
+     "description": "The total cost is calculated: $25 + $10 per passenger."
+    },
+    {
+     "title": "Commercial Entrance - Per Person",
+     "cost": "10.00",
+     "description": "This fee is for commercial use between 1-6 passengers (sedan). The total cost is calculated: $25 for the vehicle + $10 per passenger."
+    },
+    {
+     "title": "Commercial Entrance - Van",
+     "cost": "75.00",
+     "description": "Based upon the total capacity of a vehicle that can carry 7-15 passengers, regardless of the actual number of passengers."
+    },
+    {
+     "title": "Commercial Entrance - Mini-bus",
+     "cost": "100.00",
+     "description": "Based upon the total capacity of a vehicle that can carry 16-25 passengers, regardless of the actual number of passengers."
+    },
+    {
+     "title": "Commercial Entrance - Motor Coach",
+     "cost": "200.00",
+     "description": "Based upon the total capacity of a vehicle that can carry 26 or more passengers, regardless of the actual number of passengers."
+    },
+    {
+     "title": "Entrance - Education/Academic Groups",
+     "cost": "0.00",
+     "description": "National Park Service regulations allow school groups and other approved national and international academic institutions to obtain a waiver of Park entrance fees, provided that visit is for educational or scientific purposes, and the resources or facilities that the group intends to use, support those purposes. Request an academic fee waiver through the education section of our website."
+    },
+    {
+     "title": "Entrance - Non-commercial Groups",
+     "cost": "15.00",
+     "description": "Fee is calculated per person for anyone 16 years of age or older (children under 16 are admitted for free). Groups will not be charged more than the equivalent commercial group fee."
+    }
+   ]
+  },
+  {
+   "parkCode": "yose",
+   "fullName": "Yosemite National Park",
+   "name": "Yosemite",
+   "designation": "National Park",
+   "states": "CA",
+   "latitude": "37.84883288",
+   "longitude": "-119.5571873",
+   "url": "https://www.nps.gov/yose/index.htm",
+   "entranceFees": [
+    {
+     "title": "Entrance - Private Vehicle",
+     "cost": "35.00",
+     "description": "This fee is valid for seven consecutive days for a non-commercial car, pickup truck, RV, or van with 15 or fewer passenger seats. This fee covers the vehicle and everyone inside of it. Per-person nonresident fees still apply."
+    },
+    {
+     "title": "Entrance - Motorcycle",
+     "cost": "30.00",
+     "description": "Valid for 7 days. Admits up to 2 private, non-commercial motorcycles with up to 4 total passengers. Per-person nonresident fees still apply."
+    },
+    {
+     "title": "Entrance - Per Person",
+     "cost": "20.00",
+     "description": "This fee is valid for seven consecutive days for people entering on foot, a bicycle, a horse, or a non-commercial bus or van. People 15 years and younger are free."
+    },
+    {
+     "title": "Entrance - Non-commercial Groups",
+     "cost": "300.00",
+     "description": "The per-person fee is $20 to a maximum of $300 per vehicle. People 15 years and younger are free."
+    },
+    {
+     "title": "Entrance - Education/Academic Groups",
+     "cost": "0.00",
+     "description": "An educational fee waiver is available for educational and scientific groups that are accredited or tax-exempt for educational purposes planning a trip for educational or scientific purposes related to Yosemite that is not primarily recreational."
+    },
+    {
+     "title": "Commercial Entrance - Per Person",
+     "cost": "20.00",
+     "description": "The fee is $20 per person for any resident 16 years or older. For any nonresident the fee is $100 per person for anyone 16 years or older. This fee is valid for seven consecutive days."
+    },
+    {
+     "title": "Nonresident",
+     "cost": "100.00",
+     "description": "Each non-US resident aged 16 and older visiting Yosemite National Park must pay a $100 nonresident fee (in addition to the standard entrance fee), unless admitted with an Annual or America the Beautiful Pass. This includes nonresidents entering as part of a commercial tour group, commercial use authorization (CUA) group, or concessioner tour group."
+    },
+    {
+     "title": "Commercial Entrance - Mini-bus",
+     "cost": "200.00",
+     "description": "This fee is valid for seven consecutive days. For any nonresident there is an additional fee of $100 per person for anyone 16 years or older. A commercial use authorization is required."
+    },
+    {
+     "title": "Commercial Entrance - Motor Coach",
+     "cost": "300.00",
+     "description": "This fee is valid for seven consecutive days. For any nonresident there is an additional fee of $100 per person for anyone 16 years or older. A commercial use authorization is required."
+    }
+   ]
+  },
+  {
+   "parkCode": "zion",
+   "fullName": "Zion National Park",
+   "name": "Zion",
+   "designation": "National Park",
+   "states": "UT",
+   "latitude": "37.29839254",
+   "longitude": "-113.0265138",
+   "url": "https://www.nps.gov/zion/index.htm",
+   "entranceFees": [
+    {
+     "title": "Entrance - Private Vehicle",
+     "cost": "35.00",
+     "description": "Admits private, non-commercial vehicle (15 passenger capacity or less) and all occupants to Zion National Park. Valid for 1-7 days."
+    },
+    {
+     "title": "Entrance - Motorcycle",
+     "cost": "30.00",
+     "description": "Valid for 7 days. Admits up to 2 private, non-commercial motorcycles with up to 4 total passengers."
+    },
+    {
+     "title": "Entrance - Snowmobile",
+     "cost": "20.00",
+     "description": "Admits one individual with no car to Zion National Park. Typically used for bicyclists, hikers and pedestrians. Youth 15 and under are admitted free. Valid for 1-7 days."
+    },
+    {
+     "title": "Entrance - Per Person",
+     "cost": "20.00",
+     "description": "Admits one individual with no car to Zion National Park. Typically used for bicyclists, hikers and pedestrians. Youth 15 and under are admitted free. Valid for 1-7 days."
+    },
+    {
+     "title": "Entrance - Non-commercial Groups",
+     "cost": "20.00",
+     "description": "$20 per person. Non-commercial vehicles with a capacity of 16 or greater. Fees will not exceed the commercial fee for the same-sized vehicle. Youth 15 and under are free. Individuals or families with any valid Annual or Lifetime pass may use their pass for entry at the per person rate. Pass and photo ID must be present upon entry."
+    },
+    {
+     "title": "Commercial Entrance - Van",
+     "cost": "70.00",
+     "description": "A commercial tour is defined as consisting of one or more persons traveling on an itinerary that has been packaged, priced, or sold for leisure or recreational purposes by an organization that realizes financial gain through the provision of the service. The entry fees of commercial tours are based upon the total capacity of vehicles that can carry seven or more passengers regardless of the actual number of passengers."
+    },
+    {
+     "title": "Commercial Entrance - Mini-bus",
+     "cost": "80.00",
+     "description": "A commercial tour is defined as consisting of one or more persons traveling on an itinerary that has been packaged, priced, or sold for leisure or recreational purposes by an organization that realizes financial gain through the provision of the service. The entry fees of commercial tours are based upon the total capacity of vehicles that can carry seven or more passengers regardless of the actual number of passengers."
+    },
+    {
+     "title": "Commercial Entrance - Motor Coach",
+     "cost": "190.00",
+     "description": "A commercial tour is defined as consisting of one or more persons traveling on an itinerary that has been packaged, priced, or sold for leisure or recreational purposes by an organization that realizes financial gain through the provision of the service. The entry fees of commercial tours are based upon the total capacity of vehicles that can carry seven or more passengers regardless of the actual number of passengers."
+    },
+    {
+     "title": "Commercial Entrance - Per Person",
+     "cost": "20.00",
+     "description": "A commercial tour is defined as one or more persons traveling on an itinerary that has been packaged, priced, or sold for leisure or recreational purposes by an organization that realizes financial gain through the provision of the service. Vehicles with commercial tours of 1-6 people (not including guide) pay $35 per vehicle + $20 per person with a total fee not to exceed $70.\n\nPassengers can use valid weekly, annual, lifetime, or appreciation passes."
+    },
+    {
+     "title": "Nonresident",
+     "cost": "100.00",
+     "description": "Each non-US resident aged 16 and older visiting Zion National Park must pay a $100 nonresident fee (in addition to the standard entrance fee), unless admitted with an Annual or America the Beautiful Pass. This includes nonresidents entering as part of a commercial tour group, commercial use authorization (CUA) group, or concessioner tour group."
+    }
+   ]
+  }
+ ]
+}

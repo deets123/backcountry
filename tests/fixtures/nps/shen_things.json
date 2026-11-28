@@ -1,0 +1,1896 @@
+{
+ "total": "49",
+ "limit": "50",
+ "start": "0",
+ "data": [
+  {
+   "id": "33074D0F-E40E-46BA-9D39-41683BED788C",
+   "title": "Old Rag Circuit",
+   "latitude": "38.570415",
+   "longitude": "-78.300322",
+   "location": "Central District (Park Boundary)",
+   "isReservationRequired": "true",
+   "reservationDescription": "<p>You must purchase an\u00a0<a href=\"https://www.nps.gov/shen/planyourvisit/faqs-oldrag.htm\">Old Rag day-use ticket</a>\u00a0prior to going on this\u00a0hike.</p>",
+   "doFeesApply": "true",
+   "feeDescription": "<p>You must purchase a $1\u00a0<a href=\"https://www.nps.gov/shen/planyourvisit/faqs-oldrag.htm\">Old Rag day-use ticket</a>\u00a0prior to going on this\u00a0hike. A <a href=\"https://www.nps.gov/shen/planyourvisit/fees.htm\">Park entrance pass</a> is also required.</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are prohibited on the Ridge, Saddle,\u00a0and Ridge Access trails, as well as the section between Post Office Junction and Old Rag Shelter.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "rock scramble"
+   ],
+   "url": "https://www.nps.gov/thingstodo/old-rag-circuit.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "B14E6F7A-B0BF-4A90-85D4-FFD4CBCB2460",
+   "title": "Stony Man",
+   "latitude": "38.593098",
+   "longitude": "-78.375422",
+   "location": "Central District (Mile 41.7)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are not allowed on Stony Man Trail.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/stony-man.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "A958DD52-D9FE-4B4D-B23C-D5BEA115D2E5",
+   "title": "Whiteoak Falls (Lower)",
+   "latitude": "38.539497",
+   "longitude": "-78.349299",
+   "location": "Central District (Park Boundary)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "Pets must be on a leash no longer than 6 feet at all times.",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "waterfall"
+   ],
+   "url": "https://www.nps.gov/thingstodo/lower-whiteoak-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "0289592D-52C8-462F-9E4E-8CAD6062E80D",
+   "title": "Turk Mountain",
+   "latitude": "38.1290918138865",
+   "longitude": "-78.78449570360236",
+   "location": "South District (Mile 94.1)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/turk-mountain.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "6457E629-733B-432D-88AD-3E69C1103D5C",
+   "title": "Riprap - Wildcat Ridge",
+   "latitude": "38.177746",
+   "longitude": "-78.765162",
+   "location": "South District (Mile 90 or 92.1)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/riprap-wildcat-ridge.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "66C91D0C-3808-4C64-ACBE-D8779F7E8A4B",
+   "title": "Nicholson Hollow",
+   "latitude": "38.615822",
+   "longitude": "-78.350652",
+   "location": "Old Rag Parking Area (Park Boundary)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/nicholson-hollow.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "6310F4F6-5370-4451-8851-4A455DC8C87B",
+   "title": "Knob Mountain - Jeremys Run",
+   "latitude": "38.738712",
+   "longitude": "-78.309301",
+   "location": "North District (Mile 24)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/knob-mountain-jeremys-run.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "02424F64-383F-476E-BADA-C04E4D710D21",
+   "title": "Hazel River Falls",
+   "latitude": "",
+   "longitude": "",
+   "location": "Central District (Mile 33.5)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "waterfall",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hazel-river-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "64172DEC-915E-4F31-9FCA-DEB77FB9A026",
+   "title": "Chimney Rock",
+   "latitude": "38.177746",
+   "longitude": "-78.765162",
+   "location": "South District (Mile 90)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park",
+    "geology"
+   ],
+   "url": "https://www.nps.gov/thingstodo/chimney-rock.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "29502CBF-07CB-4109-9B69-7E5B7169604C",
+   "title": "Cedar Run - Whiteoak Circuit",
+   "latitude": "38.555974",
+   "longitude": "-78.38656",
+   "location": "Central District (Mile 45.6)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "waterfall",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/cedar-run-whiteoak-circuit.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "782CF462-BF99-4BE8-B739-C9C3A1A30049",
+   "title": "Rose River Falls",
+   "latitude": "38.534000245991116",
+   "longitude": "-78.42104873416689",
+   "location": "Central District (Mile 49.4)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "waterfall",
+    "cascades"
+   ],
+   "url": "https://www.nps.gov/thingstodo/rose-river-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "A3D5B2BD-F2D4-45E1-AEE6-63A590D73BF8",
+   "title": "Overall Run Falls",
+   "latitude": "38.761067",
+   "longitude": "-78.2823",
+   "location": "North District (Mile 22.2)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "waterfall"
+   ],
+   "url": "https://www.nps.gov/thingstodo/overall-run-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "FBD4C4CE-9733-4512-B528-B7B20EC3A466",
+   "title": "Doyles River Falls",
+   "latitude": "38.254205",
+   "longitude": "-78.682907",
+   "location": "South District (Mile 81.1)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "waterfall",
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/doyles-river-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "CAE1DCAC-B1CC-4231-9258-F699D15B5694",
+   "title": "Browns Gap",
+   "latitude": "",
+   "longitude": "",
+   "location": "South District (Mile 83)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "waterfall",
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/browns-gap.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "B6E39765-4A11-4CF1-A561-20476E1BC73D",
+   "title": "Marys Rock From Meadow Spring",
+   "latitude": "38.638101038913156",
+   "longitude": "-78.31409811973572",
+   "location": "Central District (Mile 33.5)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "An entrance fee is required to get into Shenandoah National Park",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "Pets must be on a leash no longer than 6 feet at all times.",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "Marys Rock",
+    "Meadow Spring"
+   ],
+   "url": "https://www.nps.gov/thingstodo/marys-rock-from-meadow-spring.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "B87BEF59-F708-4144-A56B-88079A57BE2C",
+   "title": "Marys Rock Summit",
+   "latitude": "38.659147",
+   "longitude": "-78.321603",
+   "location": "Central District (Mile 31.6)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "Marys Rock"
+   ],
+   "url": "https://www.nps.gov/thingstodo/marys-rock-summit.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "98976169-BDE1-4496-B52E-A6367E84D6AB",
+   "title": "Mill Prong - Laurel Prong Loop",
+   "latitude": "38.49959996208115",
+   "longitude": "-78.4457525703733",
+   "location": "Central District (Mile 52.8)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/mill-prong-laurel-prong.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "6BC70969-F6FC-462A-AE0A-24F308D32672",
+   "title": "Rapidan Camp",
+   "latitude": "38.490401",
+   "longitude": "-78.419932",
+   "location": "Central District (Mile 52.8)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "historic",
+    "Cabin"
+   ],
+   "url": "https://www.nps.gov/thingstodo/rapidan-camp.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "2227D641-A03D-488B-8C28-9FA1FEBB5A04",
+   "title": "Hawksbill Summit via Upper Hawksbill",
+   "latitude": "38.543722",
+   "longitude": "-78.393255",
+   "location": "Central District (Mile 46.5)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/upper-hawksbill-summit.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "EF9C921B-0A5C-4398-8BCC-FEBD4FCBCF8E",
+   "title": "Hawksbill Summit",
+   "latitude": "38.556273",
+   "longitude": "-78.386798",
+   "location": "Central District (Mile 45.5)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hawksbill-summit.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "719EEAAD-3D23-4FD4-968D-55D61E4AA4B1",
+   "title": "Hawksbill Loop",
+   "latitude": "38.556273",
+   "longitude": "-78.386798",
+   "location": "Central District (Mile 45.5)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hawksbill-loop.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "42D6778B-E240-43CC-968A-9A84BCD52CF8",
+   "title": "Whiteoak Falls (Upper)",
+   "latitude": "38.585891",
+   "longitude": "-78.382882",
+   "location": "Central District (Mile 42.6)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "waterfall"
+   ],
+   "url": "https://www.nps.gov/thingstodo/upper-whiteoak-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "F4E20A2D-974D-41FA-AA07-F70A597BDC50",
+   "title": "Sugarloaf Loop",
+   "latitude": "",
+   "longitude": "",
+   "location": "North District (Mile 22)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/sugarloaf-loop.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "61C22A18-D104-4897-BDDA-9DBEE0DD01CC",
+   "title": "Dark Hollow Falls",
+   "latitude": "38.519666",
+   "longitude": "-78.430781",
+   "location": "Central District (Mile 50.7)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park..</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are not allowed on this hike. If you have a pet, you may choose to hike the <a href=\"https://www.nps.gov/thingstodo/rose-river-falls.htm\">Rose River Loop</a> trail instead, where pets are allowed. This hike is accessible from Fishers Gap Overlook (mile 49.4).</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "waterfall",
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/dark-hollow-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "69573CCD-5312-4CF8-A308-1F06459D70FC",
+   "title": "Compton Peak",
+   "latitude": "38.823985",
+   "longitude": "-78.170433",
+   "location": "North District (Mile 10.4)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "geology",
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/compton-peak.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "03015EB9-AB87-4752-A58D-4D65F6F73E85",
+   "title": "Appalachian Trail - Tanners Ridge Road",
+   "latitude": "38.500183",
+   "longitude": "-78.445913",
+   "location": "Central District (Mile 52.8)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park",
+    "Appalachian Trail"
+   ],
+   "url": "https://www.nps.gov/thingstodo/at-tanners-ridge.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "0BB08866-5F39-4C77-9801-FE026575C008",
+   "title": "Old Rag Summit via Berry Hollow",
+   "latitude": "",
+   "longitude": "",
+   "location": "Central District (Park Boundary)",
+   "isReservationRequired": "true",
+   "reservationDescription": "<p>You must purchase an\u00a0<a href=\"https://www.nps.gov/shen/planyourvisit/faqs-oldrag.htm\">Old Rag day-use ticket</a>\u00a0prior to going on this\u00a0hike.</p>",
+   "doFeesApply": "true",
+   "feeDescription": "<p>You must purchase a $1\u00a0<a href=\"https://www.nps.gov/shen/planyourvisit/faqs-oldrag.htm\">Old Rag day-use ticket</a>\u00a0prior to going on this\u00a0hike. A <a href=\"https://www.nps.gov/shen/planyourvisit/fees.htm\">Park entrance pass</a> is also required.</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are prohibited on the Ridge, Saddle,\u00a0and Ridge Access trails, as well as the section between Post Office Junction and Old Rag Shelter.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/old-rag-summit-berry-hollow.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "A93434A4-EB67-4DD0-BA4E-86ECA174B5D3",
+   "title": "Frazier Discovery Trail",
+   "latitude": "38.262873",
+   "longitude": "-78.660592",
+   "location": "South District (Mile 79.5)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are not allowed on this trail.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/frazier-discovery-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "A03B79C6-FFB0-4E84-A8CC-7A7DC94AAA58",
+   "title": "Fox Hollow Trail",
+   "latitude": "38.871843",
+   "longitude": "-78.203699",
+   "location": "North District (Mile 4.6)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are not allowed on this hike.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "history",
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/fox-hollow-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "A0BEF812-B13E-4C84-8B51-2050CFB53EC9",
+   "title": "Limberlost",
+   "latitude": "38.579971",
+   "longitude": "-78.381201",
+   "location": "Central District (Mile 43)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are not allowed on this hike.\u00a0</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park",
+    "accessibility"
+   ],
+   "url": "https://www.nps.gov/thingstodo/limberlost.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "C298F60D-933D-4BB1-B6D2-1D61A1897327",
+   "title": "Blackrock Summit",
+   "latitude": "38.223057",
+   "longitude": "-78.733349",
+   "location": "South District (Mile 84.4)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "track trail"
+   ],
+   "url": "https://www.nps.gov/thingstodo/blackrock-summit.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "8D36C19B-3D6D-4F4C-839C-E83402A3F747",
+   "title": "All About Hiking - Start Here!",
+   "latitude": "",
+   "longitude": "",
+   "location": "",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets are allowed in most areas of Shenandoah, but they must be on a physical leash no longer than\u00a06' at all times. They\u00a0are prohibited on several trails:</p> <ul> <li> <p>Fox Hollow Trail (mile 4.6)</p> </li> <li> <p>Stony Man Trail (mile 41.7) except for portion that follows the Appalachian Trail</p> </li> <li> <p>Limberlost Trail (mile 43)</p> </li> <li> <p>Post Office Junction to Old Rag Shelter</p> </li> <li> <p>Old Rag Ridge Trail</p> </li> <li>Old Rag Saddle Trail</li> <li>Old Rag Access Trail</li> <li>Ridge Access Trail (Old Rag area)</li> <li> <p>Dark Hollow Falls Trail (mile 50.7)</p> </li> <li> <p>Story of the Forest Trail (mile 51)</p> </li> <li> <p>Bearfence Mountain Trail (mile 56.4)</p> </li> <li> <p>Frazier Discovery Trail (mile 79.5)</p> </li> </ul>",
+   "season": [],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/shenandoah-hiking.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "BF966861-3527-4DDA-9BB9-71A2D71D87C5",
+   "title": "Stargaze in Shenandoah",
+   "latitude": "",
+   "longitude": "",
+   "location": "",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Where allowed,\u00a0pets must be kept on a physical leash no longer than 6 feet at all times.</p>",
+   "season": [],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "stargaze",
+    "stargazing",
+    "star",
+    "night activity",
+    "astronomy"
+   ],
+   "url": "https://www.nps.gov/thingstodo/stargaze-in-shenandoah.htm",
+   "activities": [
+    {
+     "name": "Stargazing"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "F6B418C4-D95F-4105-82A3-FD525B60C238",
+   "title": "Go Birdwatching in Shenandoah",
+   "latitude": "",
+   "longitude": "",
+   "location": "",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "birdwatching",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/shenandoah-birdwatching.htm",
+   "activities": [
+    {
+     "name": "Birdwatching"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "21361F56-A4E1-485D-82B7-1930E429EC77",
+   "title": "Jones Run Falls",
+   "latitude": "38.229954",
+   "longitude": "-78.726078",
+   "location": "South District (Mile 84.1)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park",
+    "waterfall"
+   ],
+   "url": "https://www.nps.gov/thingstodo/jones-run-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "8C3089DA-8A2D-4051-BC47-4EDFF738D3A6",
+   "title": "Hightop Summit",
+   "latitude": "38.34505116254849",
+   "longitude": "-78.55300870859325",
+   "location": "South District (Mile 66.7)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hightop-summit.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "053F6421-60B5-401B-9EB2-799F836535FA",
+   "title": "Fort Windham Rocks",
+   "latitude": "38.823985",
+   "longitude": "-78.170433",
+   "location": "North District (Mile 10.4)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "geology",
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/fort-windham-rocks.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "7D16A53D-D903-4598-89C1-FF0DFB37162B",
+   "title": "Bearfence Viewpoint",
+   "latitude": "38.452361",
+   "longitude": "-78.467018",
+   "location": "Central District (Mile 56.4)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are not allowed on this hike.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/bearfence-viewpoint.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "F1F99EBA-0BF9-45B0-8F2E-3AC0E408FB87",
+   "title": "Traces Trail",
+   "latitude": "38.759846",
+   "longitude": "-78.297119",
+   "location": "North District (Mile 22.2)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "campground"
+   ],
+   "url": "https://www.nps.gov/thingstodo/traces-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "E068D76B-695F-42CA-BB2C-B0506B54BA09",
+   "title": "Story of the Forest",
+   "latitude": "38.518764",
+   "longitude": "-78.435755",
+   "location": "Central District (Mile 51)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are not allowed on Story of the Forest Trail.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/story-of-the-forest.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "F05251C3-1201-4491-8AEE-18EA0DE4F012",
+   "title": "South River Falls Observation Point",
+   "latitude": "38.381129",
+   "longitude": "-78.516865",
+   "location": "Central District (Mile 62.7)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/south-river-falls-observation.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "731690FB-DCEF-4EBD-ACDF-4EFD5EDEF80B",
+   "title": "Snead Farm Loop",
+   "latitude": "38.871843",
+   "longitude": "-78.203699",
+   "location": "North District (Mile 5.1)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "historic",
+    "barn",
+    "history",
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/snead-farm-loop.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "F0205F46-51AA-411D-A81E-EF6F88B3ED26",
+   "title": "Pass Mountain Loop",
+   "latitude": "38.659939",
+   "longitude": "-78.320697",
+   "location": "Central District (Mile 31.6)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/pass-mountain-loop.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "46683E00-5157-4764-9700-3662A6B5386B",
+   "title": "Millers Head",
+   "latitude": "38.590117",
+   "longitude": "-78.384088",
+   "location": "Central District (Mile 42.5)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>All pets must be on a physical leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/millers-head.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "C72505DA-FC15-4B37-B7EA-ADFE85EDF243",
+   "title": "Lands Run Falls",
+   "latitude": "",
+   "longitude": "",
+   "location": "North District (Mile 9.2)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "waterfall",
+    "hike",
+    "trail",
+    "Shenandoah National Park",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/lands-run-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "70535421-12EB-48F7-A096-8D2B9225B329",
+   "title": "Bearfence Rock Scramble",
+   "latitude": "38.452361",
+   "longitude": "-78.467018",
+   "location": "Central District (Mile 56.4)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<p>Pets are not allowed on this hike.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/bearfence-rock-scramble.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "29B3E4E0-ADBB-40B9-865F-FA3205C6AAD5",
+   "title": "South River Falls",
+   "latitude": "38.381129",
+   "longitude": "-78.516865",
+   "location": "Central District (Mile 62.7)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Shenandoah National Park",
+    "hiking",
+    "waterfall"
+   ],
+   "url": "https://www.nps.gov/thingstodo/south-river-falls.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "279F6DE4-43E6-46F5-9EBB-AE29CADBEB34",
+   "title": "Little Devils Stairs Loop",
+   "latitude": "38.757269",
+   "longitude": "-78.256926",
+   "location": "North District (Mile 19.4)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>A park entrance fee is required to get into Shenandoah National Park</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/little-devils-stairs-loop.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  },
+  {
+   "id": "E03E46D5-B63D-4E2C-8E5A-59867F735750",
+   "title": "Lewis Falls Trail",
+   "latitude": "38.531172",
+   "longitude": "-78.439705",
+   "location": "Central District (Mile 51.2)",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "<p>An entrance fee is required to get into Shenandoah National Park.</p>",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "<p>Pets must be on a leash no longer than 6 feet at all times.</p> <p>\u00a0</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hiking",
+    "waterfall",
+    "Shenandoah National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/lewis-falls-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "shen",
+     "fullName": "Shenandoah National Park"
+    }
+   ]
+  }
+ ]
+}

@@ -86,7 +86,7 @@ def test_oversize_responses_and_bad_park_codes_are_refused(tmp_path):
         c.cached("../etc")
     d = c.refresh("shen")
     assert d["stale"] is True and d["alerts"] == [] and "too big" in d["error"] and d["things"]
-    assert sorted(p.name for p in (tmp_path / "nps").iterdir()) == ["parks.json", "shen"]
+    assert sorted(p.name for p in (tmp_path / "nps").iterdir()) == ["shen"]  # nothing for "../etc"; the park entry is per park
 
 
 def test_unconfigured_client_reads_the_cache_and_never_fetches(tmp_path):

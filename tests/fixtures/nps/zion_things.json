@@ -1,0 +1,878 @@
+{
+ "total": "20",
+ "limit": "50",
+ "start": "0",
+ "data": [
+  {
+   "id": "6AD66A92-B0EB-4064-A52A-2DDB02CF9143",
+   "title": "La Verkin Creek Trail to Kolob Arch",
+   "latitude": "37.4522213091",
+   "longitude": "-113.19139762",
+   "location": "Lee Pass Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "Pets are not permitted on any trails within Kolob Canyons.\u00a0",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "Overnight trips require a\u00a0<a href=\"https://www.nps.gov/zion/planyourvisit/wilderness.htm\">Wilderness Permit</a>.",
+   "tags": [
+    "Arch",
+    "Kolob",
+    "Kolob Canyons",
+    "Zion National Park",
+    "out and back",
+    "la verkin creek",
+    "lee pass",
+    "wilderness",
+    "difficult",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/la-verkin-creek-trail-to-kolob-arch.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "FD003EF3-8DA2-4FCB-9B49-7BFFB097CB76",
+   "title": "Upper Emerald Pools Trail",
+   "latitude": "37.2510388047",
+   "longitude": "-112.958668734",
+   "location": "Emerald Pools Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "upper emerald pool",
+    "emerald pools",
+    "Zion Canyon",
+    "Zion",
+    "loop trail",
+    "out and back",
+    "moderate hike"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-upper-emerald-pools.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "7D4532B5-C565-4849-A987-F40D6DDD2B91",
+   "title": "Sand Bench",
+   "latitude": "37.2510388047",
+   "longitude": "-112.958668734",
+   "location": "Emerald Pools Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "Seasonal commercial horse tours are available from March to October. These tours are offered through a <a href=\"https://www.canyonrides.com/horseback-riding-zion-national-park/\">concessioner</a>.",
+   "timeOfDayDescription": "",
+   "tags": [
+    "hike",
+    "day hike",
+    "loop hike",
+    "out and back",
+    "Horse Trail",
+    "sand bench trail",
+    "Zion Canyon"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-sand-bench.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "6A7BB554-73E5-43ED-90C1-A327CADF55C7",
+   "title": "Lower Emerald Pool Trail",
+   "latitude": "37.2510388047",
+   "longitude": "-112.958668734",
+   "location": "Emerald Pools Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "Trail may be icy in winter.",
+   "timeOfDayDescription": "",
+   "tags": [
+    "emerald pools",
+    "lower emerald pool",
+    "Easy hike",
+    "day hike",
+    "out and back",
+    "Loop",
+    "Zion",
+    "Zion Canyon",
+    "zion lodge"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-lower-emerald-pool-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "97C6C2F7-E45F-4192-9475-F2F90BF3E70E",
+   "title": "Middle Emerald Pools Trail",
+   "latitude": "37.2510388047",
+   "longitude": "-112.958668734",
+   "location": "Emerald Pools Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "middle emerald pools",
+    "emerald pools",
+    "Zion",
+    "Zion Canyon",
+    "Moderate Hikes",
+    "water",
+    "loop trail",
+    "out and back"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-middle-emerald-pools-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "43CC4A81-2227-4E40-9403-6F7E2B27BC53",
+   "title": "Angels Landing",
+   "latitude": "37.2592462081",
+   "longitude": "-112.951341885",
+   "location": "Kayenta & West Rim Trailhead",
+   "isReservationRequired": "true",
+   "reservationDescription": "<a href=\"https://www.nps.gov/zion/planyourvisit/angels-landing-hiking-permits.htm\">Permits are required to hike Angels Landing.\u00a0</a>\u00a0<br /> <br /> In response to concerns about crowding and congestion on the trail, on and after April 1, 2022, everyone who hikes Angels Landing needs to have a permit. The pilot permit program reflects lessons learned when we metered the number of hikers on the trail in 2019 and 2021 and by distributing tickets to use the park shuttle system in response to COVID-19 in 2020<b>.</b>",
+   "doFeesApply": "true",
+   "feeDescription": "To enter the lottery for a permit, recreation.gov charges $6. If a permit is awarded, a fee of $3 per person will be charged to the same card used to apply.\u00a0",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Angels Landing",
+    "Zion Canyon",
+    "strenuous hike",
+    "out and back",
+    "west rim",
+    "scout lookout"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-angels-landing.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "BD4CA407-5BE0-426E-8339-F34DE6795D3A",
+   "title": "West Rim to Scout Lookout",
+   "latitude": "37.2592462081",
+   "longitude": "-112.951341885",
+   "location": "Kayenta & West Rim Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "scout lookout",
+    "west rim",
+    "Angels Landing",
+    "Zion Canyon",
+    "Zion",
+    "strenuous hike",
+    "out and back",
+    "viewpoint"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-to-scout-lookout.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "9B081DDD-4C3E-47C0-901A-E92A159B0078",
+   "title": "Kayenta Trail",
+   "latitude": "37.2592462081",
+   "longitude": "-112.951341885",
+   "location": "Kayenta & West Rim Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "kayenta",
+    "Zion Canyon",
+    "out and back",
+    "loop trail",
+    "moderate hike",
+    "Zion National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-kayenta-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "71BB3562-AC4B-438D-94E0-784C0671C6C7",
+   "title": "Weeping Rock",
+   "latitude": "",
+   "longitude": "",
+   "location": "Weeping Rock Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "Pets are not allowed on any trail other than the Pa'rus Trail.",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Weeping Rock",
+    "Spring",
+    "seep",
+    "hanging garden",
+    "Zion National Park",
+    "short hike",
+    "Easy hike",
+    "Steep",
+    "water"
+   ],
+   "url": "https://www.nps.gov/thingstodo/weeping-rock.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "9D7B17DE-663C-4A85-A09D-183C71E5EE96",
+   "title": "Timber Creek Overlook",
+   "latitude": "37.4355110105",
+   "longitude": "-113.201933722",
+   "location": "Timber Creek Overlook Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.\u00a0",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "Pets are not allowed on any trails in Kolob Canyons.",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Zion",
+    "Kolob Canyons",
+    "timber creek overlook",
+    "overlook",
+    "viewpoint",
+    "Zion National Park",
+    "out and back",
+    "Easy hike",
+    "family hike",
+    "hiking"
+   ],
+   "url": "https://www.nps.gov/thingstodo/timber-creek-overlook.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "7B0A7CE7-2553-4A51-9E7C-F1F77DC253A4",
+   "title": "Taylor Creek Trail",
+   "latitude": "",
+   "longitude": "",
+   "location": "Kolob Canyons - Taylor Creek Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.\u00a0",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "Pets are not allowed on any trail in Kolob Canyons.\u00a0",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Zion",
+    "Kolob Canyons",
+    "taylor creek",
+    "out and back",
+    "moderate hike",
+    "Zion National Park",
+    "wilderness",
+    "historic"
+   ],
+   "url": "https://www.nps.gov/thingstodo/taylor-creek-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "671CA42A-5287-4EC6-AD13-4841D2F9B724",
+   "title": "Watchman Trail",
+   "latitude": "",
+   "longitude": "",
+   "location": "Watchman Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.\u00a0",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "This hike is accessible throughout the year. The trail may be muddy or icy during the winter and monsoon season. Limited shade in the summer.",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Watchman",
+    "Zion Canyon",
+    "hiking",
+    "moderate hike",
+    "overlook",
+    "Zion National Park",
+    "out and back"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-watchman-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "823A078C-D324-4648-B910-F15507E67244",
+   "title": "Riverside Walk",
+   "latitude": "37.2852131123",
+   "longitude": "-112.947693774",
+   "location": "Riverside Walk Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "Riverside Walk is open year-round, but sections of the trail may close in winter due to icy and unsafe conditions. Check the park's <a href=\"https://www.nps.gov/zion/planyourvisit/conditions.htm\">current conditions</a> before your trip.",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Riverside",
+    "Virgin River",
+    "easy trail",
+    "out and back",
+    "river access"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-riverside-walk.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "64535736-992B-4D04-8BF6-3F1965A6A01A",
+   "title": "Grotto Trail",
+   "latitude": "",
+   "longitude": "",
+   "location": "Grotto Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.\u00a0",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "easy",
+    "grotto",
+    "out and back",
+    "Zion",
+    "Zion Canyon",
+    "Zion National Park",
+    "kid friendly",
+    "short hike"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-grotto-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "6FD175EF-A82F-47AA-B055-8833EA1C1162",
+   "title": "Pa'rus Trail",
+   "latitude": "37.2010471279",
+   "longitude": "-112.986788497",
+   "location": "Pa'rus Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "<h4><b>Please follow the rules of BARK!</b></h4> <p><br /> <b><u>B</u></b><b>ag your pet's poop</b><br /> Pet owners are responsible for removing pet waste from all areas in the park including campgrounds, picnic areas, parking lots, roads, pet-friendly trails, and other developed areas.<br /> <br /> <b><u>A</u>lways wear a leash</b><br /> Pets must be restrained on a leash no longer than 6 feet.<br /> <br /> <b><u>R</u>espect wildlife</b><br /> Pets can harass or harm wildlife by making noise or scaring wildlife away.<br /> <br /> <b><u>K</u>now where you can go</b><br /> The only trail that allows pets is the Pa\u2019rus Trail, which begins at the Zion Canyon Visitor Center.<br /> <br /> <b>Pets are</b>\u00a0<b>not permitted -\u00a0</b>on any other trails, wilderness areas, on shuttle buses, or in public buildings in Zion.<br /> <br /> <b>Additionally,\u00a0</b>properly restrained pets are welcome along public roads and parking areas, in the developed campgrounds and picnic areas, and on the grounds of the Zion Lodge.<br /> <br /> <b>Pets should not be left unattended.</b>\u00a0Zion is hot! The interior temperature of a vehicle can quickly warm to dangerous levels, during most months of the year. Leaving a pet unattended in a vehicle with environmental conditions that pose a health risk to the animal is prohibited. Properly restrained pets may be left unattended in developed campgrounds only when environmental conditions are safe for the animal, and the animal is not making unreasonable noise (barking, etc.).<br /> <br /> <a href=\"https://www.nps.gov/zion/planyourvisit/service-animals.htm\"><b>Service Animals</b></a>\u00a0may accompany their owner to all park locations. Under the\u00a0<a href=\"https://www.ada.gov/\"><b>Americans with Disabilities Act</b></a>\u00a0(ADA),\u00a0<b><i>Service animals</i></b>\u00a0are defined as dogs that are individually trained to do work or perform tasks for people with disabilities. Dogs whose sole function is to provide comfort or emotional support do not qualify as service animals under the ADA.<br /> <br /> <a href=\"https://www.gpo.gov/fdsys/pkg/CFR-2016-title36-vol1/xml/CFR-2016-title36-vol1-sec2-15.xml\"><b>36 CFR 2.15</b></a>\u00a0(Code of Federal Regulations) provides more details concerning pets within National Park Service areas. Pet owners not adhering to regulations may be cited (minimum fine is $100).<br /> <br /> Read the complete\u00a0<a href=\"https://www.nps.gov/zion/learn/management/lawsandpolicies.htm\"><b>Superintendent's Compendium</b></a>\u00a0for more details.<br /> <br /> Boarding kennels are available in the nearby towns of Rockville, Hurricane, St. George, Kanab, and Cedar City.</p>",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Parus Trail",
+    "Zion",
+    "Zion Canyon",
+    "paved trail",
+    "accessible trail",
+    "Zion National Park",
+    "Bike Hike Trail",
+    "pets allowed"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-pa-rus-trail.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "97CF105C-B416-4CDC-B84F-2A2C96D870DB",
+   "title": "Canyon Overlook",
+   "latitude": "37.21305420753267",
+   "longitude": "-112.94102381538823",
+   "location": "Canyon Overlook Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "Zion",
+    "East Side of the Park",
+    "Canyon Overlook",
+    "moderate hike",
+    "Zion National Park",
+    "viewpoint",
+    "out and back"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-canyon-overlook.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "45BE55DA-0E56-4CF7-9DFA-651EEAB97E15",
+   "title": "Stargazing in Zion",
+   "latitude": "37.2095431601",
+   "longitude": "-112.980319726",
+   "location": "Zion Human History Museum Patio",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.\u00a0",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "Pets are allowed, on leash, on roadways, campgrounds, the Museum patio, and on the Pa'rus Trail.\u00a0",
+   "season": [],
+   "seasonDescription": "",
+   "timeOfDayDescription": "",
+   "tags": [
+    "stargazing",
+    "astronomy",
+    "astrophotography",
+    "astrotourism",
+    "star gazing",
+    "night sky",
+    "International Dark Sky Park",
+    "international dark sky place",
+    "After Dark in the Park",
+    "dark sky parks"
+   ],
+   "url": "https://www.nps.gov/thingstodo/stargazing-in-zion.htm",
+   "activities": [
+    {
+     "name": "Stargazing"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "64075857-ACC6-4F4D-961B-1283D0F5475D",
+   "title": "The Narrows",
+   "latitude": "37.2852131123",
+   "longitude": "-112.947693774",
+   "location": "Riverside Walk Trailhead",
+   "isReservationRequired": "false",
+   "reservationDescription": "",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "The Narrows may close when the river is flowing over 140 cubic feet per second. This frequently occurs in monsoon season (late summer) and during spring runoff. Always check the weather and current conditions before beginning your hike.",
+   "timeOfDayDescription": "",
+   "tags": [
+    "The Narrows",
+    "Riverside Walk",
+    "Virgin River",
+    "Zion Canyon",
+    "day hike",
+    "water"
+   ],
+   "url": "https://www.nps.gov/thingstodo/hike-the-narrows.htm",
+   "activities": [
+    {
+     "name": "Hiking"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "4E694781-7E95-452D-9EA6-04974841F8DC",
+   "title": "Zion Ranger-led Activities",
+   "latitude": "37.20041122732317",
+   "longitude": "-112.98730909824371",
+   "location": "Zion Canyon Visitor Center",
+   "isReservationRequired": "false",
+   "reservationDescription": "Due to limited space, some programs may require a free reservation be made in advance at the Zion Canyon Visitor Center.\u00a0",
+   "doFeesApply": "false",
+   "feeDescription": "Park entrance fees apply.",
+   "arePetsPermitted": "true",
+   "arePetsPermittedWithRestrictions": "true",
+   "petsDescription": "Pets may only join their owners to ranger-led talks, evening programs, and walks on the Pa'rus Trail. Pets are not allowed on the Ride with a Ranger program or on the Watchman Trail.\u00a0",
+   "season": [
+    "Winter",
+    "Spring",
+    "Summer",
+    "Fall"
+   ],
+   "seasonDescription": "Ranger-led programs are available throughout the year. More programs are offered in the summer than the winter months, so check the scheudle at park visitor centers or on our <a href=\"https://www.nps.gov/zion/planyourvisit/calendar.htm\">events calendar</a>.",
+   "timeOfDayDescription": "",
+   "tags": [
+    "ranger program",
+    "Ranger-led program",
+    "Ranger Talks",
+    "talk",
+    "family activity",
+    "families",
+    "Program",
+    "interpretation",
+    "interpretation program",
+    "interpretive",
+    "Zion Canyon",
+    "Zion National Park"
+   ],
+   "url": "https://www.nps.gov/thingstodo/zion-ranger-led-activities.htm",
+   "activities": [
+    {
+     "name": "Guided Tours"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  },
+  {
+   "id": "CB9CCC3B-BD85-4FF6-B95C-B99D424230F9",
+   "title": "Climbing in Zion",
+   "latitude": "",
+   "longitude": "",
+   "location": "",
+   "isReservationRequired": "false",
+   "reservationDescription": "<a href=\"https://www.nps.gov/zion/planyourvisit/climbing-permits.htm\">Permits are needed for all overnight trips</a><br /> <br /> <strong>Permits are not required for day climbs, but they are required for all overnight bivouacs. It is illegal to camp at the base of the wall or in your vehicle.</strong>",
+   "doFeesApply": "false",
+   "feeDescription": "<a href=\"https://www.nps.gov/zion/planyourvisit/climbing-permits.htm\">Permits are needed for all overnight trips</a><br /> <br /> <strong>Permits are not required for day climbs, but they are required for all overnight bivouacs. It is illegal to camp at the base of the wall or in your vehicle.</strong>",
+   "arePetsPermitted": "false",
+   "arePetsPermittedWithRestrictions": "false",
+   "petsDescription": "Pets are not allowed in Zion Wilderness. <a href=\"https://www.nps.gov/zion/planyourvisit/pets.htm\">The only trail in the park for pets is the Pa'rus.</a>\u00a0",
+   "season": [
+    "Winter",
+    "Spring",
+    "Fall"
+   ],
+   "seasonDescription": "The best conditions for climbing are from March through May and September through early November. Temperatures in the summer can soar over 100 degrees even on shaded walls. Additionally, summer months often bring monsoonal rainstorms. Unlike other rock types, desert sandstone is heavily weakened when wet. Avoid climbing in damp areas or after rainstorms.",
+   "timeOfDayDescription": "",
+   "tags": [
+    "climbing",
+    "Rock Climbing",
+    "Zion National Park",
+    "Kolob Canyons",
+    "bivy",
+    "bouldering"
+   ],
+   "url": "https://www.nps.gov/thingstodo/climbing-in-zion.htm",
+   "activities": [
+    {
+     "name": "Climbing"
+    }
+   ],
+   "relatedParks": [
+    {
+     "parkCode": "zion",
+     "fullName": "Zion National Park"
+    }
+   ]
+  }
+ ]
+}

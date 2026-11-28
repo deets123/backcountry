@@ -330,7 +330,9 @@ def nps_notices(park_data: dict, items: list[tuple[str, str]]) -> list[dict]:
                           as_of=(str(a.get("lastIndexedDate") or "")[:10] or None), checked_at=checked, links=[*links, a.get("url")]))
     for t in park_data.get("things") or []:
         title = str(t.get("title") or "").strip()
-        labels = match_items(f"{title} {' '.join(t.get('tags') or [])}", items)
+        # the title only: a record's tags name its neighbours too ("west rim", "scout lookout" on Angels Landing), which
+        # would hang Angels Landing's permit on every West Rim trip
+        labels = match_items(title, items)
         if not labels:
             continue
         common = dict(applies_to=_applies(labels), matched=True, source=NPS, ref=t.get("id"), checked_at=checked)
@@ -345,7 +347,7 @@ def nps_notices(park_data: dict, items: list[tuple[str, str]]) -> list[dict]:
                 out.append(notice("fee", f"{title}: {text}", links=[*links, *url], **common))
         if str(t.get("arePetsPermitted")).lower() == "false" or _true(t.get("arePetsPermittedWithRestrictions")):
             text, links = html_to_text(t.get("petsDescription") or "")
-            out.append(notice("rule", f"Pets: {text or 'not permitted.'}", links=[*links, *url], **common))
+            out.append(notice("rule", f"Pets: {text or 'not permitted.'} ({title})", links=[*links, *url], **common))
         for key in ("seasonDescription", "timeOfDayDescription"):
             text, links = html_to_text(t.get(key) or "")
             if text:
