@@ -146,7 +146,11 @@ Destination: web and phones, later the app stores, with offline use of saved tri
    for speed (features indexed per area, every trip day-planned, no count caps, elevation along every trail,
    elevation left on disk); three fresh reviews of the engine, the server and the phone app, with their Critical
    and Important findings fixed (one-way trails, names in GPX, memory and disk safety, weak-signal polling).
-   Next: park rules, permits and closures (OSM already tags some, e.g. `access=permit` on the Angels Landing trail).
+   **Park rules, permits and closures** (built 2026-11-27, branch `permits-closures`;
+   `docs/superpowers/specs/2026-11-26-permits-and-closures-design.md`): a "Before you go" block on every trip from
+   OpenStreetMap tags (permits to walk, permits to camp, dogs, hours, closure notes) and the National Park Service data
+   service (alerts, per-hike records, entrance fee), each quoted and dated; "avoid trails that need a permit"; the
+   chat may only restate a notice. Next: recreation.gov booking data (Forest Service permits too) if this leaves gaps.
 5. **App-store packaging** (Capacitor), hosting, accounts.
 6. **Alerts and permit metadata** with provenance.
 
