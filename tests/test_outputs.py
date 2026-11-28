@@ -127,3 +127,20 @@ def test_basemap_choice(network, tmp_path):
     assert "USGSImageryOnly" in html
     with pytest.raises(ValueError, match="basemap"):
         write_route(route, REGION, tmp_path / "r2", "A", "F", "2026-01-01T00:00:00Z", basemap="mars")
+
+
+def test_summary_has_a_before_you_go_section(network, tmp_path):
+    from backcountry import notices as N
+
+    tg = build_graph(network.doc(), crs=CRS)
+    route = shortest_route(tg, network.ids["A"], network.ids["F"])
+    notices = [N.notice("permit", "Permit to hike Main Trail, 0.6 mi of this trip.", applies_to="trail: Main Trail", matched=True,
+                        source="OpenStreetMap", as_of="2026-01-01", links=["https://www.recreation.gov/permits/1"]),
+               N.notice("unknown", N.UNKNOWN_LINE)]
+    paths = write_route(route, REGION, tmp_path / "n", "A Trailhead", "F", "2026-01-01T00:00:00Z", notices=notices)
+    md = paths["summary"].read_text()
+    assert "## Before you go" in md and N.UNKNOWN_LINE in md
+    assert "Permit to hike Main Trail, 0.6 mi of this trip." in md and "OpenStreetMap, 2026-01-01" in md
+    assert "https://www.recreation.gov/permits/1" in md
+    gaps = md.split("## Known gaps")[1].split("## ")[0]
+    assert "permits, closures" not in gaps and "Before you go" in gaps

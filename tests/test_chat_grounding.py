@@ -108,3 +108,35 @@ def test_a_change_reply_names_the_requested_levels_without_being_withheld():
     reply = "I've set day 1 to easy and days 2 and 3 to hard."
     assert not check_reply(reply, LEVEL_FACTS)[0]
     assert check_reply(reply, LEVEL_FACTS, check_levels=False) == (True, [])
+
+
+NOTICE_FACTS = (
+    "Route (candidate 1 of 1, out_and_back): 5.70 mi, gain 1,654 ft, loss 1,654 ft, road 0.00 mi.\n"
+    "Notice (permit, trail: Angels Landing Trail): Permit to hike Angels Landing Trail, 0.4 mi of this trip. Reservation required. Fee. [OpenStreetMap, 2026-10-26]\n"
+    "Notice (closure, park): Watchman Trail closed: The Watchman Trail is closed pending repairs. [National Park Service, 2026-09-29]\n"
+    "Notice (rule, route): Dogs: no, on 2.3 mi (West Rim Trail, Angels Landing Trail). [OpenStreetMap, 2026-10-26]\n"
+    "Trail names in this region: Angels Landing Trail; Watchman Trail; West Rim Trail"
+)
+
+
+def test_a_reply_may_restate_a_notice():
+    assert check_reply("Angels Landing Trail needs a permit; a reservation is required.", NOTICE_FACTS)[0]
+    assert check_reply("The Watchman Trail is closed, per the National Park Service.", NOTICE_FACTS)[0]
+    assert check_reply("Dogs are not allowed on West Rim Trail.", NOTICE_FACTS)[0]
+
+
+def test_negative_and_unsupported_claims_stay_withheld():
+    assert not check_reply("You don't need a permit for Angels Landing Trail.", NOTICE_FACTS)[0]
+    assert not check_reply("West Rim Trail needs a permit.", NOTICE_FACTS)[0]
+    assert not check_reply("Everything is open.", NOTICE_FACTS)[0]
+    assert not check_reply("No permit is needed for this trip.", NOTICE_FACTS)[0]
+    assert not check_reply("Angels Landing Trail needs a permit.", FACTS)[0]  # no Notice lines: withheld as before
+
+
+def test_claims_that_contradict_or_stretch_a_notice_are_withheld():
+    for reply in ("The Watchman Trail is open.", "Watchman Trail is open again.", "Dogs are allowed on West Rim Trail.",
+                  "Camping is allowed on West Rim Trail.", "Angels Landing Trail is closed.",
+                  "Angels Landing Trail permits are optional, so you can skip the permit.",
+                  "Angels Landing Trail permits were waived this year."):
+        ok, reasons = check_reply(reply, NOTICE_FACTS)
+        assert not ok, reply

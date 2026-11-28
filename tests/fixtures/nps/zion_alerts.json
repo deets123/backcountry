@@ -1,0 +1,74 @@
+{
+ "total": "6",
+ "limit": "50",
+ "start": "0",
+ "data": [
+  {
+   "id": "E30861E4-4253-42EB-BA0C-118EE9D19D48",
+   "url": "",
+   "title": "Road to Lava Point and West Rim Trailhead closed",
+   "parkCode": "zion",
+   "description": "This is a regular, seasonal closure, and we will remove this alert when snow melts. Lava Point Overlook is also closed.",
+   "category": "Park Closure",
+   "relatedRoadEvents": [
+    {
+     "title": "Road to Lava Point and West Rim Trailhead closed",
+     "id": "E30861E4-4253-42EB-BA0C-118EE9D19D48",
+     "type": "roadevent",
+     "url": "https://www.nps.gov/zion/planyourvisit/conditions.htm"
+    }
+   ],
+   "lastIndexedDate": "2026-11-21 00:00:00.0"
+  },
+  {
+   "id": "CDD9D321-49B3-4C74-89AD-A186807220E6",
+   "url": "",
+   "title": "Watchman Trail closed",
+   "parkCode": "zion",
+   "description": "The Watchman Trail is closed pending repairs.",
+   "category": "Park Closure",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2026-09-29 00:00:00.0"
+  },
+  {
+   "id": "83AE2DD9-F167-445F-8B00-A4F9E5A993D8",
+   "url": "https://www.nps.gov/zion/planyourvisit/large-vehicles.htm",
+   "title": "Large vehicle restrictions on Zion-Mt. Carmel Highway",
+   "parkCode": "zion",
+   "description": "Vehicles that exceed length, width, height, or weight limits cannot travel between Canyon Junction and the park's East Entrance. See the current limits on the page linked below.",
+   "category": "Caution",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2026-09-16 00:00:00.0"
+  },
+  {
+   "id": "09699C7F-F2CD-4BE9-B8D4-5E19CC89BE7A",
+   "url": "https://www.nps.gov/zion/planyourvisit/toxic-cyanobacteria-bloom-in-the-virgin-river-and-the-streams-of-zion-national-park.htm",
+   "title": "Toxic cyanobacteria in rivers, streams, and pools",
+   "parkCode": "zion",
+   "description": "Do not submerge your head in or drink instream water in Zion National Park.",
+   "category": "Caution",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2026-09-16 00:00:00.0"
+  },
+  {
+   "id": "F093B239-D138-4B04-BDFE-745A41F17B04",
+   "url": "https://www.nps.gov/zion/planyourvisit/angels-landing-hiking-permits.htm",
+   "title": "Angels Landing Pilot Permit Program",
+   "parkCode": "zion",
+   "description": "All hikers need a permit to hike Angels Landing. Learn why you need a permit and how to get one using the link below.",
+   "category": "Information",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2026-09-16 00:00:00.0"
+  },
+  {
+   "id": "0EA570B2-2FF0-4B33-AD3A-1313385965A0",
+   "url": "https://www.nps.gov/zion/planyourvisit/traffic.htm#parking",
+   "title": "Please park legally and responsibly",
+   "parkCode": "zion",
+   "description": "Zion has limited parking. Once parking spaces in Zion are full, visitors should park in Springdale. Please park only in designated spaces. Vehicles parked outside of designated spaces are subject to citation and towing.",
+   "category": "Information",
+   "relatedRoadEvents": [],
+   "lastIndexedDate": "2026-09-16 00:00:00.0"
+  }
+ ]
+}

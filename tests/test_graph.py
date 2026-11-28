@@ -236,3 +236,27 @@ def test_chain_unknown_name(network):
 
     with pytest.raises(ValueError, match="No trail edges"):
         chain_named_trail(build_graph(network.doc(), crs=CRS), "Nope Trail")
+
+
+def test_permit_follows_foot_over_access():
+    from backcountry.ingest import is_permit
+
+    assert is_permit({"foot": "permit"})
+    assert is_permit({"access": "permit"})
+    assert not is_permit({"access": "permit", "foot": "designated"})
+    assert not is_permit({"access": "permit", "foot": "yes"})
+    assert not is_permit({"access": "yes"})
+
+
+def test_edges_carry_permit_and_rule_tags_and_excluded_ways_keep_closure_tags(network):
+    network.way(20, ["G", "H"], highway="path", name="Permit Spur", access="permit", foot="permit", fee="yes",
+                operator="https://www.recreation.gov/permits/1", dog="no")
+    network.way(21, ["D", "E"], highway="path", name="Closed Path", access="no", note="Closed indefinitely due to 2019 rockfall.",
+                **{"damage:date": "2019-08-24", "damage:type": "landslide"})
+    tg = build_graph(network.doc(), CRS)
+    d = next(d for *_, d in tg.graph.edges(data=True) if d["way_id"] == 20)
+    assert d["permit"] is True and d["tags"]["dog"] == "no" and d["tags"]["operator"].startswith("https://")
+    assert all(d["permit"] is False for *_, d in tg.graph.edges(data=True) if d["way_id"] == 1)
+    closed = next(x for x in tg.excluded if x["way_id"] == 21)
+    assert closed["tags"] == {"access": "no", "note": "Closed indefinitely due to 2019 rockfall.",
+                              "damage:date": "2019-08-24", "damage:type": "landslide"}

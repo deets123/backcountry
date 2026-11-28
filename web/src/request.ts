@@ -20,12 +20,14 @@ export interface FormState {
   finish: string;
   /** A day hike: no nights, no miles per day (a blank nights field means the same). */
   dayHike: boolean;
+  /** Stay off trails tagged as needing a permit. */
+  avoidPermit: boolean;
 }
 
 export const DEFAULT_FORM: FormState = {
   trailhead: "", total: "18-26", nights: "2", daily: "6-11", maxGainDay: "2500", type: "any", count: "3",
   noRoads: false, direction: "", mustVisit: [], avoid: [], camps: [], campsAtSites: false,
-  perDay: false, days: [], tripLevel: "", finish: "", dayHike: false,
+  perDay: false, days: [], tripLevel: "", finish: "", dayHike: false, avoidPermit: false,
 };
 
 export function emptyDay(): FormDay {
@@ -142,6 +144,7 @@ export function toRequest(form: FormState, trailheads: Trailhead[] = [], destina
       direction: (form.type === "one_way" || form.type === "out_and_back" ? "" : form.direction) || null, days,
       level: form.tripLevel || null, destination,
       finish: form.type === "one_way" ? form.finish.trim() : null,
+      avoid_permit: form.avoidPermit,
     },
   };
 }
@@ -158,6 +161,7 @@ export function fromRun(run: Run): FormState {
     noRoads: !!r.no_roads, direction: r.direction ?? "", mustVisit: r.must_visit ?? [], avoid: r.avoid ?? [], camps: r.camps ?? [],
     campsAtSites: !!r.camps_at_sites,
     perDay: (r.days ?? []).length > 0, tripLevel: r.level ?? "", finish: r.finish ?? "", dayHike: r.nights == null,
+    avoidPermit: !!r.avoid_permit,
     days: Array.from({ length: r.nights == null ? 0 : r.nights + 1 }, (_, i) => {
       const t = (r.days ?? []).find((d) => d.day === i + 1);
       return t ? { level: t.level ?? "", miles: t.miles ? `${t.miles[0]}-${t.miles[1]}` : "",

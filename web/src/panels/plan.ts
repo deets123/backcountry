@@ -3,6 +3,7 @@ import type { State, Store } from "../store";
 import { feet, miles } from "../format";
 import type { Finish, Level, Trailhead, TripType } from "../types";
 import { esc, levelName } from "./common";
+import { parkLineHtml } from "./notices";
 import { bindSearch, renderSearch, type SearchActions } from "./search";
 
 const TYPES: [TripType, string][] = [["any", "Any"], ["loop", "Loop"], ["lollipop", "Lollipop"], ["out_and_back", "Out and back"],
@@ -122,6 +123,7 @@ export function renderPlan(s: State): string {
 <h1>Plan a trip</h1>
 ${s.saved.length ? `<button class="link" id="to-saved">Saved trips (${s.saved.length})</button>` : ""}
 ${renderSearch(s)}
+${parkLineHtml(s.parkNotices, false)}
 <div id="th-box">${renderStarts(s)}</div>
 <p class="note">Tap a TH badge or a grey start dot on the map, pick from the list, or tap anywhere on a trail to start there (snapped within 650 ft).</p>
 <label><input type="checkbox" name="dayHike"${f.dayHike ? " checked" : ""}> Day hike</label>
@@ -141,6 +143,7 @@ ${renderSearch(s)}
 <div id="per-day">${renderPerDay(f, null)}</div>
 <label>Trip level<select name="tripLevel"><option value=""${f.tripLevel ? "" : " selected"}>Any</option>${LEVELS.map((l) => `<option value="${l}"${f.tripLevel === l ? " selected" : ""}>${levelName(l)}</option>`).join("")}</select></label>
 <label><input type="checkbox" name="noRoads"${f.noRoads ? " checked" : ""}> No roads at all</label>
+<label><input type="checkbox" name="avoidPermit"${f.avoidPermit ? " checked" : ""}> Avoid trails that need a permit</label>
 <label><input type="checkbox" name="campsAtSites"${f.campsAtSites ? " checked" : ""}> Camps only at known campsites</label>
 <label>Must visit (trail names or trailhead ids, one per line)<textarea name="mustVisit" rows="2">${esc(f.mustVisit.join("\n"))}</textarea></label>
 <label>Avoid (trail names, one per line)<textarea name="avoid" rows="2">${esc(f.avoid.join("\n"))}</textarea></label>

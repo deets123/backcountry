@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, chat, generate, getRegions, gpxUrl } from "./api";
+import { ApiError, chat, generate, getRegionNotices, getRegions, getRunNotices, gpxUrl } from "./api";
 
 function respond(status: number, body: unknown, json = true) {
   return vi.fn(async () => new Response(json ? JSON.stringify(body) : String(body), {
@@ -70,5 +70,19 @@ describe("a server that isn't ours", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(0);
     expect(err.message).toMatch(/server/i);
+  });
+});
+
+describe("park notices", () => {
+  it("fetches a region's park notices and a run's re-matched notices from their endpoints", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls.push(url);
+      return new Response(JSON.stringify({ notices: [], pending: false, checked_at: null, configured: true, park: null, stale: false, error: null }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    expect((await getRegionNotices("zion-abc")).configured).toBe(true);
+    expect((await getRunNotices("r1", 2)).pending).toBe(false);
+    expect(calls).toEqual(["/api/regions/zion-abc/notices", "/api/runs/r1/notices?candidate=2"]);
   });
 });

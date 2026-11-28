@@ -68,6 +68,7 @@ class Candidate:
     pins_m: list | None = None  # resolved pinned camps, kept so the suggestion re-splits the same way
     turnaround: int | None = None  # out-and-back: the node it turns back at
     finish: int | None = None  # one way: the node it ends at
+    notices: list | None = None  # "Before you go": permits, fees, closures, rules (notices.assemble), set by plan_trip
 
     def overlap(self, other: "Candidate") -> float:
         return overlap(self.keys, other.keys, self.lengths | other.lengths)
@@ -344,7 +345,7 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
            no_roads: bool = False, weights: Weights = Weights(), max_overlap: float = 0.5,
            max_seconds: float = MAX_SECONDS, evaluate=None, avoid=(), must_visit=(), direction: str | None = None,
            on_snapshot=None, first_s: float = FIRST_RESULTS_S, clock=time.time, keep=None, through: int | None = None,
-           max_detour_m: float = MAX_DETOUR_M, finish: int | None = None) -> dict:
+           max_detour_m: float = MAX_DETOUR_M, finish: int | None = None, exclude_keys=frozenset()) -> dict:
     """Find, score, and pick candidates.
 
     Trips are enumerated a family at a time (loops, then the cheap out-and-backs and one-ways, then lollipops,
@@ -357,11 +358,12 @@ def search(tg, start: int, min_m: float, max_m: float, kinds=("loop", "lollipop"
     `on_snapshot(report)`: called once, `first_s` into the search (by `clock`), with the trips found so far
     scored and picked the same way (`report["partial"]` True); not called if the search ends sooner.
     `keep(candidate)`: only candidates it accepts are picked (a destination's range and reach). `through`: the
-    node out-and-backs must pass (a destination). `finish`: where one-way trips end.
+    node out-and-backs must pass (a destination). `finish`: where one-way trips end. `exclude_keys`: edge keys to stay
+    off besides `avoid` (trails that need a permit, when the request avoids them).
     """
     t0 = clock()
     deadline = t0 + max_seconds
-    excluded = avoided_keys(tg, avoid) if avoid else set()
+    excluded = set(exclude_keys) | (avoided_keys(tg, avoid) if avoid else set())
     lg = loop_graph(tg, start, no_roads, excluded, reach_m=max_m * (1 + WIDEN) / 2)  # the widened retry fits too
     H = lg.graph
     report = {"loop_graph": {"nodes": H.number_of_nodes(), "edges": H.number_of_edges(), "pruned": lg.pruned,

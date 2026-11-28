@@ -119,7 +119,7 @@ def walk(tg, keys: list[str], nodes: list[int]) -> Route:
         coords_utm += utm if not coords_utm else utm[1:]
         edges.append({key: d[key] for key in ("source", "way_id", "name", "highway", "is_road", "last_resort",
                                                 "length_m", "retrieved_at", "tags")}
-                     | {"key": k, "reversed": rev, "u": u, "v": v, "oneway": d.get("oneway", 0)})
+                     | {"key": k, "reversed": rev, "u": u, "v": v, "oneway": d.get("oneway", 0), "permit": d.get("permit", False)})
     if len(nodes) == 1:  # start == end: a zero-length route
         n = G.nodes[nodes[0]]
         coords_ll, coords_utm = [(n["lon"], n["lat"])] * 2, [(n["x"], n["y"])] * 2

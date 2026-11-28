@@ -18,7 +18,9 @@ from pyproj import Transformer
 from shapely import STRtree
 from shapely.geometry import LineString, Point
 
-from backcountry.ingest import KEEP_TAGS, access_exclusion_reason, foot_overrides_access, is_last_resort, way_class
+from backcountry.ingest import KEEP_TAGS, access_exclusion_reason, foot_overrides_access, is_last_resort, is_permit, way_class
+
+CLOSURE_TAGS = ("access", "foot", "note", "description", "damage:date", "damage:type")  # kept on excluded ways: why it's shut
 from backcountry.region import Region
 
 SHORT_EDGE_M = 20.0
@@ -46,6 +48,7 @@ def _way_record(way: dict, **extra) -> dict:
         "name": tags.get("name"),
         "nodes": way["nodes"],
         "geometry": [(g["lon"], g["lat"]) for g in way.get("geometry", [])],
+        "tags": {k: tags[k] for k in CLOSURE_TAGS if k in tags},
         **extra,
     }
 
@@ -131,6 +134,7 @@ def _add_edge(G, way, seg_nodes, seg, coords, to_crs, retrieved_at):
         is_road=way_class(tags) == "road",
         last_resort=is_last_resort(tags),
         oneway=oneway_sense(tags),
+        permit=is_permit(tags),
         tags={k: tags[k] for k in KEEP_TAGS if k in tags},
         length_m=geom_utm.length,
         geom_wgs84=LineString(lonlat),

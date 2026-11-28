@@ -760,7 +760,7 @@ def route_waypoints(route, from_text: str, to_text: str, plan=None) -> list[dict
 
 
 def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_retrieved_at: str,
-                plan=None, features=None, basemap: str = "topo") -> dict[str, Path]:
+                plan=None, features=None, basemap: str = "topo", notices=None) -> dict[str, Path]:
     """route.gpx (one track, waypoints), day_<n>.gpx (one per day), route.geojson, map.html, summary.md."""
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = {"gpx": out_dir / "route.gpx", "geojson": out_dir / "route.geojson", "summary": out_dir / "summary.md",
@@ -786,7 +786,7 @@ def write_route(route, region, out_dir: Path, from_text: str, to_text: str, osm_
     paths["geojson"].write_text(json.dumps({"type": "FeatureCollection", "attribution": OSM_ATTRIBUTION,
                                             "edges": [e["key"] for e in route.edges], "features": geo}))
     route_map(route, region, title, pieces, waypoints, features, osm_retrieved_at, basemap).save(str(paths["map"]))
-    paths["summary"].write_text(route_markdown(route, region, from_text, to_text, osm_retrieved_at, plan, features))
+    paths["summary"].write_text(route_markdown(route, region, from_text, to_text, osm_retrieved_at, plan, features, notices))
     return paths
 
 
@@ -856,7 +856,7 @@ def route_map(route, region, title: str, pieces, waypoints, features, osm_retrie
   <div class="bc-row"><span class="bc-wp" style="width:26px">S/C1/E</span><span>start, camps, end</span></div>
   <div class="bc-row">{_swatch_dot(FEATURE_COLORS["camp"], FEATURE_COLORS["camp"], 5)}<span>OSM/USFS camp site (status unknown)</span></div>
   <div class="bc-row">{_swatch_dot(FEATURE_COLORS["water"], FEATURE_COLORS["water"], 4)}<span>water feature (presence unknown)</span></div>
-  <div class="bc-src">Trail data {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at[:10]}. Water, camp sites, permits, closures, conditions: unknown.</div>
+  <div class="bc-src">Trail data {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at[:10]}. Water, camp sites, conditions: unknown; permits and closures only as listed in the summary.</div>
 </div></details></div>"""
     m.get_root().html.add_child(folium.Element(legend))
     folium.LayerControl(collapsed=False).add_to(m)
@@ -905,6 +905,20 @@ def plan_markdown(plan) -> list[str]:
     return L
 
 
+def notices_markdown(notices) -> list[str]:
+    """## Before you go: one bullet per notice, with its source, date and links (the unknown line last, as given)."""
+    L = ["## Before you go", ""]
+    for n in notices:
+        src = n.get("source") or {}
+        tail = ""
+        if src.get("name"):
+            when = src.get("as_of") or (src.get("checked_at") or "")[:10]
+            tail = f" — {src['name']}" + (f", {when}" if when else "")
+        links = "".join(f" {u}" for u in n.get("links") or [])
+        L.append(f"- {n['text']}{tail}{links}")
+    return L
+
+
 def features_markdown(features) -> list[str]:
     from backcountry.features import NEAR_ROUTE_M, WATER_WARNING
 
@@ -932,7 +946,7 @@ def features_markdown(features) -> list[str]:
 NEARBY_CAMP_FT = 500.0  # meters; formatted in feet by ft()
 
 
-def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at: str, plan=None, features=None) -> str:
+def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at: str, plan=None, features=None, notices=None) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     gain = f"gain {route.gain_ft:,.0f} ft, loss {route.loss_ft:,.0f} ft" if route.gain_ft is not None else "gain: unknown, loss: unknown"
     L = [f"# Route: {from_text} to {to_text}", "", f"Region: {region.name}. Generated {now}.", "",
@@ -960,8 +974,11 @@ def route_markdown(route, region, from_text: str, to_text: str, osm_retrieved_at
                  f"retrieved {src.get('retrieved_at', 'unknown')}.")
     else:
         L.append("- Elevation: none (no DEM cached).")
+    if notices:
+        L += [""] + notices_markdown(notices)
     L += ["", "## Known gaps", "",
-          "These are not checked by this tool: water, campsites, permits, closures, trail conditions, trailhead access. "
+          "These are not checked by this tool: water, campsites, trail conditions, trailhead access. Permits and closures: "
+          "only what Before you go lists; everything else is unknown. "
           "Camp sites and water listed above are map features only; whether they exist today, are open or legal to use, "
           "or hold water is **unknown**. This summary describes distance, elevation, map features, and data gaps only.", "",
           "## Files", "",
@@ -1062,7 +1079,7 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
         from backcountry.serialize import trip_title  # local: serialize imports export
 
         write_route(c.route, region, out_dir / f"candidate_{i}", start_text, trip_title(c.kind, start_text)[1],
-                    osm_retrieved_at, plan=c.plan, features=getattr(c, "features", None), basemap=basemap)
+                    osm_retrieved_at, plan=c.plan, features=getattr(c, "features", None), basemap=basemap, notices=getattr(c, "notices", None))
 
     L = [f"# Loop candidates from {start_text}", "",
          f"Region: {region.name}. Requested {mi(min_m)} to {mi(max_m)}. Generated {now}.", ""]
@@ -1103,7 +1120,8 @@ def write_candidates(report: dict, region, out_dir: Path, start_text: str, osm_r
             L += ["#" + line if line.startswith("## ") else line for line in features_markdown(c.features)]
         L += [f"", f"Files: `candidate_{i}/route.gpx`, `candidate_{i}/summary.md`.", ""]
     L += ["## Not checked by this tool", "",
-          "Water, campsites, permits, closures, trail conditions, and trailhead access: **unknown**.", "",
+          "Water, campsites, trail conditions, and trailhead access: **unknown**. Permits and closures: see each candidate's "
+          "Before you go in its summary.md; anything not listed there is unknown.", "",
           f"Data: {OSM_ATTRIBUTION}, retrieved {osm_retrieved_at}.", ""]
     paths["summary"].write_text("\n".join(L))
     paths["search"].write_text(json.dumps({k: v for k, v in report.items() if k != "candidates"}, indent=1, default=str))

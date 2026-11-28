@@ -47,7 +47,10 @@ BLOCKED = ("no", "private")
 
 # Way tags carried onto graph edges. The raw cache keeps every tag.
 KEEP_TAGS = ("highway", "name", "ref", "sac_scale", "trail_visibility", "access", "foot", "informal", "service",
-             "oneway", "oneway:foot")
+             "oneway", "oneway:foot",
+             # rules the trip quotes (notices.py): permits, fees, dogs, hours, seasons, closure notes
+             "dog", "fee", "reservation", "permit", "operator", "website", "note", "description", "opening_hours",
+             "seasonal", "damage:date", "damage:type")
 
 
 def way_class(tags: dict) -> str | None:
@@ -81,6 +84,13 @@ def access_exclusion_reason(tags: dict) -> str | None:
 
 def foot_overrides_access(tags: dict) -> bool:
     return tags.get("access") in BLOCKED and tags.get("foot") in FOOT_ALLOWED
+
+
+def is_permit(tags: dict) -> bool:
+    """Walking this way is tagged as needing a permit. `foot` is more specific than `access` (OSM semantics), so
+    access=permit with foot=yes|designated|permissive is open on foot."""
+    foot = tags.get("foot")
+    return foot == "permit" or (tags.get("access") == "permit" and foot not in FOOT_ALLOWED)
 
 
 def build_query(region: Region) -> str:

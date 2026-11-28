@@ -34,6 +34,8 @@ class Settings:
     area_thread: bool = True       # prepare areas on a background thread (tests run them inline)
     prepared_gb: float = 8.0       # disk share reserved for areas prepared ahead (backcountry areas prepare-popular)
     plan_jobs: int = 2             # plans running at once, for everyone (BACKCOUNTRY_PLAN_JOBS)
+    nps_key: str | None = None     # National Park Service data service key (BACKCOUNTRY_NPS_API_KEY); None: notices off
+    nps_dir: Path | None = None    # per-park cache of alerts, things to do and park entries (data/nps)
 
     @classmethod
     def default(cls) -> "Settings":
@@ -48,7 +50,8 @@ class Settings:
         return cls(raw_dir=ingest.RAW_DIR, runs_dir=REPO_ROOT / "data" / "runs", regions_dir=REGIONS_DIR,
                    areas_dir=AREAS_DIR, osm_dir=usdata.OSM_DIR, area_limits=limits or None,
                    prepared_gb=float(os.environ.get("BACKCOUNTRY_PREPARED_GB") or 8.0),
-                   plan_jobs=int(os.environ.get("BACKCOUNTRY_PLAN_JOBS") or 2))
+                   plan_jobs=int(os.environ.get("BACKCOUNTRY_PLAN_JOBS") or 2),
+                   nps_key=os.environ.get("BACKCOUNTRY_NPS_API_KEY") or None, nps_dir=REPO_ROOT / "data" / "nps")
 
     @property
     def areas(self) -> Path:
@@ -66,6 +69,8 @@ class LoadedRegion:
     timings: dict = field(default_factory=dict)  # seconds to build the graph, its QA summary and load the DEM
     _features: object = None
     size_bytes: int = 0  # about what this area holds in memory: its raw data (parsed) and the elevation blocks read
+    park_code: str | None = None  # the National Park Service unit this area maps to (nps.NpsClient.park_of); None: no feed
+    park_mapped: bool = False  # the mapping was tried (it needs the parks list; until then notices are pending)
     builds = 0  # class-level counter, for tests
 
     @property
@@ -118,6 +123,7 @@ class RegionStore:
         self._building: dict[tuple, threading.Lock] = {}
         self._retrieved: dict[Path, tuple[int, str | None]] = {}
         self._lock = threading.Lock()  # endpoints run in a threadpool; build each region once
+        self.on_loaded = None  # called with each LoadedRegion once it is built (the NPS client maps and refreshes it)
 
     def ids(self) -> list[str]:
         """Hand-made regions (regions/*.yaml). Generated areas are listed by recent_areas()."""
@@ -234,6 +240,11 @@ class RegionStore:
                 while len(self._loaded) > max(1, self.settings.max_loaded) or (
                         len(self._loaded) > 1 and sum(x.size_bytes for x in self._loaded.values()) > self.settings.max_loaded_bytes):
                     self._loaded.popitem(last=False)
+            if self.on_loaded is not None:
+                try:
+                    self.on_loaded(loaded)
+                except Exception:  # noqa: BLE001 - notices are an extra; a failure there never fails the load
+                    logging.getLogger("backcountry.api").exception("on_loaded failed for %s", region_id)
             return loaded
 
     def loaded_ids(self) -> set[str]:

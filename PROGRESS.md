@@ -988,3 +988,108 @@ passed, 1 skipped; web 209 unit, 12 end-to-end.
   precomputed summary that would let a loaded area drop its raw data from memory; via pairs in both orders.
 - The 97 prepared parks are being topped up to the trails-everywhere elevation rule (`areas prepare-popular`).
 - Next piece: park rules, permits and closures.
+
+## Park rules, permits and closures (built 2026-11-27; branch `permits-closures`)
+
+Spec: `docs/superpowers/specs/2026-11-26-permits-and-closures-design.md`. Plan: `docs/superpowers/plans/2026-11-26-permits-and-closures.md`.
+You almost hiked Old Rag without its day-use ticket, and the Angels Landing day hike the app planned said nothing
+about the permit every hiker needs. The distinctions you drew drive the design: a permit to walk a trail (Angels
+Landing), a permit only to camp (the West Rim top-down, free as a day hike), a day-use ticket (Old Rag), the park
+entrance fee, and closures, each a separate statement.
+
+**Built**
+- `notices.py`: one vocabulary (a notice: kind, text, what it applies to, source, date, links) and the builders.
+  From OpenStreetMap tags already in every cut (`KEEP_TAGS` grew; no area re-cut): permits per trail (`foot=permit`,
+  or `access=permit` without a foot override, following the code's OSM access semantics), dogs, hours and seasons,
+  closure notes on trails (never roads' "closed to private vehicles"), and the camp sites near the plan's camps (permit,
+  fee, reservation, capacity). A destination on a way tagged closed says why, quoting the note and damage tags.
+- `nps.py`: a standard-library client for the National Park Service data service with a per-park disk cache
+  (`data/nps/`; alerts refresh after 6 h, hike records and the park entry after 7 days, the parks list after 30 days).
+  The key (`BACKCOUNTRY_NPS_API_KEY`) travels only in the `X-Api-Key` header and is kept out of URLs, logs, errors and
+  payloads; responses are capped at 5 MB and read as JSON; a failed refresh keeps the cache and says so. An area maps
+  to its park by name, else by the unit's point inside its outline, else by the smallest protected area holding its
+  centre; the mapping and the refresh run when an area is loaded, never in a plan's path.
+- Matching is by names, not distance: a notice attaches to a trail, the start or finish, the destination or a camp's
+  site when they share a run of two or more consecutive words with at least one non-generic word (trailhead names split
+  on "|" and "@"). The NPS places its hike records at trailheads, so a distance rule would have hung the Angels Landing
+  permit on every trip from the Grotto.
+- The "Before you go" block on every candidate, in the API payload (`notices`), the trip view (with chips on the
+  compare cards), `summary.md` and `candidates.md`: route-matched closures and permits first, then park-wide closures
+  and permits, the entrance fee, rules, cautions, information, and the fixed last line "Everything else (water,
+  conditions, permits and closures the sources don't list): unknown." Areas without an NPS unit say there is no official
+  feed; a server without a key says notices aren't set up.
+- "Avoid trails that need a permit" (form switch, `avoid_permit`, `--avoid-permit`): excludes permit edges like
+  `--avoid`; a destination that then can't be reached says the permit trails are avoided.
+- Plan screen: "Park notices: N closures, M more · National Park Service, checked hh:mm" as soon as an area opens,
+  opening the park's list. `GET /api/regions/{id}/notices`.
+- Saved trips: `GET /api/runs/{id}/notices?candidate=n` re-matches a stored trip against the park's current data; the
+  trip view asks for it when online, stores the refreshed snapshot with the saved trip and marks "new since you saved";
+  a plan made before the park's first fetch is filled in the same way (`notices_pending`). The route never changes.
+- Chat: the facts carry `Notice (kind): …` lines; the honesty check lets a permit, closure or "allowed" claim through
+  only when it restates a notice (names its subject, same kind, no negation). "You don't need a permit" is withheld
+  always; the model's instructions say never to conclude from a notice's absence.
+- CLI: `backcountry notices --region <id> [--refresh]`. `serve` prints whether park notices are on.
+
+**Measured** (`scripts/measure-speed`, prepared areas, this laptop): Zion open 1.2 s, plan from the Grotto 35.6 s
+(33.6 s before this piece); Yosemite open 2.9 s, plan from Bridalveil Creek 10.7 s for 3 candidates (9.8 s); Grand
+Canyon open 5.0 s. Notices add well under a second per plan.
+
+**Tests**: pytest 762 passed, 30 skipped; `scripts/heavy-tests` 786 passed, 6 skipped (golden routes and your
+reference tracks unchanged); web 227 unit, 12 end-to-end (the trip shows Before you go, the not-set-up line and the
+unknown line on the keyless test server). The NPS tests run on trimmed recordings of the real Shenandoah and Zion
+responses (`tests/fixtures/nps/`); no key anywhere in them.
+
+**Acceptance (real data, this laptop, 2026-11-27)**. The map-data half and the plumbing are verified live; the NPS
+half is verified on the recorded responses only, because the public `DEMO_KEY` had spent its daily allowance on the
+recordings and two earlier runs (every call answered 429 for the rest of the day). Re-run with a real key: the four
+NPS checks are the ones marked *pending* below.
+- **Angels Landing** day hike from the Grotto: 4.68 mi out and back; "Permit to hike Angels Landing Trail, 0.9 mi of this
+  trip. Reservation required. Fee." with the trail's own description quoted (OpenStreetMap, 2026-10-26) and "Dogs: no,
+  on 4.6 mi". With "Avoid trails that need a permit": no trip, "Angels Landing can't be reached from this start on the
+  mapped trails (trails that need a permit are avoided)." *Pending:* the NPS permit alert alongside it.
+- **West Rim** one way, Lava Point to the Grotto, day hike: 15.32 mi, no walking permit, "Dogs: no, on 14.8 mi". With
+  1 night and "Camps only at known campsites": camp 1 at Campsite 5, "Camp 1 near Campsite 5 (OpenStreetMap): permit,
+  no reservation." Without that switch the planner put the camp between sites (mile 7.7; the nearest site 480 m away
+  along the trail, past the 500 m rule) and no camp notice appeared; the route's camp sites all carry `access=permit`.
+  *Pending:* the Lava Point road closure attached to the start.
+- **Old Rag** day hike from the Saddle Trail lot: 7.42 mi loop; OSM has no permit tag there (as found in the design), so
+  the block is the unknown line until the NPS feed answers. *Pending:* the day-use ticket alert, the Old Rag Circuit
+  record, the parking closure, the entrance fee, the pets rule (all present in the recorded responses and asserted
+  by `tests/test_notices.py`).
+- **Dolly Sods**, 2 nights: 19.02 mi loop, no map-tag rules, the unknown line; with a key but no parks list the block
+  stays *pending* rather than claiming "no feed" (a server without a key says notices aren't set up).
+- **A drawn box inside Zion Canyon** opens as "Area near West Rim Trailhead South"; *pending:* its mapping to Zion.
+- Two bugs found and fixed by the runs, each with a failing test first: the notices endpoint downloaded the parks
+  list in the request thread on an area's first open; and a 429 on the parks list made an area "no official feed" for
+  good instead of pending-and-retried.
+
+**The review** (one fresh reviewer over the whole branch; "with fixes"). Fixed, each with a failing test first:
+- The chat gate let "Watchman Trail is open" and "Dogs are allowed on West Rim Trail" through against notices saying
+  the opposite (any shared two-word run with a notice's text counted as a restatement). A claim now has to name the
+  notice's subject and keep its polarity: closed stays closed, a permit stays required, a rule keeps its yes or no;
+  "permits are optional/waived" can never be restated.
+- The word-run matcher treated direction words as generic, so "South Kaibab Trail closed" attached to the North
+  Kaibab Trail and "East Rim Trail closed" to the West Rim Trail. A shared run must now carry every non-generic word of
+  the item's name; the spec is amended.
+- A failed refresh of a park's data was invisible (the old alerts showed with no "couldn't refresh" line) and was
+  retried on every request; now the cache says stale with the reason and the next try waits a minute.
+- When the parks list itself can't be fetched (bad key, rate limit) every area stayed "Checking park notices…" for
+  good, and saved trips stored the pending flag; now the block says "Couldn't reach the National Park Service; last
+  tried hh:mm. Park notices: unknown.", the phone clears pending when its poll gives up, and the offline copy never
+  says checking.
+- On a keyed server the plan screen showed "Park notices: 0 closures, 1 more" for areas without an NPS unit; it now
+  shows nothing there (the trip's block says there is no feed).
+- The NPS client no longer follows redirects, so a redirect off developer.nps.gov could never carry the key elsewhere.
+Deferred minors: a park's first refresh can flash "couldn't refresh" for a moment while its pieces land; a park code
+from NPS data isn't validated before it names a cache folder; the CLI says "no feed" rather than "list not cached" when
+a key is set but nothing is cached; a "Review changes" re-plan loses destination matching for notices; the park-notices
+sheet collapses when the form re-renders.
+
+**Known gaps and next steps**
+- The NPS feed covers national parks and other NPS units only; Forest Service and state lands get the map-tag items and
+  "No official notice feed for this area." Recreation.gov (where permits are booked, Forest Service ones included) is
+  the next piece if this one leaves gaps.
+- OSM tags are sparse and can be stale: Old Rag's trails carry no permit tag at all (the NPS alert is what catches it).
+  Nothing here ever implies "no permit" from a missing tag.
+- Alerts are free text; the app never changes a route because of one. Only `access`/`foot` tags and the avoid switch do.
+- `DEMO_KEY` is 30 requests an hour per IP; an operator needs their own free key.

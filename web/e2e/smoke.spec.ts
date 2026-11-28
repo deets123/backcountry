@@ -55,6 +55,10 @@ test("every view opens scrolled to its top", async ({ page }) => {
   await expect(page.locator(".card")).toHaveCount(3, { timeout: 30_000 });
   await page.click("#open-trip");
   await expect(page.locator("h1")).toContainText("Candidate 1");
+  // Before you go: the test server has no NPS key, so the block says so and ends with the unknown line
+  await expect(page.getByRole("heading", { name: "Before you go" })).toBeVisible();
+  await expect(page.getByText("Park notices from the National Park Service aren't set up on this server.")).toBeVisible();
+  await expect(page.getByText("Everything else (water, conditions, permits and closures the sources don't list): unknown.")).toBeVisible();
   await page.locator("#panel").evaluate((el) => { el.scrollTop = el.scrollHeight; });  // thumb scrolled to the bottom buttons
   expect(await page.locator("#panel").evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
   await page.click("#replan");

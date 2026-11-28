@@ -277,3 +277,26 @@ def test_cli_prepare_popular(index_path, tmp_path, monkeypatch):
                                  "--raw-dir", str(tmp_path / "raw"), "--areas-dir", str(tmp_path / "areas")])
     assert r.exit_code == 0, r.output
     assert "Prepared 1" in r.output
+
+
+def test_generate_accepts_avoid_permit(tmp_path, monkeypatch, grid):
+    col2 = next(e for e in grid.elements if e["type"] == "way" and e["id"] == 113)
+    col2["tags"] |= {"access": "permit", "foot": "permit"}
+    _cache(tmp_path, monkeypatch, grid.doc())
+    g00 = grid.ids["g00"]
+    result = runner.invoke(app, ["generate", "--region", "dolly_sods", "--trailhead", str(g00), "--total", "2-8", "--type", "loop",
+                                 "--count", "10", "--avoid-permit"])
+    assert result.exit_code == 0, result.output
+    out = tmp_path / "out" / "loops" / f"{g00}_2-8mi"
+    assert "Col 2" not in (out / "candidates.md").read_text()
+    assert (out / "candidate_1" / "summary.md").read_text().count("## Before you go") == 1
+    assert json.loads((out / "candidates.json").read_text())["request"]["avoid_permit"] is True
+
+
+def test_notices_command_without_a_key_prints_the_no_feed_line(tmp_path, monkeypatch, grid):
+    monkeypatch.delenv("BACKCOUNTRY_NPS_API_KEY", raising=False)
+    _cache(tmp_path, monkeypatch, grid.doc())
+    result = runner.invoke(app, ["notices", "--region", "dolly_sods"])
+    assert result.exit_code == 0, result.output
+    assert "No official notice feed for this area." in result.output
+    assert "Park notices from the National Park Service aren't set up" in result.output

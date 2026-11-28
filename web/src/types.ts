@@ -58,7 +58,28 @@ export interface GenerateRequest {
   road_weight?: number; repeat_weight?: number; camps?: string[]; camps_at_sites?: boolean;
   must_visit?: string[]; avoid?: string[]; direction?: "cw" | "ccw" | null;
   days?: DayTarget[]; level?: Level | null; destination?: string | null; finish?: string | null;
+  /** Stay off trails tagged as needing a permit (OpenStreetMap access/foot=permit). */
+  avoid_permit?: boolean;
 }
+
+/** One dated, sourced statement about a permit, fee, closure or rule (notices.py). Nothing concludes anything. */
+export type NoticeKind = "closure" | "permit" | "ticket" | "camp" | "fee" | "rule" | "caution" | "info" | "unknown";
+export interface Notice {
+  kind: NoticeKind; text: string;
+  /** What it is attached to ("trail: Angels Landing Trail", "start: …", "destination: …", "camp 1", "park"). */
+  applies_to: string | null;
+  /** True when it names something on this route; park-wide otherwise. */
+  matched: boolean;
+  source: { name: string | null; ref: string | null; as_of: string | null; checked_at: string | null } | null;
+  links: string[];
+}
+/** GET /api/regions/{id}/notices: the park's current notices, park-wide. */
+export interface ParkNotices {
+  configured: boolean; park: { code: string; name: string } | null; pending: boolean; stale: boolean; error: string | null;
+  checked_at: string | null; notices: Notice[];
+}
+/** GET /api/runs/{id}/notices?candidate=n: a saved trip's notices re-matched against the park's current data. */
+export interface RunNotices { notices: Notice[]; pending: boolean; checked_at: string | null }
 
 export type Level = "easy" | "moderate" | "hard" | "strenuous";
 export interface DayTarget { day: number; level?: Level | null; miles?: [number, number] | null; max_gain_ft?: number | null; max_grade_pct?: number | null }
@@ -98,6 +119,8 @@ export interface Candidate {
   level?: Level | null; rating?: Rating | null; terrain?: TerrainInterval[]; suggestion?: Suggestion | null;
   /** One way: where it ends. Out and back: the node it turns at. (Runs before this piece have neither.) */
   finish?: { node: number; lat: number; lon: number; name: string | null } | null; turnaround?: number | null;
+  /** "Before you go": permits, fees, closures and rules, ending with the unknown line. Runs saved earlier have none. */
+  notices?: Notice[];
 }
 export interface Run {
   run_id: string; region: string; request: GenerateRequest & { total: [number, number]; daily: [number, number] | null };
@@ -105,7 +128,9 @@ export interface Run {
   search: { loops_found: number; lollipops_found: number; stems_tried: number; via_pairs_tried: number; scored: number;
     seconds: number; widened: boolean; truncated: boolean; avoided_edges: number; notes: string[]; must_visit_notes: string[];
     /** The searched place every trip went to and through, when there was one. */
-    destination?: { name: string; kind: string; center: [number, number]; note: string | null } | null };
+    destination?: { name: string; kind: string; center: [number, number]; note: string | null } | null;
+    /** The park's notices hadn't been fetched yet when this was planned: ask /runs/{id}/notices until it clears. */
+    notices_pending?: boolean };
   candidates: Candidate[];
   data_sources: { name: string; retrieved_at: string | null; attribution: string }[];
   data_cut?: string | null;  // generated areas: the extract date the trip was planned on

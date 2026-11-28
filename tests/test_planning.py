@@ -425,3 +425,52 @@ def test_too_many_pinned_camps_is_still_a_camps_error(grid):
     with pytest.raises(RequestError) as e:
         plan_trip(REGION, raw, tg, req)
     assert e.value.field == "camps"
+
+
+# --- permits and notices -----------------------------------------------------------------------------
+
+from backcountry.export import route_segments
+
+
+def _permit_grid(grid):
+    col2 = next(e for e in grid.elements if e["type"] == "way" and e["id"] == 113)  # "Col 2", part of the right-hand loops
+    col2["tags"] |= {"access": "permit", "foot": "permit"}
+    return grid
+
+
+def _labels(c):
+    return [s["label"] for s in route_segments(c.route)]
+
+
+def test_avoid_permit_excludes_permit_edges_like_avoid(grid):
+    from backcountry.planning import permit_keys
+
+    g = _permit_grid(grid)
+    raw = g.doc()
+    tg = build_graph(raw, CRS)
+    assert permit_keys(tg) == {k for *_, k, d in tg.graph.edges(keys=True, data=True) if d["name"] == "Col 2"}
+    base = {"trailhead": str(g.ids["g00"]), "total": "2-8", "type": "loop", "count": 10}
+    with_permit = plan_trip(REGION, raw, tg, GenerateRequest.from_dict(base), dem=None)
+    assert any("Col 2" in _labels(c) for c in with_permit.report["candidates"])
+    req = GenerateRequest.from_dict(base | {"avoid_permit": True})
+    assert req.avoid_permit is True and req.to_dict()["avoid_permit"] is True
+    without = plan_trip(REGION, raw, tg, req, dem=None)
+    assert without.report["candidates"] and all("Col 2" not in _labels(c) for c in without.report["candidates"])
+
+
+def test_candidates_carry_notices_and_pending_follows_the_park(grid):
+    g = _permit_grid(grid)
+    raw = g.doc()
+    tg = build_graph(raw, CRS)
+    req = GenerateRequest.from_dict({"trailhead": str(g.ids["g00"]), "total": "2-8", "type": "loop", "count": 10})
+    r = plan_trip(REGION, raw, tg, req, dem=None)
+    assert r.report["notices_pending"] is False
+    for c in r.report["candidates"]:
+        assert c.notices[-1]["kind"] == "unknown"
+        assert any(n["text"] == "Park notices from the National Park Service aren't set up on this server." for n in c.notices)
+    on_permit = next(c for c in r.report["candidates"] if "Col 2" in _labels(c))
+    assert any(n["kind"] == "permit" and n["applies_to"] == "trail: Col 2" and n["matched"] for n in on_permit.notices)
+    r2 = plan_trip(REGION, raw, tg, req, dem=None, park={"code": "zion", "configured": True, "data": None})
+    assert r2.report["notices_pending"] is True
+    for c in r2.report["candidates"]:
+        assert [n["kind"] for n in c.notices if not (n["source"] and n["source"]["name"] == "OpenStreetMap")] == ["unknown"]

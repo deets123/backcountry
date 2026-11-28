@@ -301,6 +301,8 @@ def generate(
     must_visit: list[str] = typer.Option(None, "--must-visit",
                                          help="A place the loop must include: trailhead id, OSM node id, lat,lon, or a trail name. Repeatable."),
     avoid: list[str] = typer.Option(None, "--avoid", help="A trail/road name or way id to stay off. Repeatable."),
+    avoid_permit: bool = typer.Option(False, "--avoid-permit",
+                                      help="Stay off trails tagged as needing a permit (OpenStreetMap access/foot=permit)."),
     direction: str = typer.Option(None, help="Walk loops clockwise (cw) or counterclockwise (ccw)."),
     out_dir: Path = typer.Option(None, help="Output directory (default out/loops/<trailhead>_<total>mi)"),
 ):
@@ -310,7 +312,7 @@ def generate(
             "trailhead": trailhead, "total": total, "nights": nights, "daily": daily, "max_gain_day": max_gain_day,
             "type": type_, "count": count, "no_roads": no_roads, "road_weight": road_weight,
             "repeat_weight": repeat_weight, "camps": camp or [], "camps_at_sites": camps_at_sites,
-            "must_visit": must_visit or [], "avoid": avoid or [], "direction": direction,
+            "must_visit": must_visit or [], "avoid": avoid or [], "direction": direction, "avoid_permit": avoid_permit,
         })
     except RequestError as e:
         typer.echo(f"--{e.field.replace('_', '-')}: {e}", err=True)
@@ -329,7 +331,7 @@ def generate(
     request = {"trailhead": trailhead, "total": total, "type": type_, "nights": nights, "daily": daily,
                "max_gain_day": max_gain_day, "no_roads": no_roads, "road_weight": road_weight, "camps": camp or [],
                "camps_at_sites": camps_at_sites, "must_visit": must_visit or [], "avoid": avoid or [],
-               "direction": direction}  # the CLI's own record format, unchanged from before the API
+               "direction": direction, "avoid_permit": avoid_permit}  # the CLI's own record format (plus avoid_permit)
     out_dir = out_dir or OUT_DIR / "loops" / f"{slugify(trailhead)}_{total}mi"
     try:
         paths = write_candidates(report, r, out_dir, start["name"], tg.retrieved_at, lo_mi * M_PER_MI, hi_mi * M_PER_MI,
@@ -475,12 +477,47 @@ def _run_server(host: str, port: int) -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     app = create_app()
-    s = status_summary(app.state.settings, app.state.areas)
+    s = status_summary(app.state.settings, app.state.areas, app.state.nps)
     typer.echo(f"Index: {s['index_date'] or 'none (search finds hand-made regions only)'}. Areas on disk: {s['areas']} "
                f"({s['used_gb']} GB; {s['prepared']} prepared ahead). Free disk: {s['free_gb']} GB. "
                f"Limits: {s['limits']['disk_gb']:g} GB for areas, {s['limits']['min_free_gb']:g} GB kept free, "
-               f"{s['plan_jobs']} plans at once.")
+               f"{s['plan_jobs']} plans at once. "
+               + (f"Park notices: on (cache {s['nps']['cache_kb']} KB)." if s["nps"]["configured"]
+                  else "Park notices: off (set BACKCOUNTRY_NPS_API_KEY in .env)."))
     uvicorn.run(app, host=host, port=port)
+
+
+@app.command()
+def notices(
+    region: str = RegionOpt,
+    refresh: bool = typer.Option(False, "--refresh", help="Fetch the park's current notices (needs BACKCOUNTRY_NPS_API_KEY); "
+                                                        "otherwise show what the server has cached."),
+):
+    """Park notices (permits, closures, fees, rules) for a region or area, as the server would show them."""
+    from backcountry.api.store import Settings
+    from backcountry.notices import NOT_SET_UP, assemble
+    from backcountry.nps import NpsClient
+
+    settings = Settings.default()
+    client = NpsClient(settings.nps_dir, settings.nps_key, thread=False)
+    r, _raw, _tg = _load(region)
+    code = client.park_for(r, refresh=refresh and client.configured)
+    typer.echo(f"Park: {client.park_name(code) or code} ({code})" if code else "No official notice feed for this area.")
+    if not client.configured:
+        typer.echo(NOT_SET_UP + (" Showing the cache." if code and client.cached(code) else ""))
+    data = (client.refresh(code) if refresh and client.configured else client.cached(code)) if code else None
+    if data:
+        typer.echo(f"Checked {data['fetched_at']}" + (f"; couldn't refresh: {data['error']}" if data.get("stale") and data.get("error") else ""))
+    elif code and client.configured:
+        typer.echo("Nothing cached yet; run with --refresh to fetch.")
+    block, _pending = assemble([], {"code": code, "configured": client.configured, "data": data}, [])
+    for n in block:
+        if n["kind"] == "unknown":
+            continue
+        src = n.get("source") or {}
+        when = src.get("as_of") or (src.get("checked_at") or "")[:10]
+        tail = f" ({src['name']}{', ' + when if when else ''})" if src.get("name") else ""
+        typer.echo(f"[{n['kind']}] {n['text']}{tail}" + "".join(f" {u}" for u in n.get("links") or []))
 
 
 @app.command()

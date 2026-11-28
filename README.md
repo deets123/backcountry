@@ -207,8 +207,38 @@ Saved trips: when a saved trip is opened online and its area has newer trail dat
 and says about how much it would download. "Review changes" re-plans the same route on the new data and lists what
 changed; only "Accept" replaces the trip. Nothing updates on its own.
 
-Users only ever send a search result, a box or a point. Downloads come from fixed hosts (Geofabrik, USGS) and are
-read as data, never run.
+Users only ever send a search result, a box or a point. Downloads come from fixed hosts (Geofabrik, USGS, the National
+Park Service) and are read as data, never run.
+
+## Permits, closures and park notices
+
+Every trip has a **Before you go** block: permits to walk a trail, permits or reservations to camp at a site, day-use
+tickets for a hike, the park entrance fee, closures, and rules (dogs, hours, seasons), each quoted from its source with
+the source's date, and ending with the line that everything else is unknown. Nothing is interpreted: the app never
+says a trip needs no permit or that a trail is open; it repeats what a source says, dated, and says "unknown" where the
+sources are silent. Two sources:
+
+- **OpenStreetMap tags** already in every area's trail data: `access`/`foot=permit` on trails (Angels Landing, the
+  Narrows top-down), permit, fee and reservation tags on camp sites (how "a permit only to camp" is told apart from
+  "a permit to walk"), dogs, hours, seasons, and closure notes on trails. A trail tagged permit is still planned and
+  flagged; **Avoid trails that need a permit** in the plan form (or `--avoid-permit`) stays off them. Trails tagged
+  closed are never used, and a destination on one says why, quoting the tag.
+- **The National Park Service data service**, for national parks and other NPS units: current alerts (closures,
+  cautions, permit notices such as "Ticket Required to Hike Old Rag"), the park's per-hike records (reservation
+  required, fees, pets, season) and the entrance fee. A notice attaches to the trip when it names a trail, the start or
+  finish, the destination or a camp's site on the route; the rest is listed park-wide. The plan screen shows the park's
+  current closures and notices as soon as an area opens. Outside NPS land the block says there is no official feed.
+
+Saved trips keep their notices with dates; opened online, they refresh and mark what is new since the save (the route
+itself never changes without Accept). The chat answers "do I need a permit?" only by restating a notice. GPX summaries
+carry the block.
+
+Operator setup: a free key from https://www.nps.gov/subjects/developer/get-started.htm in `.env` as
+`BACKCOUNTRY_NPS_API_KEY` (`DEMO_KEY` works for a first try, 30 requests an hour). Without it the server runs and
+every trip says park notices aren't set up. Each park's data is cached under `data/nps/` (alerts refresh after
+6 hours, hike records and the park entry after 7 days, the parks list after 30 days), fetched when an area is loaded,
+never in a plan's path; a failed refresh keeps the cache and says when it was last checked. `uv run backcountry
+notices --region <id> [--refresh]` prints what the server would show.
 
 ## Development
 

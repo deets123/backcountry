@@ -17,6 +17,7 @@ from backcountry.api.endpoints import router
 from backcountry.api.plan_jobs import PlanJobs
 from backcountry.api.store import NotFound, RegionStore, RunStore, Settings
 from backcountry.chat.models import ChatModel, ModelBadOutput, ModelTimeout, ModelUnavailable, model_from_env
+from backcountry.nps import NpsClient
 from backcountry.planning import RequestError
 from backcountry.region import REPO_ROOT
 
@@ -26,8 +27,9 @@ CHAT_SLOTS = 2
 
 
 def create_app(settings: Settings | None = None, web_dist: Path | None = None, chat_model: ChatModel | None = None,
-               dem_fetch=None) -> FastAPI:
-    """The API, plus the built web app at / when web/dist exists (so a phone gets both from one address)."""
+               dem_fetch=None, nps_fetch=None) -> FastAPI:
+    """The API, plus the built web app at / when web/dist exists (so a phone gets both from one address).
+    `dem_fetch` and `nps_fetch` replace the USGS and National Park Service downloads (tests)."""
     settings = settings or Settings.default()
     app = FastAPI(title="Backcountry route engine", version="0.2")
     app.state.settings = settings
@@ -36,6 +38,10 @@ def create_app(settings: Settings | None = None, web_dist: Path | None = None, c
     app.state.areas = AreaWorker(settings, app.state.regions, app.state.runs, dem_fetch=dem_fetch)
     app.state.plans = PlanJobs(settings)
     app.state.areas.in_use = app.state.plans.regions_in_use  # never evict an area with a plan under way
+    # park notices: each loaded area is mapped to its NPS unit and refreshed in the background, never in a plan's path
+    app.state.nps = NpsClient(settings.nps_dir, settings.nps_key, fetch=nps_fetch, index_opener=app.state.areas.index,
+                              thread=settings.area_thread)
+    app.state.regions.on_loaded = app.state.nps.attach
     cached: list = [chat_model]
 
     def get_chat_model() -> ChatModel:
