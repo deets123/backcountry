@@ -67,6 +67,7 @@ class NpsClient:
         self.index_opener = index_opener
         self.thread = thread
         self._lock = threading.Lock()
+        self._parks_fetch = threading.Lock()
         self._busy: set[str] = set()
 
     @property
@@ -214,23 +215,41 @@ class NpsClient:
 
     # --- parks and the area-to-park mapping ----------------------------------------------------------------
 
+    PARK_FIELDS = ("parkCode", "fullName", "name", "designation", "states", "latitude", "longitude", "url", "entranceFees")
+
+    def _read_parks(self, path: Path | None) -> dict | None:
+        """The parks file, parsed once per change (every request maps areas through it)."""
+        if path is None or not path.exists():
+            return None
+        stamp = path.stat().st_mtime_ns
+        memo = getattr(self, "_parks_memo", None)
+        if memo is None or memo[0] != stamp:
+            memo = (stamp, self._read(path))
+            self._parks_memo = memo
+        return memo[1]
+
     def parks(self, refresh: bool = True) -> list[dict]:
         """The list of NPS units (cached PARKS_TTL_S); [] when there is no cache and no key. `refresh=False` never
-        fetches: the cache or nothing (a plan must not wait on the network)."""
+        fetches: the cache or nothing (a request must not wait on the network; the background attach refreshes)."""
         path = self._path(None, "parks")
-        doc = self._read(path)
+        doc = self._read_parks(path)
         if doc is not None and (not refresh or not self.configured or self._age(doc) <= PARKS_TTL_S):
             return doc["data"]
         if not self.configured or not refresh:
             return doc["data"] if doc else []
-        try:
-            return self._write(path, self._pages("parks", {}))["data"]
-        except Exception as e:  # noqa: BLE001
-            log.warning("the parks list could not be refreshed (%s)", self._safe(e))
-            return doc["data"] if doc else []
+        with self._parks_fetch:  # one fetch at a time; a second caller finds the fresh file
+            doc = self._read_parks(path)
+            if doc is not None and self._age(doc) <= PARKS_TTL_S:
+                return doc["data"]
+            try:
+                units = [{k: p.get(k) for k in self.PARK_FIELDS} for p in self._pages("parks", {})]
+                return self._write(path, units)["data"]
+            except Exception as e:  # noqa: BLE001
+                log.warning("the parks list could not be refreshed (%s)", self._safe(e))
+                return doc["data"] if doc else []
 
     def park_name(self, code: str) -> str | None:
-        return next((p.get("fullName") for p in self.parks() if p.get("parkCode") == code), None)
+        return next((p.get("fullName") for p in self.parks(refresh=False) if p.get("parkCode") == code), None)
 
     def attach(self, loaded) -> None:
         """A loaded area: map it to its park and refresh the park's data when due, off the request thread when

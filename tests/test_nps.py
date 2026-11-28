@@ -122,3 +122,15 @@ def test_park_for_a_hand_made_region_uses_its_bbox(tmp_path):
     assert c.park_for(load_region("dolly_sods")) is None  # no NPS unit point inside Dolly Sods' box
     fake = _region("Somewhere", None, BBox(south=37.0, west=-113.3, north=37.6, east=-112.8))
     assert c.park_for(fake) == "zion"  # Zion's point is inside
+
+
+def test_park_name_and_park_of_never_fetch_in_the_request_path(tmp_path):
+    """The parks list is fetched by the background attach, never by a request: with no cache, park_name is None and
+    park_of says pending, and fetch is not called."""
+    fetch = FakeFetch({})
+    c = _client(tmp_path, fetch, lambda: 1.0)
+    assert c.park_name("zion") is None
+    loaded = type("L", (), {"region": _region("Zion National Park", {"name": "Zion National Park", "osm": None}), "park_code": None,
+                            "park_mapped": False})()
+    assert c.park_of(loaded) == {"code": None, "configured": True, "data": None, "pending": True}
+    assert fetch.calls == []
