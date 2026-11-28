@@ -1034,8 +1034,8 @@ entrance fee, and closures, each a separate statement.
 (33.6 s before this piece); Yosemite open 2.9 s, plan from Bridalveil Creek 10.7 s for 3 candidates (9.8 s); Grand
 Canyon open 5.0 s. Notices add well under a second per plan.
 
-**Tests**: pytest 756 passed, 30 skipped; `scripts/heavy-tests` 780 passed, 6 skipped (golden routes and your
-reference tracks unchanged); web 225 unit, 12 end-to-end (the trip shows Before you go, the not-set-up line and the
+**Tests**: pytest 762 passed, 30 skipped; `scripts/heavy-tests` 786 passed, 6 skipped (golden routes and your
+reference tracks unchanged); web 227 unit, 12 end-to-end (the trip shows Before you go, the not-set-up line and the
 unknown line on the keyless test server). The NPS tests run on trimmed recordings of the real Shenandoah and Zion
 responses (`tests/fixtures/nps/`); no key anywhere in them.
 
