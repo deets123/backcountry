@@ -124,13 +124,43 @@ def test_park_for_a_hand_made_region_uses_its_bbox(tmp_path):
     assert c.park_for(fake) == "zion"  # Zion's point is inside
 
 
-def test_park_name_and_park_of_never_fetch_in_the_request_path(tmp_path):
-    """The parks list is fetched by the background attach, never by a request: with no cache, park_name is None and
-    park_of says pending, and fetch is not called."""
-    fetch = FakeFetch({})
-    c = _client(tmp_path, fetch, lambda: 1.0)
-    assert c.park_name("zion") is None
+def test_park_name_and_park_of_never_wait_on_the_network(tmp_path):
+    """The parks list is fetched in the background, never in a request: with no cache and a slow network, park_name is
+    None at once and park_of says pending at once (the fetch it kicks off runs on its own thread)."""
+    import threading
+    import time as _time
+
+    started = threading.Event()
+
+    def slow_fetch(url, headers):
+        started.set()
+        _time.sleep(1.5)
+        raise ValueError("slow network")
+    c = nps.NpsClient(tmp_path / "nps", "k", fetch=slow_fetch, clock=_time.time, thread=True)
     loaded = type("L", (), {"region": _region("Zion National Park", {"name": "Zion National Park", "osm": None}), "park_code": None,
                             "park_mapped": False})()
+    t0 = _time.perf_counter()
+    assert c.park_name("zion") is None
     assert c.park_of(loaded) == {"code": None, "configured": True, "data": None, "pending": True}
-    assert fetch.calls == []
+    assert _time.perf_counter() - t0 < 0.5
+    assert started.wait(2.0)  # the fetch did start, off the request thread
+
+
+def test_a_failed_parks_fetch_leaves_the_area_unmapped_until_it_succeeds(tmp_path):
+    """The first attach fails to get the parks list (a rate limit): the area stays pending, not 'no feed', and a
+    later attach maps it once the list arrives."""
+    import urllib.error
+
+    now = [1_000.0]
+    fetch = FakeFetch({}, fail={"/parks?": urllib.error.HTTPError("u", 429, "Too Many", {}, None)})
+    c = _client(tmp_path, fetch, lambda: now[0])
+    loaded = type("L", (), {"region": _region("Zion National Park", {"name": "Zion National Park", "osm": None}), "park_code": None,
+                            "park_mapped": False})()
+    c.attach(loaded)
+    assert loaded.park_mapped is False and c.park_of(loaded)["pending"] is True
+    now[0] += nps.PARKS_RETRY_S + 1
+    c.fetch = FakeFetch({"/parks?": (FIX / "parks_small.json").read_bytes(), "/alerts?": (FIX / "zion_alerts.json").read_bytes(),
+                         "/thingstodo?": (FIX / "zion_things.json").read_bytes()})
+    c.attach(loaded)
+    assert loaded.park_mapped is True and loaded.park_code == "zion"
+    assert c.park_of(loaded)["pending"] is False and c.park_of(loaded)["data"]["alerts"]

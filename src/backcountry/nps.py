@@ -28,6 +28,7 @@ HOST = "https://developer.nps.gov/api/v1"
 PARK_CODE = re.compile(r"^[a-z0-9]{2,8}$")
 ALERTS_TTL_S, THINGS_TTL_S, PARKS_TTL_S = 6 * 3600, 7 * 86400, 30 * 86400
 MAX_BYTES, TIMEOUT_S, PAGE = 5_000_000, 10, 50
+PARKS_RETRY_S = 60  # after a failed parks-list fetch, the next loaded area or request tries again this much later
 PIECES = {"alerts": ALERTS_TTL_S, "things": THINGS_TTL_S, "park": THINGS_TTL_S}
 
 log = logging.getLogger("backcountry.nps")
@@ -69,6 +70,7 @@ class NpsClient:
         self._lock = threading.Lock()
         self._parks_fetch = threading.Lock()
         self._busy: set[str] = set()
+        self._parks_failed_at = float("-inf")
 
     @property
     def configured(self) -> bool:
@@ -253,21 +255,33 @@ class NpsClient:
 
     def attach(self, loaded) -> None:
         """A loaded area: map it to its park and refresh the park's data when due, off the request thread when
-        `thread` (the region store calls this as `on_loaded`)."""
+        `thread` (the region store calls this as `on_loaded`). When the parks list can't be fetched the area stays
+        unmapped (pending), never "no feed", and a later request tries again after PARKS_RETRY_S."""
         if not self.configured:
             loaded.park_mapped = True  # nothing to fetch: the mapping needs no network either way
             loaded.park_code = self.park_for(loaded.region, refresh=False)
             return
+        key = f"attach:{getattr(loaded.region, 'id', id(loaded))}"
+        with self._lock:
+            if key in self._busy:
+                return
+            self._busy.add(key)
 
         def run():
             try:
-                code = self.park_for(loaded.region)
+                if not self.parks():
+                    self._parks_failed_at = self.clock()
+                    return
+                code = self.park_for(loaded.region, refresh=False)
                 loaded.park_code, loaded.park_mapped = code, True
                 if code:
                     self.kick(code)
             except Exception:  # noqa: BLE001
                 log.exception("mapping %s to a park failed", getattr(loaded.region, "id", "?"))
-                loaded.park_mapped = True
+                self._parks_failed_at = self.clock()
+            finally:
+                with self._lock:
+                    self._busy.discard(key)
 
         if self.thread:
             threading.Thread(target=run, name="nps-attach", daemon=True).start()
@@ -281,6 +295,10 @@ class NpsClient:
             if self.parks(refresh=False):
                 loaded.park_code, loaded.park_mapped = self.park_for(loaded.region, refresh=False), True
             elif self.configured:
+                if self.clock() - self._parks_failed_at > PARKS_RETRY_S:
+                    self.attach(loaded)  # the list never arrived (or failed a while ago): try again, in the background
+                    if loaded.park_mapped:  # inline mode mapped it just now
+                        return self.park_of(loaded)
                 return {"code": None, "configured": True, "data": None, "pending": True}
             else:
                 loaded.park_code, loaded.park_mapped = None, True
