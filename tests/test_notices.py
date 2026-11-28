@@ -240,3 +240,21 @@ def test_west_rim_day_hike_gets_the_road_closure_but_not_the_angels_landing_reco
     assert not any(n["matched"] and "Angels Landing" in n["text"] for n in out)  # its tags say "west rim"; titles only
     assert any(not n["matched"] and n["kind"] == "permit" and "Angels Landing" in n["text"] for n in out)  # park-wide, still shown
     assert any(n["matched"] and "West Rim to Scout Lookout" in n["text"] for n in out)  # the record that does name the trail
+
+
+def test_direction_and_upper_lower_pairs_do_not_cross_match():
+    """A shared run must carry every non-stop word of the item: 'South Kaibab Trail closed' is not about North Kaibab."""
+    assert N.match_items("South Kaibab Trail closed", [("trail", "North Kaibab Trail")]) == []
+    assert N.match_items("East Rim Trail closed", [("trail", "West Rim Trail")]) == []
+    assert N.match_items("Upper Emerald Pools Trail closed", [("trail", "Lower Emerald Pools Trail")]) == []
+    assert N.match_items("North Kaibab Trail closed below Roaring Springs", [("trail", "North Kaibab Trail")]) == ["trail: North Kaibab Trail"]
+    assert N.match_items("Infrastructure Improvements to Old Rag Trailhead", [("destination", "Old Rag Mountain")]) == ["destination: Old Rag Mountain"]
+
+
+def test_assemble_says_when_the_park_service_could_not_be_reached():
+    block, pending = N.assemble([], {"code": None, "configured": True, "data": None, "pending": False,
+                                     "error": "the parks list could not be fetched", "tried_at": "2026-11-27T10:04:00Z"}, [])
+    assert pending is False
+    assert [n["kind"] for n in block] == ["info", "unknown"]
+    assert block[0]["text"].startswith("Couldn't reach the National Park Service; last tried 2026-11-27 10:04.")
+    assert "unknown" in block[0]["text"].lower() and "No official notice feed" not in block[0]["text"]

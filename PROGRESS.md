@@ -1039,7 +1039,7 @@ reference tracks unchanged); web 225 unit, 12 end-to-end (the trip shows Before 
 unknown line on the keyless test server). The NPS tests run on trimmed recordings of the real Shenandoah and Zion
 responses (`tests/fixtures/nps/`); no key anywhere in them.
 
-**Acceptance (real data, this laptop, 2026-11-28)**. The map-data half and the plumbing are verified live; the NPS
+**Acceptance (real data, this laptop, 2026-11-27)**. The map-data half and the plumbing are verified live; the NPS
 half is verified on the recorded responses only, because the public `DEMO_KEY` had spent its daily allowance on the
 recordings and two earlier runs (every call answered 429 for the rest of the day). Re-run with a real key: the four
 NPS checks are the ones marked *pending* below.
@@ -1062,6 +1062,28 @@ NPS checks are the ones marked *pending* below.
 - Two bugs found and fixed by the runs, each with a failing test first: the notices endpoint downloaded the parks
   list in the request thread on an area's first open; and a 429 on the parks list made an area "no official feed" for
   good instead of pending-and-retried.
+
+**The review** (one fresh reviewer over the whole branch; "with fixes"). Fixed, each with a failing test first:
+- The chat gate let "Watchman Trail is open" and "Dogs are allowed on West Rim Trail" through against notices saying
+  the opposite (any shared two-word run with a notice's text counted as a restatement). A claim now has to name the
+  notice's subject and keep its polarity: closed stays closed, a permit stays required, a rule keeps its yes or no;
+  "permits are optional/waived" can never be restated.
+- The word-run matcher treated direction words as generic, so "South Kaibab Trail closed" attached to the North
+  Kaibab Trail and "East Rim Trail closed" to the West Rim Trail. A shared run must now carry every non-generic word of
+  the item's name; the spec is amended.
+- A failed refresh of a park's data was invisible (the old alerts showed with no "couldn't refresh" line) and was
+  retried on every request; now the cache says stale with the reason and the next try waits a minute.
+- When the parks list itself can't be fetched (bad key, rate limit) every area stayed "Checking park notices…" for
+  good, and saved trips stored the pending flag; now the block says "Couldn't reach the National Park Service; last
+  tried hh:mm. Park notices: unknown.", the phone clears pending when its poll gives up, and the offline copy never
+  says checking.
+- On a keyed server the plan screen showed "Park notices: 0 closures, 1 more" for areas without an NPS unit; it now
+  shows nothing there (the trip's block says there is no feed).
+- The NPS client no longer follows redirects, so a redirect off developer.nps.gov could never carry the key elsewhere.
+Deferred minors: a park's first refresh can flash "couldn't refresh" for a moment while its pieces land; a park code
+from NPS data isn't validated before it names a cache folder; the CLI says "no feed" rather than "list not cached" when
+a key is set but nothing is cached; a "Review changes" re-plan loses destination matching for notices; the park-notices
+sheet collapses when the form re-renders.
 
 **Known gaps and next steps**
 - The NPS feed covers national parks and other NPS units only; Forest Service and state lands get the map-tag items and

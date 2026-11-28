@@ -15,9 +15,10 @@ KIND_ORDER = {k: i for i, k in enumerate(KINDS)}
 UNKNOWN_LINE = "Everything else (water, conditions, permits and closures the sources don't list): unknown."
 MAX_TEXT = 400  # characters of source text kept per notice
 
-# Words that never match a notice to a route item on their own: a run of two or more words needs one other word.
-GENERIC = frozenset("trail trailhead trailheads road loop lot parking mountain peak lake creek north south east west "
-                    "upper lower the to and of".split())
+# Words that don't identify a trail: a notice matches a route item when the two share a run of two or more consecutive
+# words that carries every other word of the item's name. Direction words stay significant, so "South Kaibab Trail
+# closed" is not about the North Kaibab Trail and "East Rim Trail closed" is not about the West Rim Trail.
+GENERIC = frozenset("trail trailhead trailheads road loop lot parking mountain peak lake creek the to and of".split())
 MAX_RUN = 6  # longest word run tried when matching
 
 _HTTP = re.compile(r"^https?://", re.IGNORECASE)
@@ -92,10 +93,14 @@ def name_parts(name: str) -> list[str]:
 
 
 def _runs(words: list[str]):
+    """Runs of two or more consecutive words of a name that carry every one of its non-generic words."""
+    required = {w for w in words if w not in GENERIC}
+    if not required:
+        return
     for n in range(min(MAX_RUN, len(words)), 1, -1):
         for i in range(len(words) - n + 1):
             run = words[i:i + n]
-            if any(w not in GENERIC for w in run):
+            if required <= set(run):
                 yield run
 
 
@@ -105,8 +110,9 @@ def _contains(seq: list[str], run: list[str]) -> bool:
 
 
 def match_items(text: str, items: list[tuple[str, str]]) -> list[str]:
-    """Route items ("label", "name") that `text` names: the two share a run of two or more consecutive words
-    with at least one word outside GENERIC. Returns "label: name" in item order."""
+    """Route items ("label", "name") that `text` names: the two share a run of two or more consecutive words that
+    carries every non-generic word of the item's name (or of one part of a "A | B @ C" trailhead name). Returns
+    "label: name" in item order."""
     words = tokens(text)
     out: list[str] = []
     for label, name in items:
@@ -375,9 +381,14 @@ def assemble(osm: list[dict], park: dict | None, items: list[tuple[str, str]]) -
     pending when the park is known and configured but its data hasn't arrived yet."""
     park = park or {"code": None, "configured": False, "data": None}
     code, configured, data = park.get("code"), bool(park.get("configured")), park.get("data")
+    unreachable = configured and data is None and bool(park.get("error"))  # the service couldn't be reached: say so
     # pending: the park is known but its data hasn't arrived, or the parks list itself hasn't (park["pending"])
-    pending = bool(park.get("pending")) or (bool(code) and configured and data is None)
+    pending = not unreachable and (bool(park.get("pending")) or (bool(code) and configured and data is None))
     block = list(osm)
+    if unreachable:
+        when = str(park.get("tried_at") or "")[:16].replace("T", " ")
+        block.append(notice("info", f"Couldn't reach the National Park Service; last tried {when}. Park notices: unknown.",
+                            applies_to="park", source=NPS, checked_at=park.get("tried_at")))
     if data:
         block += nps_notices(data, items)
         if data.get("stale"):
@@ -386,7 +397,7 @@ def assemble(osm: list[dict], park: dict | None, items: list[tuple[str, str]]) -
                                 checked_at=data.get("fetched_at")))
     if not configured:
         block.append(notice("info", NOT_SET_UP, applies_to="park"))
-    elif code is None and not pending:
+    elif code is None and not pending and not unreachable:
         block.append(notice("info", NO_FEED, applies_to="park"))
     block.sort(key=_order)
     block.append(notice("unknown", UNKNOWN_LINE))

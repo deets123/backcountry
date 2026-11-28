@@ -157,10 +157,73 @@ def test_a_failed_parks_fetch_leaves_the_area_unmapped_until_it_succeeds(tmp_pat
     loaded = type("L", (), {"region": _region("Zion National Park", {"name": "Zion National Park", "osm": None}), "park_code": None,
                             "park_mapped": False})()
     c.attach(loaded)
-    assert loaded.park_mapped is False and c.park_of(loaded)["pending"] is True
+    park = c.park_of(loaded)
+    assert loaded.park_mapped is False and park["pending"] is False and "429" in park["error"]  # unreachable, said so, not "no feed"
     now[0] += nps.PARKS_RETRY_S + 1
     c.fetch = FakeFetch({"/parks?": (FIX / "parks_small.json").read_bytes(), "/alerts?": (FIX / "zion_alerts.json").read_bytes(),
                          "/thingstodo?": (FIX / "zion_things.json").read_bytes()})
     c.attach(loaded)
     assert loaded.park_mapped is True and loaded.park_code == "zion"
     assert c.park_of(loaded)["pending"] is False and c.park_of(loaded)["data"]["alerts"]
+
+
+def test_a_failed_refresh_is_visible_from_the_cache_and_not_retried_at_once(tmp_path):
+    now = [1_000.0]
+    c = _client(tmp_path, FakeFetch(_pages()), lambda: now[0])
+    c.refresh("shen")
+    now[0] += nps.ALERTS_TTL_S + 1
+    c.fetch = FakeFetch({}, fail={"/alerts?": urllib.error.HTTPError("u", 429, "Too Many", {}, None)})
+    c.refresh("shen")
+    cached = c.cached("shen")
+    assert cached["stale"] is True and "429" in cached["error"] and cached["alerts"]  # the old alerts stay, dated
+    assert c.due("shen") is False  # a failure a moment ago: no retry on the next request
+    now[0] += nps.PARKS_RETRY_S + 1
+    assert c.due("shen") is True
+    c.fetch = FakeFetch(_pages())
+    c.refresh("shen")
+    assert c.cached("shen")["stale"] is False and c.cached("shen")["error"] is None
+
+
+def test_park_of_reports_an_unreachable_service_instead_of_pending_forever(tmp_path):
+    now = [1_000.0]
+    c = _client(tmp_path, FakeFetch({}, fail={"/parks?": urllib.error.HTTPError("u", 429, "Too Many", {}, None)}), lambda: now[0])
+    loaded = type("L", (), {"region": _region("Zion National Park", {"name": "Zion National Park", "osm": None}), "park_code": None,
+                            "park_mapped": False})()
+    c.attach(loaded)
+    park = c.park_of(loaded)
+    assert park["pending"] is False and park["code"] is None and "429" in park["error"] and park["tried_at"]
+    block, pending = nps_notices_block(c, loaded)
+    assert pending is False and block[0]["text"].startswith("Couldn't reach the National Park Service")
+
+
+def nps_notices_block(client, loaded):
+    from backcountry.notices import assemble
+
+    return assemble([], client.park_of(loaded), [])
+
+
+def test_default_fetch_does_not_follow_redirects(tmp_path):
+    """A redirect off developer.nps.gov would carry the key to another host: 3xx is a failure, not a follow."""
+    import http.server
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith("/go"):
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/leak")
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"leaked": true}')
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(urllib.error.HTTPError):
+            nps.default_fetch(f"http://127.0.0.1:{srv.server_port}/go", {"X-Api-Key": "k"})
+    finally:
+        srv.shutdown()

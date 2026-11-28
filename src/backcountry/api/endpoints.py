@@ -317,7 +317,8 @@ def region_notices(region_id: str, request: Request):
     block, pending = assemble([], park, [])
     data = park.get("data") or {}
     return {"configured": park["configured"], "park": {"code": park["code"], "name": nps.park_name(park["code"])} if park["code"] else None,
-            "pending": pending, "stale": bool(data.get("stale")), "error": data.get("error"), "checked_at": data.get("fetched_at"),
+            "pending": pending, "stale": bool(data.get("stale")) or bool(park.get("error")), "error": data.get("error") or park.get("error"),
+            "checked_at": data.get("fetched_at") or park.get("tried_at"),
             "notices": [n for n in block if n["kind"] != "unknown"]}
 
 

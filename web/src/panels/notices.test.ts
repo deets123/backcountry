@@ -79,3 +79,25 @@ describe("refreshNotices", () => {
     expect(puts).toHaveLength(0);
   });
 });
+
+describe("review fixes", () => {
+  it("shows no park line for an area without a park, even when the server sends the no-feed info line", () => {
+    const p: ParkNotices = { configured: true, park: null, pending: false, stale: false, error: null, checked_at: null,
+      notices: [n("info", "No official notice feed for this area.")] };
+    expect(parkLineHtml(p, false)).toBe("");
+  });
+  it("never stores a pending flag into a saved trip", async () => {
+    const unknown: Notice = { kind: "unknown", text: "Everything else: unknown", applies_to: null, matched: false, source: null, links: [] };
+    const puts: any[] = [];
+    const run = { run_id: "r1", region: "zion-x", request: { trailhead: "a", total: [5, 8] as [number, number], daily: null }, generated_at: "", start: { node: 1, how: "x", snap_m: 0 },
+      search: { loops_found: 0, lollipops_found: 0, stems_tried: 0, via_pairs_tried: 0, scored: 0, seconds: 0, widened: false, truncated: false, avoided_edges: 0, notes: [], must_visit_notes: [], notices_pending: true },
+      candidates: [{ index: 1, kind: "loop" as const, length_m: 1, gain_ft: null, loss_ft: null, road_m: 0, last_resort_m: 0, repeated_m: 0, penalty: 0, segments: [],
+        geometry: { type: "LineString" as const, coordinates: [] }, pieces: [], waypoints: [], plan: null, features: [], profile: null, title: "", description: "", notes: [], notices: [unknown] }],
+      data_sources: [], known_gaps: [], diff: null };
+    const rec = { id: "r1-1", run, index: 1 } as unknown as import("../offline/db").SavedTrip;
+    const out = await refreshNotices(run, 1, rec, { getRunNotices: async () => ({ notices: [unknown], pending: true, checked_at: null }), put: async (r) => { puts.push(r); } });
+    expect(out?.pending).toBe(true);
+    expect(out?.run.search.notices_pending).toBe(true);  // the live view may keep polling
+    expect(puts[0].run.search.notices_pending).toBe(false);  // the offline copy never says "Checking…"
+  });
+});

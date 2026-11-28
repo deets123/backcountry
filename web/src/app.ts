@@ -84,8 +84,12 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       let p;
       try { p = await getRegionNotices(region); } catch { return; }
       if (ask !== noticesAsk || store.get().region !== region) return;
+      if (p.pending && Date.now() - started > NOTICES_GIVE_UP_MS) {  // nothing is checking any more: don't say so
+        store.set({ parkNotices: { ...p, pending: false } });
+        return;
+      }
       store.set({ parkNotices: p });
-      if (!p.pending || Date.now() - started > NOTICES_GIVE_UP_MS) return;
+      if (!p.pending) return;
       await new Promise((r) => setTimeout(r, NOTICES_POLL_MS));
     }
   }
@@ -105,9 +109,11 @@ export function startApp(doc: Document, mapEl: HTMLElement, panel: HTMLElement, 
       let out;
       try { out = await refreshNotices(cur.run!, n, rec, { getRunNotices, put: putTrip }); } catch { return; }
       if (!out || ask !== noticesRefreshAsk || store.get().run?.run_id !== runId) return;
-      store.set((x) => ({ run: out!.run, noticesNew: out!.noticesNew.length ? out!.noticesNew : x.noticesNew }));
+      const gaveUp = out.pending && Date.now() - started > NOTICES_GIVE_UP_MS;
+      const shown = gaveUp ? { ...out.run, search: { ...out.run.search, notices_pending: false } } : out.run;  // not checking any more
+      store.set((x) => ({ run: shown, noticesNew: out!.noticesNew.length ? out!.noticesNew : x.noticesNew }));
       if (rec) await refreshSaved();
-      if (!out.pending || Date.now() - started > NOTICES_GIVE_UP_MS) return;
+      if (!out.pending || gaveUp) return;
       await new Promise((r) => setTimeout(r, NOTICES_POLL_MS));
     }
   }

@@ -183,13 +183,15 @@ park-wide permit notices, entrance fee, rules, cautions, info, then the fixed la
   its records at trailheads, where it would attach the Angels Landing record to every Grotto trip). Route items are
   the trails on the route, the start and finish trailheads, the destination, and the camps' sites. Trailhead names
   from the data are split on " | " and " @ " into their parts. A notice matches an item when its title or text
-  and the item's name share a run of two or more consecutive whole words, case-insensitively, with at least one
-  word outside a short generic list (trail, trailhead, trailheads, road, loop, lot, parking, mountain, peak,
-  lake, creek, north, south, east, west, upper, lower, the, to, and, of). So "Road to Lava Point and West Rim
-  Trailhead closed" matches the start "West Rim Trailhead North" on "West Rim Trailhead"; "Ticket Required to Hike
-  Old Rag" matches the destination "Old Rag Mountain" on "Old Rag"; "Watchman Trail closed" matches "Watchman
-  Trail"; the Zion "Angels Landing" record does not match a West Rim day hike, whose items never say Angels Landing.
-  A matched notice is shown first with its attachment ("Attached to: start, West Rim Trailhead North.").
+  and the item's name share a run of two or more consecutive whole words, case-insensitively, that carries every
+  word of the item's name outside a short generic list (trail, trailhead, trailheads, road, loop, lot, parking,
+  mountain, peak, lake, creek, the, to, and, of). Direction words stay significant (amended after the review: with
+  them generic, "South Kaibab Trail closed" attached to the North Kaibab Trail and "East Rim Trail closed" to the
+  West Rim Trail). So "Road to Lava Point and West Rim Trailhead closed" matches the start's part "West Rim Trail" on
+  "West Rim"; "Ticket Required to Hike Old Rag" matches the destination "Old Rag Mountain" on "Old Rag"; "Watchman
+  Trail closed" matches "Watchman Trail"; the Zion "Angels Landing" record does not match a West Rim day hike, whose
+  items never say Angels Landing. Hike records match on their title only (their tags name neighbours too). A matched
+  notice is shown first with its attachment ("Attached to: trail: West Rim Trail.").
 - **Things to do** records are matched by the same rule on their title and tags. A matched record yields:
   `ticket` or `permit` when `isReservationRequired` is true (the `reservationDescription` text; "ticket" when the
   text says ticket, else "permit"); `fee` when `doFeesApply` is true and the fee text says more than the entrance
@@ -260,8 +262,13 @@ Before you go
   `innerHTML` with source text anywhere.
 - Rate: at most one fetch per park per TTL window, so a server serving many parks stays far under 1,000 an hour;
   concurrent opens of the same park share one fetch (the per-key build lock pattern already used for areas).
-- Disk: the NPS cache is small (tens of KB per park); it is not counted against the area budget but is pruned with
-  an area's eviction.
+- Disk: the NPS cache is small (tens of KB per park); it is not counted against the area budget and is not pruned
+  with an area's eviction (parks are shared by every area inside them; a stale file is simply refreshed when next
+  used).
+- When the National Park Service can't be reached at all (the parks list fails: a bad key, a rate limit), the block
+  says so with the time of the last try ("Couldn't reach the National Park Service; last tried hh:mm. Park notices:
+  unknown.") rather than staying pending; the next try comes a minute later. A failed refresh of one park's data
+  shows its cached notices with "Couldn't refresh park notices; last checked hh:mm." and is not retried for a minute.
 
 ### Acceptance checks (real data, this laptop)
 

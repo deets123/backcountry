@@ -60,7 +60,7 @@ export function chipsHtml(notices: Notice[] | undefined): string {
 export function parkLineHtml(p: ParkNotices | null, open: boolean): string {
   if (!p || !p.configured) return "";
   if (p.pending) return `<p class="status" id="park-notices-line">Checking park notices…</p>`;
-  if (!p.park && !p.notices.length) return "";
+  if (!p.park) return "";  // no unit for this area (the trip's block says so), or the service couldn't be reached
   const closures = p.notices.filter((n) => n.kind === "closure").length;
   const others = p.notices.length - closures;
   const when = hhmm(p.checked_at);
@@ -86,6 +86,7 @@ export async function refreshNotices(run: Run, n: number, rec: SavedTrip | null,
     candidates: run.candidates.map((c, i) => (i === n - 1 ? { ...c, notices: r.notices } : c)) };
   const savedKeys = new Set((rec?.run.candidates[n - 1]?.notices ?? []).map(noticeKey));
   const noticesNew = rec ? r.notices.filter((x) => x.kind !== "unknown" && !savedKeys.has(noticeKey(x))).map(noticeKey) : [];
-  if (rec && deps.put) await deps.put({ ...rec, run: updated });
+  // the offline copy never says "Checking…": only a live view polls
+  if (rec && deps.put) await deps.put({ ...rec, run: { ...updated, search: { ...updated.search, notices_pending: false } } });
   return { run: updated, noticesNew, pending: r.pending };
 }

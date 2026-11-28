@@ -34,11 +34,20 @@ PIECES = {"alerts": ALERTS_TTL_S, "things": THINGS_TTL_S, "park": THINGS_TTL_S}
 log = logging.getLogger("backcountry.nps")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect would carry the key to wherever it points: a 3xx is a failure, never followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def default_fetch(url: str, headers: dict) -> bytes:
-    """GET `url` with `headers`; at most MAX_BYTES, else ValueError. Network errors come through as they are."""
+    """GET `url` with `headers`; at most MAX_BYTES, else ValueError. Network errors come through as they are; redirects
+    are not followed."""
     request = urllib.request.Request(url, headers={**headers, "User-Agent": USER_AGENT})
     context = ssl.create_default_context(cafile=certifi.where())
-    with urllib.request.urlopen(request, timeout=TIMEOUT_S, context=context) as response:
+    opener = urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=context))
+    with opener.open(request, timeout=TIMEOUT_S) as response:
         data = response.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise ValueError("response too big")
@@ -71,6 +80,8 @@ class NpsClient:
         self._parks_fetch = threading.Lock()
         self._busy: set[str] = set()
         self._parks_failed_at = float("-inf")
+        self._parks_error: str | None = None
+        self._failed: dict[str, tuple[float, str]] = {}  # park code -> (when, why) of the last failed refresh, until one succeeds
 
     @property
     def configured(self) -> bool:
@@ -164,14 +175,19 @@ class NpsClient:
                 "stale": stale or any(d is None for d in docs.values()), "error": error}
 
     def cached(self, code: str) -> dict | None:
-        """The park's cache as it is, or None when nothing is cached."""
+        """The park's cache as it is, or None when nothing is cached; after a failed refresh it says so (stale, error)."""
         code = self._check(code)
         docs = {name: self._read(self._path(code, name)) for name in PIECES}
-        return self._assemble(code, docs, False, None)
+        failed = self._failed.get(code)
+        return self._assemble(code, docs, failed is not None, failed[1] if failed else None)
 
     def due(self, code: str) -> bool:
-        """A refresh would fetch something: a piece is missing or past its TTL (always False when not configured)."""
+        """A refresh would fetch something: a piece is missing or past its TTL, and the last attempt didn't fail within
+        PARKS_RETRY_S (always False when not configured)."""
         code = self._check(code)
+        failed = self._failed.get(code)
+        if failed is not None and self.clock() - failed[0] <= PARKS_RETRY_S:
+            return False
         return self.configured and any(self._age(self._read(self._path(code, name))) > ttl for name, ttl in PIECES.items())
 
     def refresh(self, code: str) -> dict | None:
@@ -192,6 +208,10 @@ class NpsClient:
                 stale = True
                 errors.append(f"{name}: {self._safe(e)}")
                 log.warning("park %s: %s could not be refreshed (%s)", code, name, self._safe(e))
+        if errors:
+            self._failed[code] = (self.clock(), "; ".join(errors))
+        else:
+            self._failed.pop(code, None)
         return self._assemble(code, docs, stale, "; ".join(errors) or None)
 
     def kick(self, code: str) -> None:
@@ -247,7 +267,8 @@ class NpsClient:
                 units = [{k: p.get(k) for k in self.PARK_FIELDS} for p in self._pages("parks", {})]
                 return self._write(path, units)["data"]
             except Exception as e:  # noqa: BLE001
-                log.warning("the parks list could not be refreshed (%s)", self._safe(e))
+                self._parks_error = self._safe(e)
+                log.warning("the parks list could not be refreshed (%s)", self._parks_error)
                 return doc["data"] if doc else []
 
     def park_name(self, code: str) -> str | None:
@@ -299,6 +320,10 @@ class NpsClient:
                     self.attach(loaded)  # the list never arrived (or failed a while ago): try again, in the background
                     if loaded.park_mapped:  # inline mode mapped it just now
                         return self.park_of(loaded)
+                if self._parks_error is not None and self.clock() - self._parks_failed_at <= PARKS_RETRY_S:
+                    # the service refused or failed a moment ago: not pending, say so (notices.assemble quotes it)
+                    return {"code": None, "configured": True, "data": None, "pending": False, "error": self._parks_error,
+                            "tried_at": _iso(self._parks_failed_at)}
                 return {"code": None, "configured": True, "data": None, "pending": True}
             else:
                 loaded.park_code, loaded.park_mapped = None, True
