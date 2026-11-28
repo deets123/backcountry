@@ -165,7 +165,7 @@ def fact_sheet(run: dict, n: int, trails: list[str], starts: list[dict]) -> str:
         src = n.get("source") or {}
         date = src.get("as_of") or (src.get("checked_at") or "")[:10]
         tail = f" [{src['name']}{', ' + date if date else ''}]" if src.get("name") else ""
-        lines.append(f"Notice ({n['kind']}): {n['text']}{tail}")
+        lines.append(f"Notice ({n['kind']}, {n.get('applies_to') or 'park'}): {n['text']}{tail}")
     feats = [f"- mile {f['dist_m'] / M_PER_MI:.2f}, day {f.get('day') or '-'}: {_title(f['kind'], f.get('name'))}, "
              f"{ft(f['off_m'] * FT_PER_M)} off the route ({_status(f['kind'])})" for f in c["features"]]
     lines.append("Campsites and water along the route (map features only):" if feats else "Campsites and water along the route: none listed.")

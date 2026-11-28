@@ -121,7 +121,7 @@ def test_facts_list_notices_with_their_source_and_date(run):
                  source="National Park Service", as_of="2026-09-29", checked_at="2026-11-26T10:04:00Z"),
         N.notice("unknown", N.UNKNOWN_LINE)]
     text = fact_sheet(r, 1, [], [])
-    assert "Notice (permit): Permit to hike Angels Landing Trail, 0.4 mi of this trip. [OpenStreetMap, 2026-10-26]" in text
-    assert "Notice (closure): Watchman Trail closed: The Watchman Trail is closed pending repairs. [National Park Service, 2026-09-29]" in text
+    assert "Notice (permit, trail: Angels Landing Trail): Permit to hike Angels Landing Trail, 0.4 mi of this trip. [OpenStreetMap, 2026-10-26]" in text
+    assert "Notice (closure, park): Watchman Trail closed: The Watchman Trail is closed pending repairs. [National Park Service, 2026-09-29]" in text
     assert "Notice (unknown)" not in text
     assert fact_sheet(run, 1, [], [])  # a run without notices still works
